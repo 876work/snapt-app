@@ -309,6 +309,11 @@ export function deliverApi(id: string) {
   return authedPost<{ delivered: boolean }>(`/v1/bookings/${id}/deliver`);
 }
 
+/** Email meeting details to the client's emergency contacts (Resend; no SMS). */
+export function authedShareSession(id: string) {
+  return authedPost<{ shared: boolean; recipients: number }>(`/v1/bookings/${id}/share-session`);
+}
+
 /** Presign, PUT the file bytes, and register the media row. */
 export async function uploadMediaApi(
   bookingId: string,
@@ -345,6 +350,7 @@ export async function uploadMediaApi(
  */
 export async function createBookingApi(
   draft: BookingDraft,
+  addons?: { rush?: boolean; extraPhotos?: boolean; extraRevisions?: number },
 ): Promise<{ booking: Booking } | { error: string } | null> {
   if (!apiUrl) return null;
   try {
@@ -369,6 +375,12 @@ export async function createBookingApi(
         // A tapped creator (server uuid, from /v1/creators/eligible) is the
         // one actually booked; null → "Match me automatically" server-side.
         creator_id: isServerCreatorId(draft.creatorId) ? draft.creatorId : undefined,
+        // Server prices add-ons from in_person_addons config (§8).
+        addons: {
+          rush: addons?.rush ?? false,
+          extra_photos: addons?.extraPhotos ?? false,
+          extra_revisions: addons?.extraRevisions ?? 0,
+        },
       }),
     });
     const json = (await res.json()) as { booking?: ServerBooking; error?: string };
@@ -389,9 +401,10 @@ export async function createBookingApi(
         scheduledAt: b.scheduled_at ?? new Date().toISOString(),
         durationHours: b.duration_hours ?? draft.durationHours ?? 1,
         mediaKind: b.media_kind,
-        // App-side priceUsd is the session price EXCLUDING the 8% client fee
-        // (screens add the fee for display); server price_usd is the total.
-        priceUsd: b.pricing_snapshot?.session_price_usd ?? b.price_usd,
+        // App-side priceUsd is the pre-fee amount (session + add-ons);
+        // screens add the 8% for display. Server price_usd is the total.
+        priceUsd:
+          b.pricing_snapshot?.subtotal_usd ?? b.pricing_snapshot?.session_price_usd ?? b.price_usd,
         // Real status: 'pending' until the creator accepts the offer window.
         status: mapServerStatus(b.status),
         rescheduleCount: b.reschedule_count,

@@ -1,7 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
-import { configNumber, getConfig, packagePriceUsd, remoteAddonPrices, remotePriceUsd } from '../config.js';
+import {
+  configNumber,
+  getConfig,
+  inPersonAddonPrices,
+  packagePriceUsd,
+  remoteAddonPrices,
+  remotePriceUsd,
+} from '../config.js';
 import { recordBookingCharge } from '../payments.js';
 import { stripeConfigured } from '../env.js';
 import { expireStaleOffer, offerWindowMs, reassignBooking } from '../offers.js';
@@ -21,8 +28,8 @@ interface CreateBookingBody {
   duration_hours?: number;
   /** Remote-edit orders: tier key in remote_pricing_table (e.g. photos_6_10, standard, large). */
   remote_tier?: string;
-  /** Remote add-ons: flat rush fee; extra revision rounds beyond the free one. */
-  addons?: { rush?: boolean; extra_revisions?: number };
+  /** Add-ons (remote: rush/extra_revisions; in-person adds extra_photos). */
+  addons?: { rush?: boolean; extra_photos?: boolean; extra_revisions?: number };
   area?: string;
   meeting_point?: string;
   date?: string; // YYYY-MM-DD
@@ -85,17 +92,6 @@ export function registerBookingRoutes(app: FastifyInstance) {
           .send({ error: `No ${mediaKind} remote package for tier ${body.remote_tier}` });
       }
       sessionPrice = price;
-
-      // Add-ons priced from config (remote_addons), never client-trusted.
-      const extraRevisions = Number(body.addons?.extra_revisions ?? 0);
-      if (!Number.isInteger(extraRevisions) || extraRevisions < 0 || extraRevisions > 5) {
-        return reply.code(400).send({ error: 'extra_revisions must be a whole number (0–5)' });
-      }
-      const addonPrices = await remoteAddonPrices();
-      const rushUsd = body.addons?.rush ? addonPrices.rush : 0;
-      const revisionsUsd = extraRevisions * addonPrices.extra_revision;
-      addonsUsd = rushUsd + revisionsUsd;
-      addonsDetail = { rush_usd: rushUsd, extra_revisions: extraRevisions, extra_revisions_usd: revisionsUsd };
     } else {
       durationHours = Number(body.duration_hours);
       const price = await packagePriceUsd(mediaKind, durationHours);
@@ -106,6 +102,35 @@ export function registerBookingRoutes(app: FastifyInstance) {
       }
       sessionPrice = price;
     }
+
+    // Add-ons priced from config (remote_addons / in_person_addons), never
+    // client-trusted. extra_revision is intentionally the SAME rate in both
+    // tables (locked, not coincidence — Don, 2026-07-28).
+    const extraRevisions = Number(body.addons?.extra_revisions ?? 0);
+    if (!Number.isInteger(extraRevisions) || extraRevisions < 0 || extraRevisions > 5) {
+      return reply.code(400).send({ error: 'extra_revisions must be a whole number (0–5)' });
+    }
+    let rushUsd = 0;
+    let extraPhotosUsd = 0;
+    let revisionRate: number;
+    if (type === 'remote') {
+      const prices = await remoteAddonPrices();
+      rushUsd = body.addons?.rush ? prices.rush : 0;
+      revisionRate = prices.extra_revision;
+    } else {
+      const prices = await inPersonAddonPrices();
+      rushUsd = body.addons?.rush ? prices.rush : 0;
+      extraPhotosUsd = body.addons?.extra_photos ? prices.extra_photos : 0;
+      revisionRate = prices.extra_revision;
+    }
+    const revisionsUsd = extraRevisions * revisionRate;
+    addonsUsd = rushUsd + extraPhotosUsd + revisionsUsd;
+    addonsDetail = {
+      rush_usd: rushUsd,
+      extra_photos_usd: extraPhotosUsd,
+      extra_revisions: extraRevisions,
+      extra_revisions_usd: revisionsUsd,
+    };
 
     let scheduledAtIso: string | null = null;
     let assignedCreatorId: string | null = null;

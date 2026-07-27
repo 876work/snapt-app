@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
 import { createPayoutForBooking } from '../payments.js';
+import { sendEmail } from '../email.js';
 
 // Phase 3 session lifecycle: check-in → safety-code verification → active →
 // complete. Completion is THE payout trigger for a normal, non-disputed
@@ -100,6 +101,54 @@ export function registerSessionRoutes(app: FastifyInstance) {
       return { verified: true, session_active_at: now };
     },
   );
+
+  // "Share my session" (§11): emails the client's emergency contacts the
+  // meeting details via Resend. EMAIL-based by design — Snapt uses no SMS.
+  app.post<{ Params: { id: string } }>('/v1/bookings/:id/share-session', async (request, reply) => {
+    const user = requireUser(request);
+    const booking = await loadBooking(request.params.id, reply);
+    if (!booking) return;
+    if (user.id !== booking.client_id) return reply.code(403).send({ error: 'Not your booking' });
+
+    const { data: contacts } = await supabaseAdmin
+      .from('emergency_contacts')
+      .select('name, email')
+      .eq('user_id', user.id)
+      .not('email', 'is', null);
+    if (!contacts?.length) {
+      return reply
+        .code(409)
+        .send({ error: 'Add an emergency contact with an email address in Profile first' });
+    }
+
+    const { data: creatorProfile } = booking.creator_id
+      ? await supabaseAdmin.from('profiles').select('full_name').eq('id', booking.creator_id).maybeSingle()
+      : { data: null };
+    const { data: bookingRow } = await supabaseAdmin
+      .from('bookings')
+      .select('meeting_point, area, scheduled_at, duration_hours')
+      .eq('id', booking.id)
+      .single();
+
+    const when = bookingRow?.scheduled_at
+      ? new Date(bookingRow.scheduled_at).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })
+      : 'time TBC';
+    const html = `
+      <p>A Snapt session was shared with you as an emergency contact.</p>
+      <p><strong>Where:</strong> ${bookingRow?.meeting_point ?? ''} ${bookingRow?.area ?? ''}<br/>
+      <strong>When:</strong> ${when} (${bookingRow?.duration_hours ?? 1} hr window)<br/>
+      <strong>With:</strong> ${creatorProfile?.full_name ?? 'a Snapt creator'} (verified Snapt creator)</p>
+      <p>This is informational — no action needed.</p>`;
+
+    let sent = 0;
+    let simulated = false;
+    for (const c of contacts) {
+      const result = await sendEmail(c.email as string, 'Snapt session shared with you', html);
+      if (result.sent) sent += 1;
+      simulated = simulated || result.simulated;
+    }
+    return { shared: true, recipients: sent, simulated };
+  });
 
   // Session completion — the payout trigger. In-person: creator marks the
   // session complete after it ran; remote orders complete via /deliver.

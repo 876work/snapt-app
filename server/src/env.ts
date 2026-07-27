@@ -23,6 +23,11 @@ export const env = {
   // Stopgap guard for admin actions (creator approval) until the Admin
   // Portal exists (Phase 5). Unset = admin endpoints disabled.
   adminApiToken: process.env.ADMIN_API_TOKEN ?? null,
+
+  // Email via Resend (Snapt uses NO SMS anywhere). Optional until Phase 7;
+  // emails are simulated (logged) without a key.
+  resendApiKey: process.env.RESEND_API_KEY ?? null,
+  resendFrom: process.env.RESEND_FROM ?? 'Snapt <notifications@snapt.example>',
 };
 
 export const stripeConfigured = env.stripeSecretKey !== null;

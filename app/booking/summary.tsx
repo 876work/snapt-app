@@ -24,11 +24,13 @@ interface Addon {
   priceUsd: number;
 }
 
-// Add-on set mirrors the prototype's order summary; prices in USD.
+// CONFIRMED in-person add-ons (Don, 2026-07-28), mirrored in the
+// in_person_addons config row — the server charges from config, these only
+// render. extra revision matches the remote rate by design.
 const ADDONS: Addon[] = [
   { id: 'rush', title: 'Rush delivery', sub: 'Edited content within 48 hours', priceUsd: 25 },
   { id: 'extra-photos', title: 'Extra edited photos', sub: '+10 additional retouched shots', priceUsd: 18 },
-  { id: 'revision', title: 'Extra revision round', sub: '1 free round included', priceUsd: 15 },
+  { id: 'revision', title: 'Extra revision round', sub: '1 free round included; per additional round', priceUsd: 15 },
 ];
 
 export default function OrderSummary() {
@@ -76,9 +78,12 @@ export default function OrderSummary() {
 
   const book = async () => {
     if (apiConfigured) {
-      // Server computes price + fees and re-validates the slot (§8).
-      // Add-ons stay client-side until the add-on catalog moves to config.
-      const result = await createBookingApi(useBookings.getState().draft);
+      // Server computes price + fees + add-ons and re-validates the slot (§8).
+      const result = await createBookingApi(useBookings.getState().draft, {
+        rush: addons.includes('rush'),
+        extraPhotos: addons.includes('extra-photos'),
+        extraRevisions: addons.includes('revision') ? 1 : 0,
+      });
       if (result && 'booking' in result) {
         useBookings.getState().addServerBooking(result.booking);
         setPayOpen(false);

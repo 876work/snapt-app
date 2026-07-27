@@ -41,6 +41,25 @@ export async function packagePriceUsd(
   return table[mediaKind]?.[String(durationHours)];
 }
 
+/**
+ * CONFIRMED in-person add-on prices. extra_revision is locked to the same
+ * value as the remote table intentionally (Don, 2026-07-28).
+ */
+export async function inPersonAddonPrices(): Promise<{
+  rush: number;
+  extra_photos: number;
+  extra_revision: number;
+}> {
+  const config = await getConfig();
+  const table =
+    (config['in_person_addons'] as { rush?: number; extra_photos?: number; extra_revision?: number }) ?? {};
+  return {
+    rush: table.rush ?? 25,
+    extra_photos: table.extra_photos ?? 18,
+    extra_revision: table.extra_revision ?? 15,
+  };
+}
+
 /** CONFIRMED remote add-on prices: flat rush fee + per-round extra revision. */
 export async function remoteAddonPrices(): Promise<{ rush: number; extra_revision: number }> {
   const config = await getConfig();

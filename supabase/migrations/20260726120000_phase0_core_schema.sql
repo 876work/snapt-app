@@ -27,7 +27,8 @@ create type dispute_status as enum
   ('open', 'evidence_window', 'under_review', 'resolved', 'appealed', 'closed');
 create type safety_report_type as enum ('sos', 'safety_concern', 'end_session');
 create type safety_queue_status as enum ('new', 'acknowledged', 'escalated', 'resolved');
-create type notification_channel as enum ('push', 'in_app', 'sms');
+-- No SMS anywhere in Snapt — email goes out via Resend.
+create type notification_channel as enum ('push', 'in_app', 'email');
 create type notification_category as enum
   ('bookings', 'messages', 'promotions', 'safety', 'account');
 create type policy_doc_status as enum ('draft', 'published', 'archived');

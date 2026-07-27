@@ -278,7 +278,20 @@ export default function SessionDay() {
         {/* Share my session */}
         {stage === 'active' && !endedForSafety && (
           <Pressable
-            onPress={() => showToast('Session details sent to your emergency contacts by SMS.')}
+            onPress={async () => {
+              // Email-based (Resend) — Snapt uses no SMS. Server pulls the
+              // emergency contacts and sends the meeting details.
+              const api = await import('../../lib/api');
+              if (api.apiConfigured && bookingId) {
+                const { authedShareSession } = api;
+                const result = await authedShareSession(bookingId);
+                if (result && 'error' in result) {
+                  showToast(result.error);
+                  return;
+                }
+              }
+              showToast('Session details sent to your emergency contacts by email.');
+            }}
             style={styles.shareCard}
           >
             <View style={styles.shareIcon}>

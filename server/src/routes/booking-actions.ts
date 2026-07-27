@@ -75,8 +75,13 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
     if (!role) return reply.code(403).send({ error: 'Not your booking' });
 
     if (role === 'client') {
+      // Refund base includes add-ons (subtotal): they're charged with the
+      // session and refund at the same tier; only the service fee is the
+      // non-refundable line.
       const sessionPrice =
-        (booking.pricing_snapshot['session_price_usd'] as number) ?? booking.price_usd;
+        (booking.pricing_snapshot['subtotal_usd'] as number) ??
+        (booking.pricing_snapshot['session_price_usd'] as number) ??
+        booking.price_usd;
       const serviceFee =
         (booking.pricing_snapshot['client_service_fee_usd'] as number) ??
         Math.max(0, booking.price_usd - sessionPrice);

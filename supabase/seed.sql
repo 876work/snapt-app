@@ -45,7 +45,9 @@ insert into app_config (key, value, description, confirmed) values
       "both":  {"small": 85, "medium": 150, "large": 220}}',
     'CONFIRMED remote-edit pricing (Don, 2026-07-27): order price USD by service type × tier. 15 files is a HARD ceiling per order (no extra-files add-on — more files = second order)', true),
   ('remote_addons', '{"rush": 20, "extra_revision": 15}',
-    'CONFIRMED remote add-ons (Don, 2026-07-27): rush = flat $20 any type/tier; extra_revision = $15 per round beyond the 1 free', true);
+    'CONFIRMED remote add-ons (Don, 2026-07-27): rush = flat $20 any type/tier; extra_revision = $15 per round beyond the 1 free', true),
+  ('in_person_addons', '{"rush": 25, "extra_photos": 18, "extra_revision": 15}',
+    'CONFIRMED in-person add-ons (Don, 2026-07-28): rush delivery $25, extra edited photos $18, extra_revision $15 — LOCKED to the same value as remote_addons.extra_revision intentionally, not coincidence', true);
 
 -- Placeholder drafts for the 13 policy docs (slugs match lib/mock/legal.ts).
 -- Status stays 'draft': §14 requires explicit publish after attorney review.
