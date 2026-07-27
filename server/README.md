@@ -39,3 +39,17 @@ npm run dev               # http://127.0.0.1:4000
 Payout hold: 7 days, matching the dispute filing window exactly (confirmed
 2026-07-26) — a payout never becomes available while a dispute could still
 be filed, so no clawback path is needed.
+
+## Phase 5 named line items (do not lose between phases)
+
+1. **Scheduler/job runner** — two Phase 4 gaps depend on it:
+   - `payout_available` notification: release is lazy-on-read today, so
+     nobody is notified at the moment funds clear.
+   - Dispute evidence-deadline reminders (§10 requires automatic reminders
+     to both parties before the 72h window closes).
+2. **Dispute evidence-upload screen** — intake + RLS submission path exist;
+   the client/creator UI is Phase 5-adjacent design work.
+3. **notify.ts trigger table reconciliation** — the channel map is a
+   reconstruction; diff against `11_Notification_Trigger_Mapping.md` the
+   moment that document is actually delivered (not yet received as of
+   2026-07-28), especially its Section 7 internal/admin routing.
