@@ -3,5 +3,8 @@ import { useAuth } from '../lib/store';
 
 export default function Index() {
   const signedIn = useAuth((s) => s.signedIn);
+  const hydrated = useAuth((s) => s.hydrated);
+  // Wait for persisted-session restore before routing (instant in mock mode).
+  if (!hydrated) return null;
   return <Redirect href={signedIn ? '/(app)/home' : '/(auth)/welcome'} />;
 }

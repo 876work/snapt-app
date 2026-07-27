@@ -5,6 +5,7 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { SlideToConfirm } from '../../../components/ui/SlideToConfirm';
 import { LEGAL_DOCS } from '../../../lib/mock/legal';
 import { useAuth } from '../../../lib/store';
+import { signOutEverywhere } from '../../../lib/auth';
 import { colors, spacing } from '../../../lib/theme';
 
 const chevron = (
@@ -20,7 +21,6 @@ export default function Profile() {
     email,
     currency,
     setCurrency,
-    signOut,
     mode,
     setMode,
     creatorStatus,
@@ -219,7 +219,7 @@ export default function Profile() {
 
         <Pressable
           onPress={() => {
-            signOut();
+            signOutEverywhere();
             router.replace('/(auth)/welcome');
           }}
         >
@@ -253,7 +253,9 @@ export default function Profile() {
                 danger
                 onConfirm={() => {
                   setDeleteOpen(false);
-                  signOut();
+                  // Phase 0: signs out only. Real account deletion is a
+                  // server-side job (auth user + cascade) — Phase 3.
+                  signOutEverywhere();
                   router.replace('/(auth)/welcome');
                 }}
               />

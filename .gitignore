@@ -31,7 +31,12 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
+server/.env
+
+# supabase local dev
+supabase/.temp
 
 # typescript
 *.tsbuildinfo
@@ -44,4 +49,5 @@ yarn-error.*
 /*.mp4
 /*.jpg
 /Snapt_Claude_Code_Handoff_Documentpdf
+/Snapt -  App - REAL/
 .claude/settings.local.json

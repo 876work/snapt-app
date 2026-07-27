@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/Button';
 import { TextField } from '../../components/ui/TextField';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { Divider } from '../../components/ui/Misc';
+import { signUpWithEmail } from '../../lib/auth';
 import { colors } from '../../lib/theme';
 
 export default function Signup() {
@@ -12,7 +13,22 @@ export default function Signup() {
   const [name, setName] = React.useState('');
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
-  const canContinue = name.trim().length > 0 && email.includes('@') && password.length >= 8;
+  const [error, setError] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const canContinue =
+    name.trim().length > 0 && email.includes('@') && password.length >= 8 && !busy;
+
+  const handleContinue = async () => {
+    setBusy(true);
+    setError(null);
+    const result = await signUpWithEmail(name.trim(), email.trim(), password);
+    setBusy(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    router.push({ pathname: '/(auth)/verify', params: { name, email } });
+  };
 
   return (
     <View style={styles.root}>
@@ -33,13 +49,12 @@ export default function Signup() {
           secureTextEntry
           placeholder="At least 8 characters"
         />
+        {error ? <Text style={styles.error}>{error}</Text> : null}
         <Button
-          title="Continue"
+          title={busy ? 'Creating account…' : 'Continue'}
           arrow
           disabled={!canContinue}
-          onPress={() =>
-            router.push({ pathname: '/(auth)/verify', params: { name, email } })
-          }
+          onPress={handleContinue}
         />
         <Divider label="or continue with" />
         <View style={styles.oauthRow}>
@@ -73,4 +88,5 @@ const styles = StyleSheet.create({
   },
   oauthLabel: { fontSize: 13, fontWeight: '700', color: colors.ink },
   legal: { fontSize: 11.5, color: colors.greyLight, textAlign: 'center', lineHeight: 16 },
+  error: { fontSize: 13, color: colors.error, fontWeight: '600' },
 });

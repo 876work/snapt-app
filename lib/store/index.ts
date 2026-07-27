@@ -15,6 +15,8 @@ export type CreatorStatus = 'none' | 'review' | 'approved';
 
 interface AuthState {
   signedIn: boolean;
+  /** True once persisted-session restore has settled (immediately in mock mode). */
+  hydrated: boolean;
   name: string;
   email: string;
   phone: string;
@@ -23,6 +25,7 @@ interface AuthState {
   creatorStatus: CreatorStatus;
   signIn: (name: string, email: string) => void;
   signOut: () => void;
+  setHydrated: () => void;
   setCurrency: (c: Currency) => void;
   setMode: (m: AppMode) => void;
   setCreatorStatus: (s: CreatorStatus) => void;
@@ -31,6 +34,7 @@ interface AuthState {
 
 export const useAuth = create<AuthState>((set) => ({
   signedIn: false,
+  hydrated: false,
   name: '',
   email: '',
   phone: '',
@@ -39,6 +43,7 @@ export const useAuth = create<AuthState>((set) => ({
   creatorStatus: 'none',
   signIn: (name, email) => set({ signedIn: true, name, email }),
   signOut: () => set({ signedIn: false, name: '', email: '', mode: 'client', creatorStatus: 'none' }),
+  setHydrated: () => set({ hydrated: true }),
   setCurrency: (currency) => set({ currency }),
   setMode: (mode) => set({ mode }),
   setCreatorStatus: (creatorStatus) => set({ creatorStatus }),
