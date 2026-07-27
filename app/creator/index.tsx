@@ -40,16 +40,33 @@ export default function CreatorHome() {
         loc: b.area ?? 'Remote edit',
         distanceKm: 0,
         urgent: b.status === 'pending',
-        countdown:
-          b.status === 'pending' && b.offer_expires_at
-            ? `${Math.max(0, Math.round((Date.parse(b.offer_expires_at) - Date.now()) / 60_000))} min`
-            : undefined,
+        expiresAt: b.status === 'pending' ? b.offer_expires_at ?? undefined : undefined,
         type: b.type === 'in_person' ? 'in-person' : 'remote',
       }));
       setOffers(jobs);
       for (const b of mine) setStage(b.id, b.status === 'pending' ? 'offer' : 'accepted');
     });
   }, []);
+
+  // Live tick for offer countdowns; expired offers drop off the list (the
+  // server reassigns them on its own via the lazy sweep).
+  const [now, setNow] = React.useState(Date.now());
+  const hasLiveOffers = offers.some((o) => o.expiresAt);
+  React.useEffect(() => {
+    if (!hasLiveOffers) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [hasLiveOffers]);
+
+  const ticking = (iso: string) => {
+    const ms = Math.max(0, Date.parse(iso) - now);
+    const m = Math.floor(ms / 60_000);
+    const s = Math.floor((ms % 60_000) / 1000);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+
+  // Expired offers disappear as the clock hits zero.
+  const liveOffers = openOffers.filter((o) => !o.expiresAt || Date.parse(o.expiresAt) > now);
 
   const decline = async (id: string) => {
     if (apiConfigured) {
@@ -118,9 +135,9 @@ export default function CreatorHome() {
         </View>
 
         {available ? (
-          openOffers.length > 0 ? (
+          liveOffers.length > 0 ? (
             <View style={{ gap: 12 }}>
-              {openOffers.map((j) => (
+              {liveOffers.map((j) => (
                 <View key={j.id} style={[styles.jobCard, j.urgent && styles.jobCardUrgent]}>
                   <View style={styles.jobTopRow}>
                     <View style={[styles.jobBadge, j.type === 'remote' && { backgroundColor: '#EAFBFD' }]}>
@@ -134,7 +151,9 @@ export default function CreatorHome() {
                           <Circle cx="12" cy="13" r="8" stroke="#C0392B" strokeWidth={2} />
                           <Path d="M12 9v4l2.5 2M9 2.5h6" stroke="#C0392B" strokeWidth={2} strokeLinecap="round" />
                         </Svg>
-                        <Text style={styles.countdownLabel}>Expires in {j.countdown}</Text>
+                        <Text style={styles.countdownLabel}>
+                          Expires in {j.expiresAt ? ticking(j.expiresAt) : j.countdown}
+                        </Text>
                       </View>
                     )}
                   </View>

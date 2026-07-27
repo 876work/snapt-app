@@ -42,6 +42,51 @@ export default function Delivery() {
   }, [id]);
   const deliverables = real ?? DELIVERABLES;
 
+  // Save-to-device: download the signed file, then save to the photo
+  // library (permission prompted on first use). Real files only — the mock
+  // grid's bundled assets have nothing to save.
+  const [savedNames, setSavedNames] = React.useState<Set<string>>(new Set());
+  const [saveNote, setSaveNote] = React.useState<string | null>(null);
+
+  const saveFile = async (d: (typeof DELIVERABLES)[number]): Promise<boolean> => {
+    const uri = (d.thumb as unknown as { uri?: string }).uri;
+    if (!uri) {
+      setSaveNote('Demo files — downloads work on real deliveries.');
+      return false;
+    }
+    try {
+      const FS = (await import('expo-file-system')) as Record<string, any>;
+      let localUri: string;
+      if (FS.File && FS.Paths) {
+        // SDK 54+ File API
+        const file = await FS.File.downloadFileAsync(uri, new FS.Directory(FS.Paths.cache));
+        localUri = file.uri;
+      } else {
+        const result = await FS.downloadAsync(uri, `${FS.cacheDirectory}${d.name}`);
+        localUri = result.uri;
+      }
+      const MediaLibrary = await import('expo-media-library');
+      const perm = await MediaLibrary.requestPermissionsAsync();
+      if (!perm.granted) {
+        setSaveNote('Allow photo access to save your files.');
+        return false;
+      }
+      await MediaLibrary.saveToLibraryAsync(localUri);
+      setSavedNames((prev) => new Set(prev).add(d.name));
+      return true;
+    } catch {
+      setSaveNote(`Couldn't save ${d.name} — try again.`);
+      return false;
+    }
+  };
+
+  const saveAll = async () => {
+    setSaveNote(null);
+    let ok = 0;
+    for (const d of deliverables) if (await saveFile(d)) ok += 1;
+    if (ok > 0) setSaveNote(`${ok} file${ok > 1 ? 's' : ''} saved to your library.`);
+  };
+
   return (
     <View style={styles.root}>
       <ScreenHeader title="Your content" />
@@ -73,12 +118,18 @@ export default function Delivery() {
                   </Text>
                   <Text style={styles.fileMeta}>{d.meta}</Text>
                 </View>
-                <View style={styles.dlBtn}>
-                  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-                    <Path d="M12 4v11m0 0l-4-4m4 4l4-4" stroke={colors.ink} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-                    <Path d="M5 19h14" stroke={colors.ink} strokeWidth={2} strokeLinecap="round" />
-                  </Svg>
-                </View>
+                <Pressable onPress={() => saveFile(d)} style={styles.dlBtn}>
+                  {savedNames.has(d.name) ? (
+                    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                      <Path d="M5 12.5l4.5 4.5L19 7" stroke="#159A57" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+                    </Svg>
+                  ) : (
+                    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                      <Path d="M12 4v11m0 0l-4-4m4 4l4-4" stroke={colors.ink} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                      <Path d="M5 19h14" stroke={colors.ink} strokeWidth={2} strokeLinecap="round" />
+                    </Svg>
+                  )}
+                </Pressable>
               </View>
             </View>
           ))}
@@ -86,7 +137,8 @@ export default function Delivery() {
         <View style={{ height: 24 }} />
       </ScrollView>
       <View style={styles.footer}>
-        <Pressable style={styles.cta}>
+        {saveNote ? <Text style={styles.saveNote}>{saveNote}</Text> : null}
+        <Pressable onPress={saveAll} style={styles.cta}>
           <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
             <Path d="M12 4v11m0 0l-4-4m4 4l4-4" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
             <Path d="M5 19h14" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" />
@@ -177,4 +229,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   rateLabel: { fontSize: 15, fontWeight: '700', color: colors.ink },
+  saveNote: { fontSize: 12.5, color: colors.grey, fontWeight: '600', textAlign: 'center' },
 });

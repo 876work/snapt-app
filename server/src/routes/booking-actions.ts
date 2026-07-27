@@ -83,11 +83,10 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
 
       let quote;
       if (booking.type === 'remote') {
-        // Remote-edit orders (01_Cancellation_and_Refund_Policy §6, confirmed
-        // 2026-07-27): cancellable only before an editor has been assigned
-        // and begun work — once editing starts, the path is revisions, not
-        // cancellation. Editing state isn't modeled yet (Phase 3 delivery
-        // pipeline); an assigned editor is the proxy for "work begun".
+        // Remote-edit orders (01_Cancellation_and_Refund_Policy §6):
+        // cancellable only before an editor has been assigned and begun
+        // work — after that, revisions, not cancellation. Assigned editor
+        // proxies "work begun" until editing state is modeled.
         if (booking.creator_id != null) {
           return reply.code(409).send({
             error:
@@ -95,12 +94,25 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
             action: 'use_revisions',
           });
         }
+        // No editor ever took it: full refund including the service fee
+        // (never-accepted rule, Don 2026-07-27).
         quote = {
           tier: 'pre_editing' as const,
           chargeRate: 0,
           chargeUsd: 0,
-          serviceFeeUsd: serviceFee,
-          refundUsd: sessionPrice,
+          serviceFeeUsd: 0,
+          refundUsd: booking.price_usd,
+        };
+      } else if (booking.status === 'pending') {
+        // Never accepted (still in the offer window): FULL refund including
+        // the service fee — nothing was fulfilled or held (Don, 2026-07-27).
+        // Accepted (confirmed) bookings keep the normal tier rules.
+        quote = {
+          tier: 'never_accepted' as const,
+          chargeRate: 0,
+          chargeUsd: 0,
+          serviceFeeUsd: 0,
+          refundUsd: booking.price_usd,
         };
       } else if (booking.scheduled_at) {
         quote = await cancelQuote(booking.scheduled_at, sessionPrice, serviceFee);

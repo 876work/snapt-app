@@ -43,19 +43,23 @@ export default function CancelConfirm() {
   // non-refundable at every tier (Don, 2026-07-27); the charge rate applies
   // to the session cost only.
   const remote = booking.type === 'remote';
+  // Never accepted (offer window still open / no editor): full refund
+  // including the service fee (Don, 2026-07-27). Confirmed bookings keep
+  // the tier rules with the fee non-refundable.
+  const neverAccepted = booking.status === 'pending' || remote;
   const tier = cancelTierForHoursUntil(hoursUntil(booking.scheduledAt));
   const info = CANCEL_TIERS[tier];
   const serviceFee = booking.priceUsd * CLIENT_SERVICE_FEE_RATE;
-  const charge = remote ? 0 : booking.priceUsd * info.chargeRate;
-  const refund = booking.priceUsd - charge;
+  const charge = neverAccepted ? 0 : booking.priceUsd * info.chargeRate;
+  const refund = neverAccepted ? booking.priceUsd + serviceFee : booking.priceUsd - charge;
 
   return (
     <View style={styles.root}>
       <ScreenHeader title={remote ? 'Cancel this order?' : 'Cancel this booking?'} />
       <ScrollView contentContainerStyle={styles.body}>
         <Card style={{ gap: 12 }}>
-          {remote ? (
-            <Row label="Policy" value="Free before editing begins" />
+          {neverAccepted ? (
+            <Row label="Policy" value={remote ? 'Free before editing begins' : 'No creator has accepted yet'} />
           ) : (
             <>
               <Row label="Cancellation window" value={
@@ -65,15 +69,20 @@ export default function CancelConfirm() {
               <Row label="Late charge" value={formatMoney(charge, currency)} />
             </>
           )}
-          <Row label="Service fee (non-refundable)" value={formatMoney(serviceFee, currency)} />
+          <Row
+            label={neverAccepted ? 'Service fee (refunded)' : 'Service fee (non-refundable)'}
+            value={formatMoney(serviceFee, currency)}
+          />
           <Row label="Refund to you" value={formatMoney(refund, currency)} strong />
         </Card>
         <View style={{ marginTop: 14 }}>
           <InfoBanner
-            tone={remote || tier === 'over48h' ? 'gold' : 'error'}
+            tone={neverAccepted || tier === 'over48h' ? 'gold' : 'error'}
             text={
-              remote
-                ? 'Orders can be cancelled free of charge until an editor begins work. After that, use your included revision instead. The service fee is non-refundable.'
+              neverAccepted
+                ? remote
+                  ? 'Orders cancel free of charge until an editor begins work — full refund, service fee included. After editing starts, use your included revision instead.'
+                  : 'No creator has accepted this booking yet, so cancelling refunds everything — session cost and service fee.'
                 : tier === 'over48h'
                   ? 'Session cost refunded in full. The service fee is non-refundable.'
                   : 'Cancelling this close to the session has a fee, and the service fee is non-refundable. Rescheduling may be cheaper if your plans changed.'

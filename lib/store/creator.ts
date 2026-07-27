@@ -11,6 +11,8 @@ export interface JobOffer {
   distanceKm: number;
   urgent?: boolean;
   countdown?: string;
+  /** ISO expiry of the live offer window (API mode) — drives a ticking countdown. */
+  expiresAt?: string;
   type: 'in-person' | 'remote';
 }
 

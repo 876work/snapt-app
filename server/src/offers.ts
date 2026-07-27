@@ -1,6 +1,12 @@
 import { supabaseAdmin } from './supabase.js';
 import { getConfig } from './config.js';
 import { dayAvailability, eligibleCreators } from './availability.js';
+import { refundClient } from './payments.js';
+
+// After this many failed assignments (decline or timeout) the booking
+// auto-cancels with a FULL refund (fee included — never accepted) and an
+// admin alert fires (Don, 2026-07-27).
+const MAX_ASSIGNMENT_FAILURES = 3;
 
 // Creator accept/decline window (Don, 2026-07-27). Assignment offers expire
 // after offer_window_minutes; decline or timeout reassigns to the next
@@ -29,11 +35,46 @@ export async function offerWindowMs(): Promise<number> {
 export async function reassignBooking(
   booking: OfferBooking,
   excludeCreatorId: string | null,
-): Promise<{ creator_id: string | null }> {
+): Promise<{ creator_id: string | null; cancelled?: boolean }> {
   const declined = [
     ...booking.declined_creator_ids,
     ...(excludeCreatorId ? [excludeCreatorId] : []),
   ];
+
+  if (declined.length >= MAX_ASSIGNMENT_FAILURES) {
+    // Three creators passed — stop bouncing the client around: cancel with
+    // a full refund (session + service fee; nothing was ever accepted) and
+    // alert admin with the pattern-relevant fields.
+    const { data: full } = await supabaseAdmin
+      .from('bookings')
+      .select('id, client_id, creator_id, price_usd, pricing_snapshot')
+      .eq('id', booking.id)
+      .single();
+    if (full) {
+      await refundClient(full, Number(full.price_usd), 'assignment_failed_auto_cancel');
+    }
+    await supabaseAdmin
+      .from('bookings')
+      .update({
+        status: 'cancelled',
+        cancelled_at: new Date().toISOString(),
+        creator_id: null,
+        declined_creator_ids: declined,
+        offer_expires_at: null,
+      })
+      .eq('id', booking.id);
+    await supabaseAdmin.from('admin_alerts').insert({
+      alert_type: 'assignment_failed',
+      booking_id: booking.id,
+      detail: {
+        area: booking.area,
+        occasion: booking.occasion,
+        scheduled_at: booking.scheduled_at,
+        failed_creator_ids: declined,
+      },
+    });
+    return { creator_id: null, cancelled: true };
+  }
   let nextCreator: string | null = null;
   if (booking.scheduled_at) {
     const date = booking.scheduled_at.slice(0, 10);
