@@ -5,6 +5,7 @@ import { ScreenHeader } from '../../../../components/ui/ScreenHeader';
 import { Button } from '../../../../components/ui/Button';
 import { InfoBanner } from '../../../../components/ui/Misc';
 import { useBookings } from '../../../../lib/store';
+import { apiConfigured, rescheduleBookingApi } from '../../../../lib/api';
 import {
   ADVANCE_BOOKING_WINDOW_DAYS,
   RESCHEDULE_FREE_COUNT,
@@ -20,8 +21,25 @@ export default function ReschedulePick() {
   const booking = bookings.find((b) => b.id === id);
   const [date, setDate] = React.useState<string | null>(null);
   const [time, setTime] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
   if (!booking) return null;
+
+  const confirmReschedule = async () => {
+    if (!date || !time) return;
+    if (apiConfigured) {
+      // Server enforces the fee tiers, the <6h cutoff, and re-checks that
+      // this creator is still free at the new time.
+      const result = await rescheduleBookingApi(booking.id, date, time);
+      if (result && 'error' in result) {
+        setError(result.error);
+        return;
+      }
+      // null = API unreachable; fall through to the mock path.
+    }
+    rescheduleBooking(booking.id, `${date}T${time}:00`);
+    router.dismissTo(`/bookings/${booking.id}`);
+  };
 
   // >1 free reschedule becomes cancel+rebook (§5)
   const usedFree = booking.rescheduleCount >= RESCHEDULE_FREE_COUNT;
@@ -74,16 +92,10 @@ export default function ReschedulePick() {
         <View style={{ height: 24 }} />
       </ScrollView>
       <View style={styles.footer}>
-        <Button
-          title="Confirm new time"
-          arrow
-          disabled={!date || !time}
-          onPress={() => {
-            rescheduleBooking(booking.id, `${date}T${time}:00`);
-            router.dismissTo(`/bookings/${booking.id}`);
-          }}
-          style={{ flex: 1 }}
-        />
+        <View style={{ flex: 1 }}>
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <Button title="Confirm new time" arrow disabled={!date || !time} onPress={confirmReschedule} />
+        </View>
       </View>
     </View>
   );
@@ -118,6 +130,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   timeLabel: { fontSize: 13, fontWeight: '700', color: colors.grey },
+  error: { fontSize: 12.5, color: colors.error, fontWeight: '600', marginBottom: 10 },
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,

@@ -143,7 +143,9 @@ export default function BookingDetail() {
                 onPress={() => {
                   if (hrs < RESCHEDULE_DISABLED_UNDER_HOURS) {
                     router.push(`/bookings/${booking.id}/reschedule-blocked`);
-                  } else if (tier === 'between24and48h') {
+                  } else if (tier !== 'over48h') {
+                    // Any paid window (24–48h, and the 6–24h band) shows the
+                    // fee warning before the picker.
                     router.push(`/bookings/${booking.id}/reschedule-warn`);
                   } else {
                     router.push(`/bookings/${booking.id}/reschedule`);

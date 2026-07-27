@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
 import { eligibleCreators } from '../availability.js';
+import { creatorStanding } from '../strikes.js';
 import { env } from '../env.js';
 
 const OCCASIONS = ['Events', 'Portraits', 'Social', 'Family', 'Wedding'];
@@ -135,6 +136,41 @@ export function registerCreatorRoutes(app: FastifyInstance) {
         .eq('user_id', request.params.userId);
       if (error) return reply.code(500).send({ error: error.message });
       return { status: 'approved' };
+    },
+  );
+
+  // §9: strikes are admin-visible only (plus the tier notification). Full
+  // per-creator history + overturn, stopgap until the Admin Portal (Phase 5).
+  app.get<{ Params: { userId: string } }>(
+    '/v1/admin/creators/:userId/strikes',
+    async (request, reply) => {
+      if (!env.adminApiToken) return reply.code(503).send({ error: 'Admin actions disabled' });
+      if (request.headers['x-admin-token'] !== env.adminApiToken) {
+        return reply.code(403).send({ error: 'Forbidden' });
+      }
+      const { data, error } = await supabaseAdmin
+        .from('strikes')
+        .select('*')
+        .eq('creator_id', request.params.userId)
+        .order('occurred_at', { ascending: false });
+      if (error) return reply.code(500).send({ error: error.message });
+      return { strikes: data, standing: await creatorStanding(request.params.userId) };
+    },
+  );
+
+  app.post<{ Params: { strikeId: string } }>(
+    '/v1/admin/strikes/:strikeId/overturn',
+    async (request, reply) => {
+      if (!env.adminApiToken) return reply.code(503).send({ error: 'Admin actions disabled' });
+      if (request.headers['x-admin-token'] !== env.adminApiToken) {
+        return reply.code(403).send({ error: 'Forbidden' });
+      }
+      const { error } = await supabaseAdmin
+        .from('strikes')
+        .update({ overturned: true })
+        .eq('id', request.params.strikeId);
+      if (error) return reply.code(500).send({ error: error.message });
+      return { overturned: true };
     },
   );
 }

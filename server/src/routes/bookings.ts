@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
 import { configNumber, getConfig, packagePriceUsd } from '../config.js';
+import { recordBookingCharge } from '../payments.js';
+import { stripeConfigured } from '../env.js';
 import {
   creatorSlotsForDay,
   dayAvailability,
@@ -141,6 +143,16 @@ export function registerBookingRoutes(app: FastifyInstance) {
       .select()
       .single();
     if (error) return reply.code(500).send({ error: error.message });
+
+    // Without Stripe keys (pre-Phase 7), the charge is simulated so the
+    // cancellation/refund/no-show ledger is exercisable end-to-end: ledger a
+    // succeeded charge and confirm immediately. With Stripe configured, the
+    // booking stays pending until the PaymentIntent webhook confirms it.
+    if (!stripeConfigured) {
+      await recordBookingCharge(booking);
+      await supabaseAdmin.from('bookings').update({ status: 'confirmed' }).eq('id', booking.id);
+      booking.status = 'confirmed';
+    }
     return reply.code(201).send({ booking });
   });
 

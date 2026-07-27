@@ -5,6 +5,7 @@ import { ScreenHeader } from '../../../../components/ui/ScreenHeader';
 import { SlideToConfirm } from '../../../../components/ui/SlideToConfirm';
 import { Card, InfoBanner } from '../../../../components/ui/Misc';
 import { useBookings } from '../../../../lib/store';
+import { apiConfigured, reportNoShowApi } from '../../../../lib/api';
 import { NO_SHOW_GRACE_MINUTES } from '../../../../lib/constants/business';
 import { colors, spacing } from '../../../../lib/theme';
 
@@ -43,7 +44,10 @@ export default function NoShowCreator() {
             <SlideToConfirm
               label="Slide to report no-show"
               danger
-              onConfirm={() => {
+              onConfirm={async () => {
+                // attempted_contact is required server-side before a
+                // creator-filed report is accepted (§8).
+                if (apiConfigured) await reportNoShowApi(booking.id, true);
                 reportNoShow(booking.id);
                 router.dismissTo('/bookings');
               }}

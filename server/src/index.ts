@@ -5,6 +5,7 @@ import { registerConfigRoutes } from './routes/config.js';
 import { registerPaymentRoutes } from './routes/payments.js';
 import { registerCreatorRoutes } from './routes/creators.js';
 import { registerBookingRoutes } from './routes/bookings.js';
+import { registerBookingActionRoutes } from './routes/booking-actions.js';
 
 const app = Fastify({ logger: true });
 
@@ -37,6 +38,7 @@ registerConfigRoutes(app);
 registerPaymentRoutes(app);
 registerCreatorRoutes(app);
 registerBookingRoutes(app);
+registerBookingActionRoutes(app);
 
 app.listen({ port: env.port, host: env.host }).catch((err) => {
   app.log.error(err);

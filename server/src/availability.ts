@@ -1,5 +1,6 @@
 import { supabaseAdmin } from './supabase.js';
 import { configNumber } from './config.js';
+import { matchingPenalties } from './strikes.js';
 
 // Slot-availability engine (handoff §3 Phase 1). Real bookable start times,
 // computed from:
@@ -70,10 +71,19 @@ export async function eligibleCreators(occasion: string, area?: string): Promise
       blocked_dates: (row.blocked_dates ?? []) as string[],
     };
   });
-  if (area) {
-    creators.sort((a, b) => Number(b.base_area === area) - Number(a.base_area === area));
-  }
-  return creators;
+  // Strike enforcement (§9): suspended/under-review creators are excluded
+  // from matching entirely; tier-2 creators are deprioritized (sorted last)
+  // for the active window.
+  const penalties = await matchingPenalties(creators.map((c) => c.user_id));
+  const enforced = creators.filter((c) => penalties.get(c.user_id) !== 'excluded');
+  enforced.sort((a, b) => {
+    const pa = penalties.get(a.user_id) === 'deprioritized' ? 1 : 0;
+    const pb = penalties.get(b.user_id) === 'deprioritized' ? 1 : 0;
+    if (pa !== pb) return pa - pb;
+    if (area) return Number(b.base_area === area) - Number(a.base_area === area);
+    return 0;
+  });
+  return enforced;
 }
 
 async function bookingIntervals(creatorIds: string[], fromIso: string, toIso: string): Promise<BookingInterval[]> {

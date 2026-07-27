@@ -18,6 +18,8 @@ insert into app_config (key, value, description, confirmed) values
   ('late_cancel_strike_weight', '2', 'Late (<24h) cancellation counts as 2 strikes', true),
   ('strike_tiers', '["warning", "deprioritization_2w", "suspension_1w", "admin_review"]',
     'Consequence at cumulative strike count 1..4+ within window', true),
+  ('strike_deprioritize_days', '14', 'Matching deprioritization duration at tier 2 (§5: 2 weeks)', true),
+  ('strike_suspension_days', '7', 'Suspension duration at tier 3 (§5: 1 week)', true),
   ('dispute_filing_window_days', '7', 'From session/delivery', true),
   ('payout_hold_days', '7', 'Creator payout hold after session/delivery; matches the dispute filing window exactly so no payout precedes a possible dispute (Don, 2026-07-26)', true),
   ('dispute_evidence_window_hours', '72', 'From notification', true),
@@ -70,6 +72,17 @@ values
   ('00000000-0000-4000-8000-000000000003', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'marcus@demo.snapt', crypt('password1234', gen_salt('bf')), now(), '{"provider": "email", "providers": ["email"]}', '{"full_name": "Marcus D."}', now(), now()),
   ('00000000-0000-4000-8000-000000000004', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'nia@demo.snapt', crypt('password1234', gen_salt('bf')), now(), '{"provider": "email", "providers": ["email"]}', '{"full_name": "Nia T."}', now(), now()),
   ('00000000-0000-4000-8000-000000000005', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'sam@demo.snapt', crypt('password1234', gen_salt('bf')), now(), '{"provider": "email", "providers": ["email"]}', '{"full_name": "Sam R."}', now(), now());
+
+-- GoTrue requires empty strings (not NULLs) in these token columns for
+-- manually inserted users, or password logins 500.
+update auth.users set
+  confirmation_token = '', recovery_token = '', email_change = '',
+  email_change_token_new = '', email_change_token_current = '',
+  phone_change = '', phone_change_token = '', reauthentication_token = ''
+  where id in (
+    '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000004',
+    '00000000-0000-4000-8000-000000000005');
 
 update profiles set mode = 'creator'
   where id in (

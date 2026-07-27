@@ -5,6 +5,7 @@ import { ScreenHeader } from '../../../../components/ui/ScreenHeader';
 import { SlideToConfirm } from '../../../../components/ui/SlideToConfirm';
 import { Card, InfoBanner } from '../../../../components/ui/Misc';
 import { hoursUntil, useAuth, useBookings } from '../../../../lib/store';
+import { apiConfigured, cancelBookingApi } from '../../../../lib/api';
 import {
   CANCEL_TIERS,
   cancelTierForHoursUntil,
@@ -19,8 +20,23 @@ export default function CancelConfirm() {
   const currency = useAuth((s) => s.currency);
   const { bookings, cancelBooking } = useBookings();
   const booking = bookings.find((b) => b.id === id);
+  const [error, setError] = React.useState<string | null>(null);
 
   if (!booking) return null;
+
+  const confirmCancel = async () => {
+    if (apiConfigured) {
+      // Authoritative fee computation happens server-side at time of action.
+      const result = await cancelBookingApi(booking.id);
+      if (result && 'error' in result) {
+        setError(result.error);
+        return;
+      }
+      // result null = API unreachable; fall through to the local mock path.
+    }
+    cancelBooking(booking.id);
+    router.replace(`/bookings/${booking.id}/cancel-done`);
+  };
 
   // Displayed tier is advisory — the authoritative fee computation must run
   // server-side at time of action (handoff §8).
@@ -52,15 +68,9 @@ export default function CancelConfirm() {
             }
           />
         </View>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
         <View style={{ marginTop: 26 }}>
-          <SlideToConfirm
-            label="Slide to cancel booking"
-            danger
-            onConfirm={() => {
-              cancelBooking(booking.id);
-              router.replace(`/bookings/${booking.id}/cancel-done`);
-            }}
-          />
+          <SlideToConfirm label="Slide to cancel booking" danger onConfirm={confirmCancel} />
         </View>
       </ScrollView>
     </View>
@@ -82,4 +92,5 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   rowLabel: { fontSize: 12.5, color: colors.grey, fontWeight: '600' },
   rowValue: { fontSize: 13.5, fontWeight: '800', color: colors.ink },
+  error: { fontSize: 13, color: colors.error, fontWeight: '600', marginTop: 14 },
 });

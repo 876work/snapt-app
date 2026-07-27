@@ -107,8 +107,63 @@ interface ServerBooking {
   duration_hours: number | null;
   media_kind: Booking['mediaKind'];
   price_usd: number;
+  pricing_snapshot?: { session_price_usd?: number };
   status: string;
   reschedule_count: number;
+}
+
+async function authedPost<T>(path: string, body?: unknown): Promise<T | { error: string } | null> {
+  if (!apiUrl) return null;
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (supabase) {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (token) headers.Authorization = `Bearer ${token}`;
+    }
+    const res = await fetch(`${apiUrl}${path}`, {
+      method: 'POST',
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const json = (await res.json()) as T & { error?: string };
+    if (!res.ok) return { error: json.error ?? 'Something went wrong — try again.' };
+    return json;
+  } catch {
+    return null;
+  }
+}
+
+// --- Phase 2 booking actions. The server computes all fees at time of
+// action (§8); these results are what the UI should display as final.
+
+export interface CancelResult {
+  cancelled_by: 'client' | 'creator';
+  tier?: string;
+  chargeUsd?: number;
+  refundUsd: number;
+}
+
+export function cancelBookingApi(id: string) {
+  return authedPost<CancelResult>(`/v1/bookings/${id}/cancel`);
+}
+
+export interface RescheduleResult {
+  rescheduled: boolean;
+  scheduled_at: string;
+  feeUsd: number;
+  free: boolean;
+  action?: string;
+}
+
+export function rescheduleBookingApi(id: string, date: string, time: string) {
+  return authedPost<RescheduleResult>(`/v1/bookings/${id}/reschedule`, { date, time });
+}
+
+export function reportNoShowApi(id: string, attemptedContact?: boolean) {
+  return authedPost<{ reported: string; refundUsd?: number }>(`/v1/bookings/${id}/no-show`, {
+    attempted_contact: attemptedContact,
+  });
 }
 
 /**
@@ -161,7 +216,9 @@ export async function createBookingApi(
         scheduledAt: b.scheduled_at ?? new Date().toISOString(),
         durationHours: b.duration_hours ?? draft.durationHours ?? 1,
         mediaKind: b.media_kind,
-        priceUsd: b.price_usd,
+        // App-side priceUsd is the session price EXCLUDING the 8% client fee
+        // (screens add the fee for display); server price_usd is the total.
+        priceUsd: b.pricing_snapshot?.session_price_usd ?? b.price_usd,
         status: 'confirmed',
         rescheduleCount: b.reschedule_count,
       },

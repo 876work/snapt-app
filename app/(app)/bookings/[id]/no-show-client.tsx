@@ -5,6 +5,7 @@ import { ScreenHeader } from '../../../../components/ui/ScreenHeader';
 import { SlideToConfirm } from '../../../../components/ui/SlideToConfirm';
 import { Card, InfoBanner } from '../../../../components/ui/Misc';
 import { useBookings } from '../../../../lib/store';
+import { apiConfigured, reportNoShowApi } from '../../../../lib/api';
 import { NO_SHOW_GRACE_MINUTES } from '../../../../lib/constants/business';
 import { colors, spacing } from '../../../../lib/theme';
 
@@ -60,7 +61,10 @@ export default function NoShowClient() {
               <SlideToConfirm
                 label="Slide to report no-show"
                 danger
-                onConfirm={() => {
+                onConfirm={async () => {
+                  // Server re-checks the grace period and issues the full
+                  // refund + creator strike (§8).
+                  if (apiConfigured) await reportNoShowApi(booking.id);
                   reportNoShow(booking.id);
                   router.replace(`/bookings/${booking.id}/no-show-client-done`);
                 }}
