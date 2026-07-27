@@ -1,25 +1,34 @@
 {
   "expo": {
-    "name": "_scaffold_tmp",
-    "slug": "_scaffold_tmp",
+    "name": "Snapt",
+    "slug": "snapt",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "scheme": "snapt",
+    "splash": {
+      "image": "./assets/design/snapt-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FAFAFA"
+    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#FFB800",
+        "foregroundImage": "./assets/icon.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      "expo-image"
+    ]
   }
 }

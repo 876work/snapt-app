@@ -39,3 +39,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# loose marketing/reference files at repo root (not app assets)
+/*.mp4
+/*.jpg
+/Snapt_Claude_Code_Handoff_Documentpdf
+.claude/settings.local.json
