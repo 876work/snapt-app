@@ -2,6 +2,7 @@ import { supabaseAdmin } from './supabase.js';
 import { getConfig } from './config.js';
 import { dayAvailability, eligibleCreators } from './availability.js';
 import { refundClient } from './payments.js';
+import { notify } from './notify.js';
 
 // After this many failed assignments (decline or timeout) the booking
 // auto-cancels with a FULL refund (fee included — never accepted) and an
@@ -52,6 +53,12 @@ export async function reassignBooking(
       .single();
     if (full) {
       await refundClient(full, Number(full.price_usd), 'assignment_failed_auto_cancel');
+      await notify(
+        full.client_id,
+        'assignment_failed_refunded',
+        'We couldn\'t match your booking',
+        'No creator was available for your slot, so we cancelled it and refunded you in full — session cost and service fee. Try another date or time.',
+      );
     }
     await supabaseAdmin
       .from('bookings')
@@ -101,6 +108,14 @@ export async function reassignBooking(
         : null,
     })
     .eq('id', booking.id);
+  if (nextCreator) {
+    await notify(
+      nextCreator,
+      'offer_received',
+      'New job offer',
+      `A ${booking.occasion ?? 'session'} booking near ${booking.area ?? 'you'} is waiting — accept within the offer window.`,
+    );
+  }
   return { creator_id: nextCreator };
 }
 

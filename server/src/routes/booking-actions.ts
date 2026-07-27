@@ -7,6 +7,7 @@ import { createPayoutForBooking, recordBookingCharge, recordFee, refundClient } 
 import { recordStrike } from '../strikes.js';
 import { dayAvailability } from '../availability.js';
 import { offerWindowMs } from '../offers.js';
+import { notify } from '../notify.js';
 
 // Phase 2 booking actions (handoff §8): cancellation, reschedule, no-show,
 // rematch. Every fee here is computed server-side at time of action from
@@ -138,6 +139,12 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
         .from('bookings')
         .update({ status: 'cancelled', cancelled_by: user.id, cancelled_at: new Date().toISOString() })
         .eq('id', booking.id);
+      await notify(
+        user.id,
+        'refund_processed',
+        'Cancellation confirmed',
+        `Your booking is cancelled. Refund on its way: $${quote.refundUsd.toFixed(2)} to your original payment method within 3–5 business days.`,
+      );
       return { cancelled_by: 'client', ...quote };
     }
 
@@ -149,6 +156,12 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
       .from('bookings')
       .update({ status: 'cancelled', cancelled_by: user.id, cancelled_at: new Date().toISOString() })
       .eq('id', booking.id);
+    await notify(
+      booking.client_id,
+      'booking_cancelled_by_creator',
+      'Your creator had to cancel',
+      'Full refund issued automatically. Want us to rematch you with another great creator for the same slot? Open the booking to choose.',
+    );
     return {
       cancelled_by: 'creator',
       refundUsd: booking.price_usd,
@@ -230,6 +243,12 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
           reschedule_count: booking.reschedule_count + 1,
         })
         .eq('id', booking.id);
+      await notify(
+        user.id,
+        'reschedule_confirmed',
+        'Booking rescheduled',
+        quote.free ? 'Your new time is locked in — no charge.' : `Your new time is locked in. A $${quote.feeUsd.toFixed(2)} reschedule charge applied.`,
+      );
       return { rescheduled: true, scheduled_at: scheduled.toISOString(), ...quote };
     },
   );
@@ -271,6 +290,7 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
           .from('bookings')
           .update({ status: 'no_show', no_show_reported_by: user.id })
           .eq('id', booking.id);
+        await notify(user.id, 'refund_processed', 'Full refund on its way', 'Sorry about the no-show. Your full refund is processing, and we can rematch you — open the booking to choose.');
         return {
           reported: 'creator_no_show',
           refundUsd: booking.price_usd,
@@ -308,6 +328,7 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
           no_show_attempted_contact: true,
         })
         .eq('id', booking.id);
+      await notify(booking.client_id, 'no_show_reported', 'No-show reported on your session', 'Your creator reported a no-show after the grace period. Per policy the booking is charged in full. Reply via Help & Support to dispute.');
       return { reported: 'client_no_show', client_refund: 0, creator_payout: 'standard' };
     },
   );

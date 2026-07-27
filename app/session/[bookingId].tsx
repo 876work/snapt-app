@@ -397,11 +397,15 @@ export default function SessionDay() {
             </Text>
             <View style={styles.safetyList}>
               <Pressable
-                onPress={() => {
+                onPress={async () => {
+                  // Frictionless by design (§11): end first, server call is
+                  // fire-and-forget — nothing gates this action.
                   setSafetyOpen(false);
                   setEndedForSafety(true);
                   setStage('wrapped');
                   showToast('Session ended. No fees applied to either side.');
+                  const api = await import('../../lib/api');
+                  if (api.apiConfigured && bookingId) api.endSessionSafetyApi(bookingId);
                 }}
                 style={[styles.safetyRow, styles.safetyRowBorder]}
               >
@@ -416,9 +420,11 @@ export default function SessionDay() {
                 </View>
               </Pressable>
               <Pressable
-                onPress={() => {
+                onPress={async () => {
                   setSafetyOpen(false);
                   showToast('Report sent. Our safety team is reviewing it now.');
+                  const api = await import('../../lib/api');
+                  if (api.apiConfigured && bookingId) api.reportSafetyApi(bookingId, 'safety_concern');
                 }}
                 style={[styles.safetyRow, styles.safetyRowBorder]}
               >

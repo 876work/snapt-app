@@ -12,6 +12,7 @@ import {
 import { recordBookingCharge } from '../payments.js';
 import { stripeConfigured } from '../env.js';
 import { expireStaleOffer, offerWindowMs, reassignBooking } from '../offers.js';
+import { notify } from '../notify.js';
 import {
   creatorSlotsForDay,
   dayAvailability,
@@ -226,6 +227,12 @@ export function registerBookingRoutes(app: FastifyInstance) {
         .update({ offer_expires_at: expires })
         .eq('id', booking.id);
       booking.offer_expires_at = expires;
+      await notify(
+        assignedCreatorId,
+        'offer_received',
+        'New job offer',
+        `A ${body.occasion ?? 'session'} booking near ${body.area ?? 'you'} is waiting — accept within the offer window.`,
+      );
     }
     return reply.code(201).send({ booking });
   });
@@ -256,6 +263,12 @@ export function registerBookingRoutes(app: FastifyInstance) {
       .from('bookings')
       .update({ status: 'confirmed', offer_expires_at: null })
       .eq('id', booking.id);
+    await notify(
+      booking.client_id,
+      'booking_confirmed',
+      'Your booking is confirmed',
+      'Your creator accepted — you\'re locked in. Full details are in your bookings.',
+    );
     return { accepted: true, status: 'confirmed' };
   });
 

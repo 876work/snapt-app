@@ -1,5 +1,6 @@
 import { supabaseAdmin } from './supabase.js';
 import { getConfig } from './config.js';
+import { notify } from './notify.js';
 
 // Creator reliability / strike engine (handoff §5/§9).
 // - Rolling 60-day window: strikes carry expires_at and decay automatically —
@@ -28,6 +29,14 @@ export async function recordStrike(
     weight,
     expires_at: new Date(Date.now() + windowDays * 86400_000).toISOString(),
   });
+  // §9: strikes surface to creators ONLY via this notification (no screen).
+  const standing = await creatorStanding(creatorId);
+  await notify(
+    creatorId,
+    'strike_issued',
+    'Reliability strike recorded',
+    `A ${type.replace('_', ' ')} strike (weight ${weight}) was added to your account. Current standing: ${standing.tierLabel}. Strikes expire ${windowDays} days after they occur.`,
+  );
 }
 
 export interface CreatorStanding {

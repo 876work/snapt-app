@@ -309,6 +309,19 @@ export function deliverApi(id: string) {
   return authedPost<{ delivered: boolean }>(`/v1/bookings/${id}/deliver`);
 }
 
+/** Frictionless safety end — no fees, no penalties, server records for admin review. */
+export function endSessionSafetyApi(id: string) {
+  return authedPost<{ ended: boolean }>(`/v1/bookings/${id}/safety/end-session`);
+}
+
+/** Safety report; 'sos' escalates to on-call staff in real time. */
+export function reportSafetyApi(id: string, type: 'sos' | 'safety_concern', details?: string) {
+  return authedPost<{ reported: boolean; escalated: boolean }>(`/v1/bookings/${id}/safety/report`, {
+    type,
+    details,
+  });
+}
+
 /** Email meeting details to the client's emergency contacts (Resend; no SMS). */
 export function authedShareSession(id: string) {
   return authedPost<{ shared: boolean; recipients: number }>(`/v1/bookings/${id}/share-session`);

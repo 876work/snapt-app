@@ -3,6 +3,7 @@ import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
 import { createDownloadUrl, createUploadTarget, MediaBucket } from '../storage.js';
 import { createPayoutForBooking } from '../payments.js';
+import { notify } from '../notify.js';
 
 // Media pipeline (handoff §3 Phase 3). ACCESS RULE: raw footage is
 // creator/editor-side only. Clients may UPLOAD raw (remote-edit orders) but
@@ -149,6 +150,8 @@ export function registerMediaRoutes(app: FastifyInstance) {
     }
     await supabaseAdmin.from('bookings').update({ status: 'completed' }).eq('id', booking.id);
     await createPayoutForBooking(booking);
+    await notify(booking.client_id, 'delivery_ready', 'Your content is ready!', 'Your edited files are delivered — open the app to view, download, and rate your experience.');
+    await notify(user.id, 'payout_pending', 'Payout on the way', 'Delivery made — your earnings are pending and clear once the 7-day dispute window closes.');
     return { delivered: true, payout: 'held_7_days' };
   });
 }

@@ -3,6 +3,7 @@ import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
 import { createPayoutForBooking } from '../payments.js';
 import { sendEmail } from '../email.js';
+import { notify } from '../notify.js';
 
 // Phase 3 session lifecycle: check-in → safety-code verification → active →
 // complete. Completion is THE payout trigger for a normal, non-disputed
@@ -179,6 +180,7 @@ export function registerSessionRoutes(app: FastifyInstance) {
     await supabaseAdmin.from('bookings').update({ status: 'completed' }).eq('id', booking.id);
     // Starts the 7-day hold (= dispute window). Idempotency guard inside.
     await createPayoutForBooking(booking);
+    await notify(user.id, 'payout_pending', 'Payout on the way', 'Session complete — your earnings are pending and clear once the 7-day dispute window closes.');
     return { completed: true, payout: 'held_7_days' };
   });
 }

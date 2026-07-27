@@ -3,6 +3,7 @@ import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
 import { requireStripe } from '../stripe.js';
 import { stripeConfigured } from '../env.js';
+import { notify } from '../notify.js';
 
 // Creator earnings: Pending (held, inside the 7-day dispute window) →
 // Available → Paid out. Held payouts whose hold has elapsed are released
@@ -96,6 +97,7 @@ export function registerEarningsRoutes(app: FastifyInstance) {
         stripe_transfer_id: transferId,
       })
       .in('id', rows.map((r) => r.id));
+    await notify(user.id, 'payout_paid', 'Cash-out complete', `$${total.toFixed(2)} is on its way to your payout method.`);
     return { paid_out_usd: total, count: rows.length, stripe_transfer_id: transferId };
   });
 }
