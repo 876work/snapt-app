@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
 import { notify } from '../notify.js';
+import { encryptField } from '../crypto.js';
 
 // Creator earnings: Pending (held, inside the 7-day dispute window) →
 // Available → Paid out. Held payouts whose hold has elapsed are released
@@ -15,7 +16,7 @@ import { notify } from '../notify.js';
 // actually requires.
 const METHOD_FIELDS: Record<string, string[]> = {
   cash: [],
-  penny_pinch: ['account_id'],
+  penny_pinch: ['email'],
   cibc: ['holder_name', 'account_number'],
   republic_ec: ['holder_name', 'account_number'],
   bank_slu: ['holder_name', 'account_number'],
@@ -30,7 +31,13 @@ export function registerEarningsRoutes(app: FastifyInstance) {
       .select('payout_methods')
       .eq('user_id', user.id)
       .maybeSingle();
-    return { payout_methods: data?.payout_methods ?? {} };
+    const pm = (data?.payout_methods ?? {}) as { selected?: string; methods?: Record<string, Record<string, string>> };
+    const safe: Record<string, Record<string, string>> = {};
+    for (const [m, d] of Object.entries(pm.methods ?? {})) {
+      const { account_number_enc, account_number_last4, ...rest } = d;
+      safe[m] = account_number_last4 ? { ...rest, account_number: `····${account_number_last4}` } : rest;
+    }
+    return { payout_methods: { selected: pm.selected, methods: safe } };
   });
 
   app.put<{ Body: { method?: string; details?: Record<string, string> } }>(
@@ -42,7 +49,18 @@ export function registerEarningsRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: `method must be one of ${Object.keys(METHOD_FIELDS).join(', ')}` });
       }
       for (const f of METHOD_FIELDS[method]) {
-        if (!details?.[f]?.trim()) return reply.code(400).send({ error: `${f} is required for ${method}` });
+        const v = details?.[f]?.trim();
+        if (!v) return reply.code(400).send({ error: `${f} is required for ${method}` });
+        if (f === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+          return reply.code(400).send({ error: 'Enter a valid email address' });
+        }
+      }
+      // Bank account numbers are encrypted at rest; last-4 kept for display.
+      const stored: Record<string, string> = { ...(details ?? {}) };
+      if (stored.account_number) {
+        stored.account_number_last4 = stored.account_number.slice(-4);
+        stored.account_number_enc = encryptField(stored.account_number);
+        delete stored.account_number;
       }
       const { data: row } = await supabaseAdmin
         .from('creator_profiles')
@@ -51,7 +69,7 @@ export function registerEarningsRoutes(app: FastifyInstance) {
         .maybeSingle();
       if (!row) return reply.code(403).send({ error: 'Not a creator' });
       const pm = (row.payout_methods ?? {}) as { selected?: string; methods?: Record<string, unknown> };
-      const methods = { ...(pm.methods ?? {}), [method]: details ?? {} };
+      const methods = { ...(pm.methods ?? {}), [method]: stored };
       const next = { selected: method, methods };
       await supabaseAdmin.from('creator_profiles').update({ payout_methods: next }).eq('user_id', user.id);
       return { saved: true, payout_methods: next };

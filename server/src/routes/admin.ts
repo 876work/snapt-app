@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../supabase.js';
 import { audit, requireAdmin } from '../admin-auth.js';
 import { reassignBooking, offerWindowMs } from '../offers.js';
 import { notify } from '../notify.js';
+import { decryptField } from '../crypto.js';
 
 // Admin Portal (handoff §15) — Phase 5 foundation. Sits on the SAME backend
 // and data model as the apps (§15 mandate), served as a responsive single
@@ -178,10 +179,20 @@ export function registerAdminRoutes(app: FastifyInstance) {
       const pm = (cp?.payout_methods ?? {}) as { selected?: string; methods?: Record<string, Record<string, string>> };
       const sel = pm.selected;
       const det = sel ? pm.methods?.[sel] : undefined;
+      let shown = det ? { ...det } : undefined;
+      if (shown?.account_number_enc) {
+        try {
+          shown.account_number = decryptField(shown.account_number_enc);
+        } catch {
+          shown.account_number = '[decrypt failed — check PAYOUT_ENCRYPTION_KEY]';
+        }
+        delete shown.account_number_enc;
+        delete shown.account_number_last4;
+      }
       const label = sel === 'cash'
         ? 'Cash pickup — partner location (pickup mechanics TBD)'
-        : sel && det
-          ? `${sel}: ${Object.entries(det).map(([k, v]) => k + '=' + v).join(', ')}`
+        : sel && shown
+          ? `${sel}: ${Object.entries(shown).map(([k, v]) => k + '=' + v).join(', ')}`
           : null;
       requests.push({ ...e, name: prof?.full_name, email: prof?.email, payout_details: label });
     }

@@ -13,7 +13,7 @@ import { colors } from '../../lib/theme';
 // penny_pinch field pending confirmation of what the wallet requires.
 const METHODS: { id: string; name: string; eta: string; fields: { key: string; label: string }[] }[] = [
   { id: 'cash', name: 'Cash pickup', eta: 'Partner location', fields: [] },
-  { id: 'penny_pinch', name: 'Penny Pinch', eta: 'Within hours', fields: [{ key: 'account_id', label: 'Penny Pinch account ID' }] },
+  { id: 'penny_pinch', name: 'Penny Pinch', eta: 'Within hours', fields: [{ key: 'email', label: 'Penny Pinch email' }] },
   { id: 'cibc', name: 'CIBC', eta: '1–2 business days', fields: [{ key: 'holder_name', label: 'Account holder name' }, { key: 'account_number', label: 'Account number' }] },
   { id: 'republic_ec', name: 'Republic Bank (EC)', eta: '1–2 business days', fields: [{ key: 'holder_name', label: 'Account holder name' }, { key: 'account_number', label: 'Account number' }] },
   { id: 'bank_slu', name: 'Bank of Saint Lucia', eta: '1–2 business days', fields: [{ key: 'holder_name', label: 'Account holder name' }, { key: 'account_number', label: 'Account number' }] },
@@ -23,8 +23,7 @@ const METHODS: { id: string; name: string; eta: string; fields: { key: string; l
 function methodSub(id: string, saved?: Record<string, string>): string {
   if (id === 'cash') return 'Pick up at a Snapt partner location';
   if (!saved) return 'Details needed';
-  if (id === 'paypal') return saved.email ?? 'Linked';
-  if (id === 'penny_pinch') return `ID ····${(saved.account_id ?? '').slice(-4)}`;
+  if (id === 'paypal' || id === 'penny_pinch') return saved.email ?? 'Linked';
   return `${saved.holder_name ?? ''} ····${(saved.account_number ?? '').slice(-4)}`;
 }
 
