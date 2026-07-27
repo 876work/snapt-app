@@ -58,7 +58,42 @@ export default function SessionDay() {
   const [endedForSafety, setEndedForSafety] = React.useState(false);
 
   const copy = STAGE_COPY[stage];
-  const code = '4827';
+
+  // Real session state in API mode: the client checks in on arrival at this
+  // screen, the safety code comes from the server, and the stage derives
+  // from session timestamps (polled — the demo Advance control only drives
+  // mock mode).
+  const [realCode, setRealCode] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let stop = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    import('../../lib/api').then(({ apiConfigured, checkInApi, fetchSessionApi }) => {
+      if (!apiConfigured || !bookingId) return;
+      checkInApi(bookingId);
+      const poll = () =>
+        fetchSessionApi(bookingId).then((s) => {
+          if (stop || !s) return;
+          setRealCode(s.safety_code);
+          setStage(
+            s.session_ended_at
+              ? 'wrapped'
+              : s.session_active_at
+                ? 'active'
+                : s.creator_checked_in_at
+                  ? 'arrived'
+                  : 'enroute',
+          );
+        });
+      poll();
+      timer = setInterval(poll, 8000);
+    });
+    return () => {
+      stop = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [bookingId]);
+
+  const code = realCode ?? '4827';
 
   // Real chat when Supabase is configured; null = mock scripted message.
   const [chatMessages, setChatMessages] = React.useState<

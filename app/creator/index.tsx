@@ -16,36 +16,48 @@ export default function CreatorHome() {
     useCreator();
   const openOffers = offers.filter((o) => !jobStages[o.id] || jobStages[o.id] === 'offer');
 
-  // API mode: real assigned bookings replace the mock offer list. The
-  // design's offer/accept model has no server counterpart yet (bookings are
-  // auto-assigned instantly) — assigned jobs land pre-accepted.
+  // API mode: real bookings replace the mock list. Pending-assigned rows are
+  // live OFFERS (15-min accept window, countdown from offer_expires_at);
+  // confirmed rows are accepted jobs.
   React.useEffect(() => {
     if (!apiConfigured) return;
     fetchMyBookings().then((bookings) => {
       if (!bookings) return;
-      const jobs: JobOffer[] = bookings
-        .filter((b) => b.status === 'confirmed')
-        .map((b) => ({
-          id: b.id,
-          title: `${b.occasion} session`,
-          occasion: b.occasion,
-          payUsd:
-            Math.round(
-              (b.pricing_snapshot?.session_price_usd ?? b.price_usd) *
-                (1 - CREATOR_PLATFORM_FEE_RATE) *
-                100,
-            ) / 100,
-          when: b.scheduled_at
-            ? `${new Date(b.scheduled_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${new Date(b.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} · ${b.duration_hours} hrs`
-            : 'Remote · deliver in-app',
-          loc: b.area ?? 'Remote edit',
-          distanceKm: 0,
-          type: b.type === 'in_person' ? 'in-person' : 'remote',
-        }));
+      const mine = bookings.filter((b) => b.status === 'pending' || b.status === 'confirmed');
+      const jobs: JobOffer[] = mine.map((b) => ({
+        id: b.id,
+        title: `${b.occasion} session`,
+        occasion: b.occasion,
+        payUsd:
+          Math.round(
+            (b.pricing_snapshot?.session_price_usd ?? b.price_usd) *
+              (1 - CREATOR_PLATFORM_FEE_RATE) *
+              100,
+          ) / 100,
+        when: b.scheduled_at
+          ? `${new Date(b.scheduled_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${new Date(b.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} · ${b.duration_hours} hrs`
+          : 'Remote · deliver in-app',
+        loc: b.area ?? 'Remote edit',
+        distanceKm: 0,
+        urgent: b.status === 'pending',
+        countdown:
+          b.status === 'pending' && b.offer_expires_at
+            ? `${Math.max(0, Math.round((Date.parse(b.offer_expires_at) - Date.now()) / 60_000))} min`
+            : undefined,
+        type: b.type === 'in_person' ? 'in-person' : 'remote',
+      }));
       setOffers(jobs);
-      for (const j of jobs) setStage(j.id, 'accepted');
+      for (const b of mine) setStage(b.id, b.status === 'pending' ? 'offer' : 'accepted');
     });
   }, []);
+
+  const decline = async (id: string) => {
+    if (apiConfigured) {
+      const { declineBookingApi } = await import('../../lib/api');
+      await declineBookingApi(id); // reassigns server-side, no strike
+    }
+    declineOffer(id);
+  };
 
   return (
     <View style={styles.root}>
@@ -153,7 +165,7 @@ export default function CreatorHome() {
                     </View>
                   </View>
                   <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
-                    <Pressable onPress={() => declineOffer(j.id)} style={styles.declineBtn}>
+                    <Pressable onPress={() => decline(j.id)} style={styles.declineBtn}>
                       <Text style={styles.declineLabel}>Decline</Text>
                     </Pressable>
                     <Pressable onPress={() => router.push(`/creator/job/${j.id}`)} style={styles.acceptBtn}>

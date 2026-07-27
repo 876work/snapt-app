@@ -6,6 +6,7 @@ import { cancelQuote, hoursUntil, rescheduleQuote } from '../fees.js';
 import { createPayoutForBooking, recordBookingCharge, recordFee, refundClient } from '../payments.js';
 import { recordStrike } from '../strikes.js';
 import { dayAvailability } from '../availability.js';
+import { offerWindowMs } from '../offers.js';
 
 // Phase 2 booking actions (handoff §8): cancellation, reschedule, no-show,
 // rematch. Every fee here is computed server-side at time of action from
@@ -338,7 +339,10 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
         area: original.area,
         meeting_point: original.meeting_point,
         scheduled_at: original.scheduled_at,
-        status: 'confirmed',
+        // Goes through the same accept window — confirmed only once the
+        // replacement creator actually accepts.
+        status: 'pending',
+        offer_expires_at: new Date(Date.now() + (await offerWindowMs())).toISOString(),
         price_usd: original.price_usd,
         pricing_snapshot: original.pricing_snapshot,
         rematch_of: original.id,

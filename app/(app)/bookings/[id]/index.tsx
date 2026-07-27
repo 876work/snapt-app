@@ -35,6 +35,9 @@ export default function BookingDetail() {
   const hrs = hoursUntil(booking.scheduledAt);
   const tier = cancelTierForHoursUntil(hrs);
   const active = booking.status === 'confirmed';
+  // 'pending' now means the assigned creator hasn't accepted yet (15-min
+  // offer window) — the booking is only confirmed once they say yes.
+  const awaitingAccept = booking.status === 'pending';
   const sessionWindow = hrs <= 0 && hrs > -booking.durationHours && active;
   const graceElapsed = hrs * 60 <= -NO_SHOW_GRACE_MINUTES;
 
@@ -88,6 +91,21 @@ export default function BookingDetail() {
             <Text style={styles.value}>{formatMoney(booking.priceUsd * 1.08, currency)}</Text>
           </DetailRow>
         </Card>
+
+        {awaitingAccept && (
+          <>
+            <View style={{ marginTop: 14 }}>
+              <InfoBanner text="Waiting for your creator to accept — most offers are answered within 15 minutes. If they can't make it, we'll match you with the next available creator automatically." />
+            </View>
+            <View style={{ gap: 10, marginTop: 18 }}>
+              <Button
+                title="Cancel booking"
+                variant="ghost"
+                onPress={() => router.push(`/bookings/${booking.id}/cancel`)}
+              />
+            </View>
+          </>
+        )}
 
         {active && (
           <>

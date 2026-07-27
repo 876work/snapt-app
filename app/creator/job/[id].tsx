@@ -31,9 +31,90 @@ export default function CreatorJob() {
   const stage: JobStage = jobStages[String(id)] ?? 'offer';
   const [code, setCode] = React.useState('');
   const [contactConfirmed, setContactConfirmed] = React.useState(false);
+  const [actionError, setActionError] = React.useState<string | null>(null);
+  const [picked, setPicked] = React.useState<{ uri: string; name: string; mimeType?: string }[]>([]);
 
   if (!job) return null;
   const next = (s: JobStage) => setStage(job.id, s);
+
+  // Real endpoint calls in API mode (Phase 3 session/media pipeline);
+  // mock stage machine otherwise.
+  const withApi = async (fn: (api: typeof import('../../../lib/api')) => Promise<boolean>) => {
+    const api = await import('../../../lib/api');
+    setActionError(null);
+    if (!api.apiConfigured) return true;
+    return fn(api);
+  };
+
+  const acceptJob = () =>
+    withApi(async (api) => {
+      const r = await api.acceptBookingApi(job.id);
+      if (r && 'error' in r) {
+        setActionError(r.error); // offer expired/reassigned
+        return false;
+      }
+      return true;
+    }).then((ok) => ok && next('accepted'));
+
+  const arriveCheckIn = () =>
+    withApi(async (api) => {
+      const r = await api.checkInApi(job.id);
+      if (r && 'error' in r) {
+        setActionError(r.error);
+        return false;
+      }
+      return true;
+    }).then((ok) => ok && next('checkin'));
+
+  const verifyAndStart = () =>
+    withApi(async (api) => {
+      const r = await api.verifySafetyCodeApi(job.id, code);
+      if (r && 'error' in r) {
+        setActionError(r.error); // wrong code
+        return false;
+      }
+      return true;
+    }).then((ok) => ok && next('session'));
+
+  const pickFootage = async () => {
+    const api = await import('../../../lib/api');
+    if (!api.apiConfigured) return; // dropzone is illustrative in mock mode
+    const ImagePicker = await import('expo-image-picker');
+    const result = await ImagePicker.launchImageLibraryAsync({ allowsMultipleSelection: true, quality: 1 });
+    if (result.canceled) return;
+    setPicked((prev) => [
+      ...prev,
+      ...result.assets.map((a, i) => ({
+        uri: a.uri,
+        name: a.fileName ?? `footage-${Date.now()}-${i}.jpg`,
+        mimeType: a.mimeType ?? undefined,
+      })),
+    ]);
+  };
+
+  const submitFootage = () =>
+    withApi(async (api) => {
+      // In-person: raw footage upload + session completion (payout trigger).
+      // Remote-edit jobs: the upload is the DELIVERABLE, then deliver.
+      const kind = job.type === 'remote' ? 'deliverable' : 'raw';
+      if (picked.length === 0) {
+        setActionError('Pick at least one file from today first.');
+        return false;
+      }
+      for (const file of picked) {
+        const ok = await api.uploadMediaApi(job.id, kind, file);
+        if (!ok) {
+          setActionError('Upload failed — check your connection and try again.');
+          return false;
+        }
+      }
+      const r = job.type === 'remote' ? await api.deliverApi(job.id) : await api.completeSessionApi(job.id);
+      if (r && 'error' in r) {
+        setActionError(r.error);
+        return false;
+      }
+      return true;
+    }).then((ok) => ok && next('submitted'));
 
   return (
     <View style={styles.root}>
@@ -187,16 +268,18 @@ export default function CreatorJob() {
               Upload the raw footage from today's session. The client never sees raws — they go straight
               to editing.
             </Text>
-            <View style={styles.dropzone}>
+            <Pressable onPress={pickFootage} style={styles.dropzone}>
               <View style={styles.dropIcon}>
                 <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
                   <Path d="M12 16V5m0 0L7.5 9.5M12 5l4.5 4.5" stroke={colors.ink} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                   <Path d="M5 15v3a1.5 1.5 0 001.5 1.5h11A1.5 1.5 0 0019 18v-3" stroke={colors.ink} strokeWidth={2} strokeLinecap="round" />
                 </Svg>
               </View>
-              <Text style={styles.dropTitle}>Add session footage</Text>
+              <Text style={styles.dropTitle}>
+                {picked.length > 0 ? `${picked.length} file${picked.length > 1 ? 's' : ''} ready` : 'Add session footage'}
+              </Text>
               <Text style={styles.dropSub}>RAW, JPG, MP4, MOV — everything from today</Text>
-            </View>
+            </Pressable>
           </>
         )}
 
@@ -218,27 +301,28 @@ export default function CreatorJob() {
       </ScrollView>
 
       <View style={styles.footer}>
+        {actionError ? <Text style={styles.actionError}>{actionError}</Text> : null}
         {stage === 'offer' && (
-          <SlideToConfirm label="Slide to accept this job" onConfirm={() => next('accepted')} />
+          <SlideToConfirm label="Slide to accept this job" onConfirm={acceptJob} />
         )}
         {stage === 'accepted' && (
           <Button title="I'm on my way" arrow onPress={() => next('onway')} />
         )}
         {stage === 'onway' && (
-          <Button title="I've arrived — check in" arrow onPress={() => next('checkin')} />
+          <Button title="I've arrived — check in" arrow onPress={arriveCheckIn} />
         )}
         {stage === 'checkin' && (
           <Button
             title="Verify code & start session"
             disabled={code.length !== 4}
-            onPress={() => next('session')}
+            onPress={verifyAndStart}
           />
         )}
         {stage === 'session' && (
           <Button title="Wrap session — upload footage" arrow onPress={() => next('upload')} />
         )}
         {stage === 'upload' && (
-          <Button title="Submit footage" onPress={() => next('submitted')} />
+          <Button title="Submit footage" onPress={submitFootage} />
         )}
         {stage === 'submitted' && (
           <Button title="Back to jobs" variant="ghost" onPress={() => router.back()} />
@@ -395,4 +479,5 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',
   },
+  actionError: { fontSize: 12.5, color: colors.error, fontWeight: '600', marginBottom: 10 },
 });

@@ -14,6 +14,7 @@ insert into app_config (key, value, description, confirmed) values
   ('reschedule_free_count', '1', 'Free reschedules (>48h); additional treated as cancel+rebook', true),
   ('reschedule_disabled_under_hours', '24', 'Reschedule disabled entirely under this many hours (widened from 6 to 24 — Don, 2026-07-27; closes the former 6–24h gap)', true),
   ('no_show_grace_minutes', '15', 'Grace period past scheduled start, both directions', true),
+  ('offer_window_minutes', '15', 'Creator accept/decline window after assignment; decline/timeout reassigns without a strike (Don, 2026-07-27)', true),
   ('strike_window_days', '60', 'Rolling window for creator strikes', true),
   ('late_cancel_strike_weight', '2', 'Late (<24h) cancellation counts as 2 strikes', true),
   ('strike_tiers', '["warning", "deprioritization_2w", "suspension_1w", "admin_review"]',

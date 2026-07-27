@@ -110,6 +110,11 @@ interface ServerBooking {
   pricing_snapshot?: { session_price_usd?: number };
   status: string;
   reschedule_count: number;
+  offer_expires_at?: string | null;
+}
+
+export function mapServerStatus(status: string): Booking['status'] {
+  return (status === 'no_show' ? 'no-show' : status) as Booking['status'];
 }
 
 async function authedPost<T>(path: string, body?: unknown): Promise<T | { error: string } | null> {
@@ -228,6 +233,75 @@ export function cashOutApi() {
   return authedPost<{ paid_out_usd: number; count: number }>(`/v1/creator/cash-out`);
 }
 
+// --- Offer window (accept/decline) + media pipeline.
+
+export function acceptBookingApi(id: string) {
+  return authedPost<{ accepted: boolean }>(`/v1/bookings/${id}/accept`);
+}
+
+export function declineBookingApi(id: string) {
+  return authedPost<{ declined: boolean }>(`/v1/bookings/${id}/decline`);
+}
+
+export interface SessionState {
+  safety_code: string | null;
+  client_checked_in_at: string | null;
+  creator_checked_in_at: string | null;
+  session_active_at: string | null;
+  session_ended_at: string | null;
+}
+
+export async function fetchSessionApi(id: string): Promise<SessionState | null> {
+  const result = await request<{ session: SessionState }>(`/v1/bookings/${id}/session`);
+  return result?.session ?? null;
+}
+
+export interface MediaItem {
+  id: string;
+  kind: 'raw' | 'deliverable';
+  download_url: string;
+  content_type: string | null;
+}
+
+export async function fetchMediaApi(id: string): Promise<MediaItem[] | null> {
+  const result = await request<{ media: MediaItem[] }>(`/v1/bookings/${id}/media`);
+  return result?.media ?? null;
+}
+
+export function deliverApi(id: string) {
+  return authedPost<{ delivered: boolean }>(`/v1/bookings/${id}/deliver`);
+}
+
+/** Presign, PUT the file bytes, and register the media row. */
+export async function uploadMediaApi(
+  bookingId: string,
+  kind: 'raw' | 'deliverable',
+  file: { uri: string; name: string; mimeType?: string },
+): Promise<boolean> {
+  const target = await authedPost<{ upload_url: string; storage_path: string }>(
+    `/v1/bookings/${bookingId}/media/upload-url`,
+    { kind, filename: file.name, content_type: file.mimeType ?? 'application/octet-stream' },
+  );
+  if (!target || 'error' in target) return false;
+  try {
+    const blob = await (await fetch(file.uri)).blob();
+    const put = await fetch(target.upload_url, {
+      method: 'PUT',
+      headers: { 'Content-Type': file.mimeType ?? 'application/octet-stream' },
+      body: blob,
+    });
+    if (!put.ok) return false;
+  } catch {
+    return false;
+  }
+  const registered = await authedPost(`/v1/bookings/${bookingId}/media`, {
+    kind,
+    storage_path: target.storage_path,
+    content_type: file.mimeType,
+  });
+  return registered != null && !('error' in (registered as object));
+}
+
 /**
  * Create the booking server-side (price computed there — §8). Returns the
  * booking mapped to the app's shape, or an error message for the UI.
@@ -281,7 +355,8 @@ export async function createBookingApi(
         // App-side priceUsd is the session price EXCLUDING the 8% client fee
         // (screens add the fee for display); server price_usd is the total.
         priceUsd: b.pricing_snapshot?.session_price_usd ?? b.price_usd,
-        status: 'confirmed',
+        // Real status: 'pending' until the creator accepts the offer window.
+        status: mapServerStatus(b.status),
         rescheduleCount: b.reschedule_count,
       },
     };

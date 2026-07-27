@@ -21,6 +21,27 @@ export default function Delivery() {
   const creator = creatorById(booking?.creatorId ?? null) ?? creatorById('jordan');
   const firstName = creator?.name.split(' ')[0] ?? 'your editor';
 
+  // Real deliverables (signed URLs) in API mode — the endpoint only ever
+  // returns deliverables to clients, never raw footage. Mock grid otherwise.
+  const [real, setReal] = React.useState<typeof DELIVERABLES | null>(null);
+  React.useEffect(() => {
+    import('../../../lib/api').then(({ apiConfigured, fetchMediaApi }) => {
+      if (!apiConfigured || !id) return;
+      fetchMediaApi(id).then((media) => {
+        if (!media || media.length === 0) return;
+        setReal(
+          media.map((m, i) => ({
+            name: m.download_url.split('/').pop()?.split('?')[0]?.replace(/^\d+-/, '') ?? `file-${i + 1}`,
+            meta: m.content_type ?? 'delivered file',
+            thumb: { uri: m.download_url } as unknown as number,
+            tint: '#F2C14E',
+          })),
+        );
+      });
+    });
+  }, [id]);
+  const deliverables = real ?? DELIVERABLES;
+
   return (
     <View style={styles.root}>
       <ScreenHeader title="Your content" />
@@ -34,13 +55,13 @@ export default function Delivery() {
           <View>
             <Text style={styles.readyTitle}>It's ready!</Text>
             <Text style={styles.readySub}>
-              {DELIVERABLES.length} edited files, delivered by {firstName}.
+              {deliverables.length} edited files, delivered by {firstName}.
             </Text>
           </View>
         </View>
 
         <View style={styles.grid}>
-          {DELIVERABLES.map((d) => (
+          {deliverables.map((d) => (
             <View key={d.name} style={styles.fileCard}>
               <View style={[styles.fileThumb, { backgroundColor: d.tint }]}>
                 <Image source={d.thumb} style={{ width: '100%', height: '100%' }} resizeMode="cover" />

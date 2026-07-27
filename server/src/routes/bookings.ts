@@ -4,6 +4,7 @@ import { supabaseAdmin } from '../supabase.js';
 import { configNumber, getConfig, packagePriceUsd } from '../config.js';
 import { recordBookingCharge } from '../payments.js';
 import { stripeConfigured } from '../env.js';
+import { expireStaleOffer, offerWindowMs, reassignBooking } from '../offers.js';
 import {
   creatorSlotsForDay,
   dayAvailability,
@@ -144,14 +145,19 @@ export function registerBookingRoutes(app: FastifyInstance) {
       .single();
     if (error) return reply.code(500).send({ error: error.message });
 
-    // Without Stripe keys (pre-Phase 7), the charge is simulated so the
-    // cancellation/refund/no-show ledger is exercisable end-to-end: ledger a
-    // succeeded charge and confirm immediately. With Stripe configured, the
-    // booking stays pending until the PaymentIntent webhook confirms it.
+    // Charge at booking (simulated pre-Phase 7 Stripe keys). The booking
+    // stays PENDING until the assigned creator accepts within the offer
+    // window — 'confirmed' now means a creator actually said yes.
     if (!stripeConfigured) {
       await recordBookingCharge(booking);
-      await supabaseAdmin.from('bookings').update({ status: 'confirmed' }).eq('id', booking.id);
-      booking.status = 'confirmed';
+    }
+    if (assignedCreatorId) {
+      const expires = new Date(Date.now() + (await offerWindowMs())).toISOString();
+      await supabaseAdmin
+        .from('bookings')
+        .update({ offer_expires_at: expires })
+        .eq('id', booking.id);
+      booking.offer_expires_at = expires;
     }
     return reply.code(201).send({ booking });
   });
@@ -164,6 +170,37 @@ export function registerBookingRoutes(app: FastifyInstance) {
       .or(`client_id.eq.${user.id},creator_id.eq.${user.id}`)
       .order('scheduled_at', { ascending: false });
     if (error) return reply.code(500).send({ error: error.message });
-    return { bookings: data };
+    // Lazy offer-timeout sweep on read (no cron infra yet).
+    const bookings = await Promise.all((data ?? []).map((b) => expireStaleOffer(b)));
+    return { bookings: bookings.filter((b) => b.client_id === user.id || b.creator_id === user.id) };
+  });
+
+  // Creator accepts the assignment offer — this is what confirms a booking.
+  app.post<{ Params: { id: string } }>('/v1/bookings/:id/accept', async (request, reply) => {
+    const user = requireUser(request);
+    const { data } = await supabaseAdmin.from('bookings').select('*').eq('id', request.params.id).maybeSingle();
+    if (!data) return reply.code(404).send({ error: 'Booking not found' });
+    const booking = await expireStaleOffer(data);
+    if (booking.creator_id !== user.id || booking.status !== 'pending') {
+      return reply.code(409).send({ error: 'This offer is no longer yours to accept' });
+    }
+    await supabaseAdmin
+      .from('bookings')
+      .update({ status: 'confirmed', offer_expires_at: null })
+      .eq('id', booking.id);
+    return { accepted: true, status: 'confirmed' };
+  });
+
+  // Creator declines — reassign via the same matching logic, decliner
+  // excluded for this booking. NO strike (strikes need an accepted booking).
+  app.post<{ Params: { id: string } }>('/v1/bookings/:id/decline', async (request, reply) => {
+    const user = requireUser(request);
+    const { data } = await supabaseAdmin.from('bookings').select('*').eq('id', request.params.id).maybeSingle();
+    if (!data) return reply.code(404).send({ error: 'Booking not found' });
+    if (data.creator_id !== user.id || data.status !== 'pending') {
+      return reply.code(409).send({ error: 'No open offer on this booking for you' });
+    }
+    const { creator_id } = await reassignBooking(data, user.id);
+    return { declined: true, reassigned_to: creator_id };
   });
 }
