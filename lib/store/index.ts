@@ -10,24 +10,39 @@ import {
 } from '../mock/data';
 import { Currency } from '../constants/business';
 
+export type AppMode = 'client' | 'creator';
+export type CreatorStatus = 'none' | 'review' | 'approved';
+
 interface AuthState {
   signedIn: boolean;
   name: string;
   email: string;
+  phone: string;
   currency: Currency;
+  mode: AppMode;
+  creatorStatus: CreatorStatus;
   signIn: (name: string, email: string) => void;
   signOut: () => void;
   setCurrency: (c: Currency) => void;
+  setMode: (m: AppMode) => void;
+  setCreatorStatus: (s: CreatorStatus) => void;
+  setProfile: (patch: { name?: string; email?: string; phone?: string }) => void;
 }
 
 export const useAuth = create<AuthState>((set) => ({
   signedIn: false,
   name: '',
   email: '',
+  phone: '',
   currency: 'USD',
+  mode: 'client',
+  creatorStatus: 'none',
   signIn: (name, email) => set({ signedIn: true, name, email }),
-  signOut: () => set({ signedIn: false, name: '', email: '' }),
+  signOut: () => set({ signedIn: false, name: '', email: '', mode: 'client', creatorStatus: 'none' }),
   setCurrency: (currency) => set({ currency }),
+  setMode: (mode) => set({ mode }),
+  setCreatorStatus: (creatorStatus) => set({ creatorStatus }),
+  setProfile: (patch) => set((s) => ({ ...s, ...patch })),
 }));
 
 export interface BookingDraft {

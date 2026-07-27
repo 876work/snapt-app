@@ -4,7 +4,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { InfoBanner } from '../../components/ui/Misc';
 import { colors, spacing } from '../../lib/theme';
-import { LEGAL_DOCS } from './index';
+import { LEGAL_DOCS } from '../../lib/mock/legal';
 
 export default function LegalDoc() {
   const { doc } = useLocalSearchParams<{ doc: string }>();
