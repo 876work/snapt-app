@@ -12,6 +12,7 @@ import { useRouter } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { OCCASIONS, Occasion, AREAS, Area } from '../../lib/mock/data';
 import { creatorById, useBookings } from '../../lib/store';
+import { CreatorAvatar } from '../ui/CreatorAvatar';
 import { colors } from '../../lib/theme';
 import { OccasionIcon } from '../ui/Icons';
 import { Divider, InfoBanner } from '../ui/Misc';
@@ -76,7 +77,7 @@ export function QuickBookSheet({ open, onClose }: { open: boolean; onClose: () =
             <>
               <Pressable onPress={bookAgain} style={styles.againCard}>
                 <View style={[styles.againAvatar, { backgroundColor: lastCreator.tint, overflow: 'hidden' }]}>
-                  <Image source={lastCreator.photo} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                  <CreatorAvatar name={lastCreator.name} photo={lastCreator.photo} textSize={16} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.againOverline}>Book again</Text>

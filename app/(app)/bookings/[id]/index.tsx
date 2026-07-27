@@ -50,7 +50,11 @@ export default function BookingDetail() {
                 <Text style={styles.name}>{creator.name}</Text>
                 {creator.verified && <VerifiedBadge />}
               </View>
-              <Text style={styles.meta}>★ {creator.rating.toFixed(1)} · {creator.sessions} sessions</Text>
+              <Text style={styles.meta}>
+                {creator.rating != null
+                  ? `★ ${creator.rating.toFixed(1)} · ${creator.sessions} sessions`
+                  : 'New creator'}
+              </Text>
             </View>
           </Card>
         )}

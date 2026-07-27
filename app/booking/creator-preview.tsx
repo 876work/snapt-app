@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { Button } from '../../components/ui/Button';
+import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { creatorById, useBookings } from '../../lib/store';
 import { colors, spacing } from '../../lib/theme';
 
@@ -35,7 +36,7 @@ export default function CreatorPreview() {
         {/* Header card */}
         <View style={styles.headCard}>
           <View style={[styles.photo, { backgroundColor: creator.tint }]}>
-            <Image source={creator.photo} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            <CreatorAvatar name={creator.name} photo={creator.photo} textSize={26} />
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -63,7 +64,13 @@ export default function CreatorPreview() {
                   <Path d="M12 2l2.9 6.3 6.9.6-5.2 4.6 1.6 6.8L12 17.3 5.8 20.9l1.6-6.8L2.2 8.9l6.9-.6z" />
                 </Svg>
                 <Text style={styles.rating}>
-                  {creator.rating.toFixed(1)} <Text style={styles.reviews}>({creator.sessions})</Text>
+                  {creator.rating != null ? (
+                    <>
+                      {creator.rating.toFixed(1)} <Text style={styles.reviews}>({creator.sessions})</Text>
+                    </>
+                  ) : (
+                    'New'
+                  )}
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
@@ -71,7 +78,9 @@ export default function CreatorPreview() {
                   <Path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z" stroke="#8A8377" strokeWidth={1.8} strokeLinejoin="round" />
                   <Circle cx="12" cy="10" r="2.3" stroke="#8A8377" strokeWidth={1.8} />
                 </Svg>
-                <Text style={styles.dist}>{creator.distanceKm.toFixed(1)} km</Text>
+                <Text style={styles.dist}>
+                  {creator.distanceKm != null ? `${creator.distanceKm.toFixed(1)} km` : creator.loc || '—'}
+                </Text>
               </View>
             </View>
           </View>

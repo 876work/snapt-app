@@ -3,6 +3,7 @@ import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { CREATORS } from '../../lib/mock/data';
+import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { colors } from '../../lib/theme';
 
 export default function AllCreators() {
@@ -14,13 +15,13 @@ export default function AllCreators() {
           {CREATORS.map((c) => (
             <View key={c.id} style={styles.card}>
               <View style={[styles.photoWrap, { backgroundColor: c.tint }]}>
-                <Image source={c.photo} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                <CreatorAvatar name={c.name} photo={c.photo} />
                 <View style={styles.ratingPill}>
                   <Svg width={11} height={11} viewBox="0 0 24 24" fill={colors.yellow}>
                     <Path d="M12 2l2.9 6.3 6.9.6-5.2 4.6 1.6 6.8L12 17.3 5.8 20.9l1.6-6.8L2.2 8.9l6.9-.6z" />
                   </Svg>
                   <Text style={styles.ratingText}>
-                    {c.rating.toFixed(1)} <Text style={styles.ratingReviews}>({c.sessions})</Text>
+                    {c.rating != null ? c.rating.toFixed(1) : 'New'}{c.rating != null && <Text style={styles.ratingReviews}> ({c.sessions})</Text>}
                   </Text>
                 </View>
               </View>

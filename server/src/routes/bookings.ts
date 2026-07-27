@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
-import { configNumber, durationPackages, getConfig } from '../config.js';
+import { configNumber, getConfig, packagePriceUsd } from '../config.js';
 import {
   creatorSlotsForDay,
   dayAvailability,
@@ -44,7 +44,7 @@ export function registerBookingRoutes(app: FastifyInstance) {
   });
 
   // Booking creation (§3 Phase 1). Everything financially relevant — price,
-  // fees, peg — is computed HERE from app_config + duration_packages, never
+  // fees, peg — is computed HERE from app_config's pricing_table, never
   // trusted from the client (§8).
   app.post<{ Body: CreateBookingBody }>('/v1/bookings', async (request, reply) => {
     const user = requireUser(request);
@@ -54,10 +54,18 @@ export function registerBookingRoutes(app: FastifyInstance) {
     if (!body.occasion || !OCCASIONS.includes(body.occasion)) {
       return reply.code(400).send({ error: `occasion must be one of ${OCCASIONS.join(', ')}` });
     }
-    const packages = await durationPackages();
-    const pkg = packages.find((p) => p.hours === Number(body.duration_hours));
-    if (!pkg) {
-      return reply.code(400).send({ error: 'duration_hours must match a package' });
+    // Price is keyed by service type × duration (confirmed 15-point table)
+    // — both dimensions are required, not just duration.
+    const mediaKind = body.media_kind;
+    if (!mediaKind || !['photo', 'video', 'both'].includes(mediaKind)) {
+      return reply.code(400).send({ error: 'media_kind must be photo, video, or both' });
+    }
+    const durationHours = Number(body.duration_hours);
+    const sessionPrice = await packagePriceUsd(mediaKind, durationHours);
+    if (sessionPrice === undefined) {
+      return reply
+        .code(400)
+        .send({ error: `No ${mediaKind} package for ${body.duration_hours} hours` });
     }
 
     let scheduledAtIso: string | null = null;
@@ -80,7 +88,7 @@ export function registerBookingRoutes(app: FastifyInstance) {
       // Specialty is a hard filter (§12); availability is re-checked at
       // creation so a stale client can't book a gone slot.
       const creators = await eligibleCreators(body.occasion, body.area);
-      const slots = await dayAvailability(body.occasion, body.date, pkg.hours, body.area);
+      const slots = await dayAvailability(body.occasion, body.date, durationHours, body.area);
       const slot = slots.find((s) => s.time === body.time);
       if (!slot) return reply.code(409).send({ error: 'That time is no longer available' });
 
@@ -103,8 +111,8 @@ export function registerBookingRoutes(app: FastifyInstance) {
     const config = await getConfig();
     const clientFeeRate = (config['client_service_fee_rate'] as number) ?? 0.08;
     const xcdPerUsd = (config['xcd_per_usd'] as number) ?? 2.7;
-    const serviceFee = Math.round(pkg.price_usd * clientFeeRate * 100) / 100;
-    const total = Math.round((pkg.price_usd + serviceFee) * 100) / 100;
+    const serviceFee = Math.round(sessionPrice * clientFeeRate * 100) / 100;
+    const total = Math.round((sessionPrice + serviceFee) * 100) / 100;
 
     const { data: booking, error } = await supabaseAdmin
       .from('bookings')
@@ -113,15 +121,17 @@ export function registerBookingRoutes(app: FastifyInstance) {
         creator_id: assignedCreatorId,
         type,
         occasion: body.occasion,
-        media_kind: body.media_kind ?? 'photo',
-        duration_hours: pkg.hours,
+        media_kind: mediaKind,
+        duration_hours: durationHours,
         area: body.area ?? null,
         meeting_point: type === 'in_person' ? body.meeting_point ?? null : null,
         scheduled_at: scheduledAtIso,
         status: 'pending',
         price_usd: total,
         pricing_snapshot: {
-          package: pkg,
+          media_kind: mediaKind,
+          duration_hours: durationHours,
+          session_price_usd: sessionPrice,
           client_service_fee_rate: clientFeeRate,
           client_service_fee_usd: serviceFee,
           total_usd: total,

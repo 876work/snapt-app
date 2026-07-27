@@ -2,6 +2,7 @@ import React from 'react';
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import { CreatorAvatar } from '../../../components/ui/CreatorAvatar';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
 import { creatorById, useBookings } from '../../../lib/store';
 import { FREE_REVISIONS_PER_ORDER } from '../../../lib/constants/business';
@@ -111,7 +112,7 @@ export default function OrderTracker() {
         {creator && (
           <View style={styles.creatorCard}>
             <View style={styles.creatorPhoto}>
-              <Image source={creator.photo} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+              <CreatorAvatar name={creator.name} photo={creator.photo} />
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.creatorName}>{firstName}</Text>
@@ -197,7 +198,7 @@ export default function OrderTracker() {
             <View style={styles.chatHead}>
               {creator && (
                 <View style={styles.chatAvatar}>
-                  <Image source={creator.photo} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                  <CreatorAvatar name={creator.name} photo={creator.photo} />
                 </View>
               )}
               <View style={{ flex: 1 }}>
@@ -214,7 +215,7 @@ export default function OrderTracker() {
               <View style={styles.chatMsgRow}>
                 {creator && (
                   <View style={styles.chatMsgAvatar}>
-                    <Image source={creator.photo} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                    <CreatorAvatar name={creator.name} photo={creator.photo} />
                   </View>
                 )}
                 <View style={styles.chatBubbleThem}>

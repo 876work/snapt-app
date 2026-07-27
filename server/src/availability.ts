@@ -25,6 +25,7 @@ interface AvailabilityWindow {
 export interface EligibleCreator {
   user_id: string;
   full_name: string;
+  avatar_url: string | null;
   specialties: string[];
   verified: boolean;
   base_area: string | null;
@@ -51,16 +52,17 @@ function pad(n: number): string {
 export async function eligibleCreators(occasion: string, area?: string): Promise<EligibleCreator[]> {
   const { data, error } = await supabaseAdmin
     .from('creator_profiles')
-    .select('user_id, specialties, verified, base_area, availability, blocked_dates, profiles!inner(full_name)')
+    .select('user_id, specialties, verified, base_area, availability, blocked_dates, profiles!inner(full_name, avatar_url)')
     .eq('vetting_status', 'approved')
     .contains('specialties', [occasion]);
   if (error) throw new Error(`eligibleCreators: ${error.message}`);
 
   const creators = (data ?? []).map((row) => {
-    const profile = row.profiles as unknown as { full_name: string };
+    const profile = row.profiles as unknown as { full_name: string; avatar_url: string | null };
     return {
       user_id: row.user_id as string,
       full_name: profile.full_name,
+      avatar_url: profile.avatar_url,
       specialties: row.specialties as string[],
       verified: row.verified as boolean,
       base_area: row.base_area as string | null,

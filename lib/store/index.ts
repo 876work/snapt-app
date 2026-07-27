@@ -77,6 +77,9 @@ const emptyDraft: BookingDraft = {
 interface BookingState {
   draft: BookingDraft;
   bookings: Booking[];
+  /** Creator catalog: mock entries plus server creators registered in API mode. */
+  catalog: Creator[];
+  registerCreators: (creators: Creator[]) => void;
   setDraft: (patch: Partial<BookingDraft>) => void;
   resetDraft: (type?: 'in-person' | 'remote') => void;
   /** Specialty match is a hard filter (exclusion), not a ranking weight — handoff §12. */
@@ -92,6 +95,11 @@ interface BookingState {
 export const useBookings = create<BookingState>((set, get) => ({
   draft: emptyDraft,
   bookings: SEED_BOOKINGS,
+  catalog: CREATORS,
+  registerCreators: (incoming) =>
+    set((s) => ({
+      catalog: [...incoming, ...s.catalog.filter((c) => !incoming.some((n) => n.id === c.id))],
+    })),
   setDraft: (patch) => set((s) => ({ draft: { ...s.draft, ...patch } })),
   resetDraft: (type = 'in-person') => set({ draft: { ...emptyDraft, type } }),
   eligibleCreators: () => {
@@ -139,7 +147,7 @@ export const useBookings = create<BookingState>((set, get) => ({
 }));
 
 export function creatorById(id: string | null): Creator | undefined {
-  return CREATORS.find((c) => c.id === id);
+  return useBookings.getState().catalog.find((c) => c.id === id);
 }
 
 export function hoursUntil(iso: string): number {

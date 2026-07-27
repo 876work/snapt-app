@@ -51,14 +51,12 @@ export const DELIVERED_CONTENT_AVAILABILITY_MONTHS = 12; // UNCONFIRMED — veri
 export const CREATOR_NON_CIRCUMVENTION_MONTHS = 12; // UNCONFIRMED — verify with Don
 export const BACKGROUND_CHECK_RECHECK_MONTHS = 24; // UNCONFIRMED — verify with Don
 
-// UNCONFIRMED — only Portraits and Wedding were confirmed as examples; the
-// other three need real defaults from Don before "smart default" ships.
-export const OCCASION_DEFAULT_DURATION_HOURS: Record<string, number> = {
-  Events: 3,
-  Portraits: 1,
-  Social: 1,
-  Family: 2,
-  Wedding: 6,
+// Events = 2h is the ONLY confirmed occasion default ("Recommended for
+// Events" badge on the 2-hour option, §7 + design). Portraits, Social,
+// Family, and Wedding defaults are undefined — do not infer values; no
+// pre-select or badge for them until Don specifies.
+export const OCCASION_DEFAULT_DURATION_HOURS: Partial<Record<string, number>> = {
+  Events: 2,
 };
 
 export type Currency = 'USD' | 'XCD';

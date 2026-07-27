@@ -29,15 +29,13 @@ insert into app_config (key, value, description, confirmed) values
   ('delivered_content_availability_months', '12', 'UNCONFIRMED (§6)', false),
   ('creator_non_circumvention_months', '12', 'UNCONFIRMED (§6) — Creator Agreement §7', false),
   ('background_check_recheck_months', '24', 'UNCONFIRMED (§6)', false),
-  ('occasion_default_duration_hours',
-    '{"Events": 3, "Portraits": 1, "Social": 1, "Family": 2, "Wedding": 6}',
-    'UNCONFIRMED (§6) — only Portraits and Wedding were illustrative examples; other three need real values', false),
-  ('duration_packages',
-    '[{"hours": 1, "label": "1 hour", "deliverables": "20+ edited photos", "price_usd": 120},
-      {"hours": 2, "label": "2 hours", "deliverables": "45+ edited photos", "price_usd": 220},
-      {"hours": 3, "label": "3 hours", "deliverables": "70+ edited photos", "price_usd": 310},
-      {"hours": 6, "label": "Half day (6 hrs)", "deliverables": "Full coverage + highlights", "price_usd": 560}]',
-    'UNCONFIRMED — prototype pricing from the design file; confirm with Don before real charges', false);
+  ('occasion_default_duration_hours', '{"Events": 2}',
+    'Smart default (§7): Events = 2h is the ONLY confirmed value ("Recommended for Events" on the 2-hour option). Portraits/Social/Family/Wedding are UNDEFINED — do not infer; add here only when Don specifies.', true),
+  ('pricing_table',
+    '{"photo": {"1": 60, "1.5": 90, "2": 120, "3": 180, "4": 240},
+      "video": {"1": 90, "1.5": 135, "2": 180, "3": 270, "4": 360},
+      "both":  {"1": 130, "1.5": 195, "2": 260, "3": 390, "4": 520}}',
+    'CONFIRMED launch pricing (Don, 2026-07-27): session price USD by service type × duration hours', true);
 
 -- Placeholder drafts for the 13 policy docs (slugs match lib/mock/legal.ts).
 -- Status stays 'draft': §14 requires explicit publish after attorney review.

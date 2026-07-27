@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { Button } from '../../components/ui/Button';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
-import { DURATIONS, MediaKind } from '../../lib/mock/data';
+import { DURATIONS, MediaKind, packagePrice } from '../../lib/mock/data';
 import { useAuth, useBookings } from '../../lib/store';
 import { formatMoney, OCCASION_DEFAULT_DURATION_HOURS } from '../../lib/constants/business';
 import { colors, spacing } from '../../lib/theme';
@@ -59,7 +59,10 @@ export default function DurationAndPackage() {
         <View style={{ gap: 10 }}>
           {DURATIONS.map((d) => {
             const active = draft.durationHours === d.hours;
+            // Only Events has a confirmed default (2h) — no badge for other
+            // occasions until their defaults are specified.
             const rec = recommendedHours === d.hours;
+            const price = packagePrice(draft.mediaKind, d.hours);
             return (
               <Pressable
                 key={d.hours}
@@ -70,11 +73,6 @@ export default function DurationAndPackage() {
                 <View style={{ flex: 1 }}>
                   <View style={styles.rowTitleWrap}>
                     <Text style={styles.rowTitle}>{d.label}</Text>
-                    {d.popular && (
-                      <View style={styles.popBadge}>
-                        <Text style={styles.popBadgeLabel}>MOST POPULAR</Text>
-                      </View>
-                    )}
                     {rec && draft.occasion && (
                       <View style={styles.recBadge}>
                         <Text style={styles.recBadgeLabel}>
@@ -85,7 +83,9 @@ export default function DurationAndPackage() {
                   </View>
                   <Text style={styles.rowDeliv}>{d.deliverables}</Text>
                 </View>
-                <Text style={styles.rowPrice}>{formatMoney(d.priceUsd, currency)}</Text>
+                <Text style={styles.rowPrice}>
+                  {price != null ? formatMoney(price, currency) : '—'}
+                </Text>
               </Pressable>
             );
           })}
@@ -96,7 +96,9 @@ export default function DurationAndPackage() {
         <View>
           <Text style={styles.footMetaLabel}>session</Text>
           <Text style={styles.footMetaValue}>
-            {selected ? formatMoney(selected.priceUsd, currency) : '—'}
+            {selected != null
+              ? formatMoney(packagePrice(draft.mediaKind, selected.hours) ?? 0, currency)
+              : '—'}
           </Text>
         </View>
         <Button

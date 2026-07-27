@@ -3,31 +3,48 @@ export type Occasion = (typeof OCCASIONS)[number];
 
 export type MediaKind = 'photo' | 'video' | 'both';
 
+// CONFIRMED launch pricing (Don, 2026-07-27): service type × duration.
+// Mirrors the `pricing_table` app_config row — the server is the charging
+// authority (§8); this copy only renders prices in the UI.
+export const PRICING_TABLE: Record<MediaKind, Record<string, number>> = {
+  photo: { '1': 60, '1.5': 90, '2': 120, '3': 180, '4': 240 },
+  video: { '1': 90, '1.5': 135, '2': 180, '3': 270, '4': 360 },
+  both: { '1': 130, '1.5': 195, '2': 260, '3': 390, '4': 520 },
+};
+
+export function packagePrice(kind: MediaKind, hours: number): number | undefined {
+  return PRICING_TABLE[kind][String(hours)];
+}
+
 export interface DurationOption {
   hours: number;
   label: string;
   deliverables: string;
-  priceUsd: number;
-  popular?: boolean;
 }
 
+// Deliverables lines are prototype copy pending confirmation; prices come
+// from PRICING_TABLE, never from here.
 export const DURATIONS: DurationOption[] = [
-  { hours: 1, label: '1 hour', deliverables: '20+ edited photos', priceUsd: 120 },
-  { hours: 2, label: '2 hours', deliverables: '45+ edited photos', priceUsd: 220, popular: true },
-  { hours: 3, label: '3 hours', deliverables: '70+ edited photos', priceUsd: 310 },
-  { hours: 6, label: 'Half day (6 hrs)', deliverables: 'Full coverage + highlights', priceUsd: 560 },
+  { hours: 1, label: '1 hour', deliverables: '20+ edited photos' },
+  { hours: 1.5, label: '1.5 hours', deliverables: '30+ edited photos' },
+  { hours: 2, label: '2 hours', deliverables: '45+ edited photos' },
+  { hours: 3, label: '3 hours', deliverables: '70+ edited photos' },
+  { hours: 4, label: '4 hours', deliverables: 'Extended coverage + highlights' },
 ];
 
 export interface Creator {
   id: string;
   name: string;
-  rating: number;
+  /** null = no reviews yet — render "New" instead of stars. */
+  rating: number | null;
   sessions: number;
   specialties: Occasion[];
   verified: boolean;
-  distanceKm: number;
+  /** null = unknown (no geocoding for server creators yet). */
+  distanceKm: number | null;
   tint: string;
-  photo: number; // require() asset id
+  /** require() asset, remote avatar, or null → initial-letter fallback. */
+  photo: number | { uri: string } | null;
   loc: string;
 }
 
@@ -80,7 +97,7 @@ export const SEED_BOOKINGS: Booking[] = [
     scheduledAt: in3Days.toISOString(),
     durationHours: 1,
     mediaKind: 'photo',
-    priceUsd: 120,
+    priceUsd: 60,
     status: 'confirmed',
     rescheduleCount: 0,
   },
@@ -94,7 +111,7 @@ export const SEED_BOOKINGS: Booking[] = [
     scheduledAt: in30Hours.toISOString(),
     durationHours: 2,
     mediaKind: 'both',
-    priceUsd: 220,
+    priceUsd: 260,
     status: 'confirmed',
     rescheduleCount: 1,
   },
@@ -108,7 +125,7 @@ export const SEED_BOOKINGS: Booking[] = [
     scheduledAt: past.toISOString(),
     durationHours: 1,
     mediaKind: 'photo',
-    priceUsd: 120,
+    priceUsd: 60,
     status: 'completed',
     rescheduleCount: 0,
   },

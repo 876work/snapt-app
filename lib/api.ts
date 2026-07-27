@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { Booking } from './mock/data';
+import { Booking, Creator, Occasion } from './mock/data';
 import { BookingDraft } from './store';
 
 // Phase 1 API client. When EXPO_PUBLIC_API_URL is set, the booking flow uses
@@ -53,6 +53,49 @@ export async function fetchDaySlots(
   return result.slots.map((s) => s.time);
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True when the id came from the server (uuid) rather than the mock catalog. */
+export function isServerCreatorId(id: string | null): boolean {
+  return id != null && UUID_RE.test(id);
+}
+
+const AVATAR_TINTS = ['#F2C14E', '#6FD3E0', '#8ED7A6', '#F2A0B5', '#E8863D'];
+
+interface ServerCreator {
+  id: string;
+  full_name: string;
+  specialties: Occasion[];
+  verified: boolean;
+  base_area: string | null;
+  avatar_url: string | null;
+}
+
+/**
+ * Eligible creators for an occasion (§12 hard filter), mapped to the app's
+ * Creator shape. rating/distance are null until the reviews system and
+ * geocoding exist — the UI renders "New" / base area for those.
+ */
+export async function fetchEligibleCreators(occasion: string, area?: string | null): Promise<Creator[] | null> {
+  const qs = area ? `&area=${encodeURIComponent(area)}` : '';
+  const result = await request<{ creators: ServerCreator[] }>(
+    `/v1/creators/eligible?occasion=${encodeURIComponent(occasion)}${qs}`,
+  );
+  if (!result) return null;
+  return result.creators.map((c, i) => ({
+    id: c.id,
+    name: c.full_name,
+    rating: null,
+    sessions: 0,
+    specialties: c.specialties,
+    verified: c.verified,
+    distanceKm: null,
+    tint: AVATAR_TINTS[i % AVATAR_TINTS.length],
+    photo: c.avatar_url ? { uri: c.avatar_url } : null,
+    loc: c.base_area ?? '',
+  }));
+}
+
 interface ServerBooking {
   id: string;
   type: 'in_person' | 'remote';
@@ -95,9 +138,9 @@ export async function createBookingApi(
         meeting_point: draft.meetingPoint || undefined,
         date: draft.date,
         time: draft.time,
-        // Note: draft.creatorId is a mock-catalog id, not a server uuid;
-        // omit it and let the server auto-assign until the Creator
-        // Assignment screen is served from /v1/creators/eligible.
+        // A tapped creator (server uuid, from /v1/creators/eligible) is the
+        // one actually booked; null → "Match me automatically" server-side.
+        creator_id: isServerCreatorId(draft.creatorId) ? draft.creatorId : undefined,
       }),
     });
     const json = (await res.json()) as { booking?: ServerBooking; error?: string };
@@ -110,7 +153,9 @@ export async function createBookingApi(
         id: b.id,
         type: b.type === 'in_person' ? 'in-person' : 'remote',
         occasion: b.occasion,
-        creatorId: draft.creatorId, // keep the picked card for display
+        // Server's assignment wins (it may auto-assign); eligible creators
+        // are registered in the catalog so this id resolves for display.
+        creatorId: b.creator_id ?? draft.creatorId,
         area: (b.area as Booking['area']) ?? draft.area,
         meetingPoint: b.meeting_point ?? undefined,
         scheduledAt: b.scheduled_at ?? new Date().toISOString(),

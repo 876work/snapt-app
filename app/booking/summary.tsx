@@ -6,7 +6,8 @@ import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { Button } from '../../components/ui/Button';
 import { Divider } from '../../components/ui/Misc';
 import { SlideToConfirm } from '../../components/ui/SlideToConfirm';
-import { DURATIONS } from '../../lib/mock/data';
+import { DURATIONS, packagePrice } from '../../lib/mock/data';
+import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { creatorById, useAuth, useBookings } from '../../lib/store';
 import { apiConfigured, createBookingApi } from '../../lib/api';
 import {
@@ -46,7 +47,11 @@ export default function OrderSummary() {
   const [saveCard, setSaveCard] = React.useState(true);
   const [bookError, setBookError] = React.useState<string | null>(null);
 
-  const base = duration?.priceUsd ?? 0;
+  // Display price from the confirmed table (service type × duration); the
+  // server recomputes from config at booking creation (§8).
+  const base = draft.durationHours != null
+    ? packagePrice(draft.mediaKind, draft.durationHours) ?? 0
+    : 0;
   const addonsTotal = ADDONS.filter((a) => addons.includes(a.id)).reduce((s, a) => s + a.priceUsd, 0);
   const serviceFee = (base + addonsTotal) * CLIENT_SERVICE_FEE_RATE;
   const total = base + addonsTotal + serviceFee;
@@ -101,8 +106,8 @@ export default function OrderSummary() {
         <View style={styles.card}>
           {creator && (
             <View style={styles.creatorRow}>
-              <View style={styles.creatorPhoto}>
-                <Image source={creator.photo} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+              <View style={[styles.creatorPhoto, { backgroundColor: creator.tint }]}>
+                <CreatorAvatar name={creator.name} photo={creator.photo} textSize={16} />
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.creatorTitle}>

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { CreatorAvatar } from '../../../components/ui/CreatorAvatar';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
 import { creatorById, useBookings } from '../../../lib/store';
 import { colors } from '../../../lib/theme';
@@ -25,7 +26,7 @@ export default function Rating() {
         <View style={{ alignItems: 'center' }}>
           {creator && (
             <View style={styles.avatar}>
-              <Image source={creator.photo} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+              <CreatorAvatar name={creator.name} photo={creator.photo} />
             </View>
           )}
           <Text style={styles.title}>Edited by {creator?.name ?? 'your editor'}</Text>

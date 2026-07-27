@@ -1,25 +1,50 @@
 import React from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { Button } from '../../components/ui/Button';
+import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { useBookings } from '../../lib/store';
+import { apiConfigured, fetchEligibleCreators } from '../../lib/api';
 import { colors, spacing } from '../../lib/theme';
 
 export default function CreatorAssignment() {
   const router = useRouter();
-  const { draft, setDraft, eligibleCreators } = useBookings();
+  const { draft, setDraft, eligibleCreators, registerCreators } = useBookings();
   const [auto, setAuto] = React.useState(true);
+
+  // API mode: real approved creators from /v1/creators/eligible (§12 hard
+  // filter runs server-side). null = mock mode or still loading.
+  const [serverCreators, setServerCreators] = React.useState<
+    ReturnType<typeof eligibleCreators> | null
+  >(null);
+  React.useEffect(() => {
+    if (!apiConfigured || !draft.occasion) return;
+    let stale = false;
+    fetchEligibleCreators(draft.occasion, draft.area).then((list) => {
+      if (stale || !list) return;
+      setServerCreators(list);
+      // Register so creatorById() resolves these ids on later screens.
+      registerCreators(list);
+    });
+    return () => {
+      stale = true;
+    };
+  }, [draft.occasion, draft.area]);
 
   // Hard filter: creators without this occasion as a specialty are excluded
   // entirely, never just deprioritized — handoff §7/§12.
-  const creators = eligibleCreators().sort((a, b) => a.distanceKm - b.distanceKm);
+  const creators =
+    serverCreators ??
+    eligibleCreators().sort((a, b) => (a.distanceKm ?? 99) - (b.distanceKm ?? 99));
   const canContinue = auto || !!draft.creatorId;
 
   const pickAuto = () => {
     setAuto(true);
-    setDraft({ creatorId: creators[0]?.id });
+    // API mode: null lets the server auto-assign; mock mode keeps the old
+    // best-match preview behavior.
+    setDraft({ creatorId: serverCreators ? null : creators[0]?.id });
   };
   const pickCreator = (id: string) => {
     setAuto(false);
@@ -84,7 +109,7 @@ export default function CreatorAssignment() {
                     style={[styles.card, active && styles.cardActive]}
                   >
                     <View style={[styles.photo, { backgroundColor: c.tint }]}>
-                      <Image source={c.photo} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                      <CreatorAvatar name={c.name} photo={c.photo} />
                     </View>
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <View style={styles.nameRow}>
@@ -94,7 +119,13 @@ export default function CreatorAssignment() {
                             <Path d="M12 2l2.9 6.3 6.9.6-5.2 4.6 1.6 6.8L12 17.3 5.8 20.9l1.6-6.8L2.2 8.9l6.9-.6z" />
                           </Svg>
                           <Text style={styles.rating}>
-                            {c.rating.toFixed(1)} <Text style={styles.reviews}>({c.sessions})</Text>
+                            {c.rating != null ? (
+                              <>
+                                {c.rating.toFixed(1)} <Text style={styles.reviews}>({c.sessions})</Text>
+                              </>
+                            ) : (
+                              'New'
+                            )}
                           </Text>
                         </View>
                       </View>
@@ -112,11 +143,20 @@ export default function CreatorAssignment() {
                           <Path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z" stroke="#8A8377" strokeWidth={1.8} strokeLinejoin="round" />
                           <Circle cx="12" cy="10" r="2.3" stroke="#8A8377" strokeWidth={1.8} />
                         </Svg>
-                        <Text style={styles.dist}>{c.distanceKm.toFixed(1)} km from your meeting area</Text>
+                        <Text style={styles.dist}>
+                          {c.distanceKm != null
+                            ? `${c.distanceKm.toFixed(1)} km from your meeting area`
+                            : c.loc || 'Saint Lucia'}
+                        </Text>
                       </View>
                       {best && draft.occasion && (
                         <Text style={styles.why}>
-                          Specializes in {draft.occasion} · closest to your area
+                          Specializes in {draft.occasion}
+                          {c.distanceKm != null
+                            ? ' · closest to your area'
+                            : c.loc && draft.area === c.loc
+                              ? ` · based in ${c.loc}`
+                              : ''}
                         </Text>
                       )}
                       <View style={styles.tagRow}>
@@ -172,7 +212,9 @@ export default function CreatorAssignment() {
             arrow
             disabled={!canContinue}
             onPress={() => {
-              if (auto && creators[0]) setDraft({ creatorId: creators[0].id });
+              // Mock mode previews the best match; API mode keeps null so
+              // the server does the actual matching.
+              if (auto) setDraft({ creatorId: serverCreators ? null : creators[0]?.id ?? null });
               router.push('/booking/summary');
             }}
             style={{ flex: 1 }}

@@ -101,6 +101,7 @@ export function registerCreatorRoutes(app: FastifyInstance) {
         creators: creators.map((c) => ({
           id: c.user_id,
           full_name: c.full_name,
+          avatar_url: c.avatar_url,
           specialties: c.specialties,
           verified: c.verified,
           base_area: c.base_area,

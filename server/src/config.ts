@@ -24,14 +24,19 @@ export async function configNumber(key: string, fallback: number): Promise<numbe
   return typeof v === 'number' ? v : fallback;
 }
 
-export interface DurationPackage {
-  hours: number;
-  label: string;
-  deliverables: string;
-  price_usd: number;
+export type PricingTable = Record<string, Record<string, number>>;
+
+/** CONFIRMED launch pricing: service type (photo/video/both) × duration hours. */
+export async function pricingTable(): Promise<PricingTable> {
+  const config = await getConfig();
+  return (config['pricing_table'] as PricingTable) ?? {};
 }
 
-export async function durationPackages(): Promise<DurationPackage[]> {
-  const config = await getConfig();
-  return (config['duration_packages'] as DurationPackage[]) ?? [];
+/** Price in USD for a service type × duration, or undefined if not offered. */
+export async function packagePriceUsd(
+  mediaKind: string,
+  durationHours: number,
+): Promise<number | undefined> {
+  const table = await pricingTable();
+  return table[mediaKind]?.[String(durationHours)];
 }
