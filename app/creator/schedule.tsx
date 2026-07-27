@@ -1,0 +1,142 @@
+import React from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import { useAuth } from '../../lib/store';
+import { useCreator } from '../../lib/store/creator';
+import { formatMoney } from '../../lib/constants/business';
+import { colors } from '../../lib/theme';
+
+const FIXED = [
+  { id: 's1', day: 'TODAY', title: 'Golden-hour portraits', time: '5:30 PM · 1.5 hrs', loc: 'Rodney Bay', payUsd: 95.2, status: 'Confirmed' },
+  { id: 's2', day: 'SAT, 2 AUG', title: 'Family beach session', time: '9:00 AM · 2 hrs', loc: 'Pigeon Island', payUsd: 146.9, status: 'Confirmed' },
+  { id: 's3', day: 'ONGOING', title: 'Wedding highlight edit', time: 'Due Thu, 31 Jul', loc: 'Remote edit', payUsd: 108.8, status: 'Editing' },
+];
+
+export default function CreatorSchedule() {
+  const router = useRouter();
+  const currency = useAuth((s) => s.currency);
+  const { offers, jobStages } = useCreator();
+  const accepted = offers.filter((o) => jobStages[o.id] && jobStages[o.id] !== 'offer');
+
+  return (
+    <View style={styles.root}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Schedule</Text>
+      </View>
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        {accepted.map((j) => (
+          <View key={j.id}>
+            <Text style={styles.dayLabel}>JUST ACCEPTED</Text>
+            <Pressable onPress={() => router.push(`/creator/job/${j.id}`)} style={styles.card}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.cardTitle}>{j.title}</Text>
+                <View style={styles.metaRow}>
+                  <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+                    <Rect x="4" y="5.5" width="16" height="14" rx="3" stroke={colors.grey} strokeWidth={1.8} />
+                    <Path d="M4 9.5h16M8 3.5v3M16 3.5v3" stroke={colors.grey} strokeWidth={1.8} strokeLinecap="round" />
+                  </Svg>
+                  <Text style={styles.metaLabel}>{j.when}</Text>
+                </View>
+                <View style={styles.metaRow}>
+                  <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+                    <Path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z" stroke={colors.grey} strokeWidth={1.8} strokeLinejoin="round" />
+                    <Circle cx="12" cy="10" r="2.3" stroke={colors.grey} strokeWidth={1.8} />
+                  </Svg>
+                  <Text style={styles.metaLabel}>{j.loc}</Text>
+                </View>
+              </View>
+              <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                <Text style={styles.pay}>{formatMoney(j.payUsd, currency)}</Text>
+                <View style={[styles.statusPill, { backgroundColor: '#E6F7EE' }]}>
+                  <Text style={[styles.statusLabel, { color: '#159A57' }]}>Accepted</Text>
+                </View>
+              </View>
+            </Pressable>
+          </View>
+        ))}
+        {FIXED.map((s) => (
+          <View key={s.id}>
+            <Text style={styles.dayLabel}>{s.day}</Text>
+            <View style={styles.card}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.cardTitle}>{s.title}</Text>
+                <View style={styles.metaRow}>
+                  <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+                    <Circle cx="12" cy="12" r="9" stroke={colors.grey} strokeWidth={1.8} />
+                    <Path d="M12 7.5V12l3 2" stroke={colors.grey} strokeWidth={1.8} strokeLinecap="round" />
+                  </Svg>
+                  <Text style={styles.metaLabel}>{s.time}</Text>
+                </View>
+                <View style={styles.metaRow}>
+                  <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+                    <Path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z" stroke={colors.grey} strokeWidth={1.8} strokeLinejoin="round" />
+                    <Circle cx="12" cy="10" r="2.3" stroke={colors.grey} strokeWidth={1.8} />
+                  </Svg>
+                  <Text style={styles.metaLabel}>{s.loc}</Text>
+                </View>
+              </View>
+              <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                <Text style={styles.pay}>{formatMoney(s.payUsd, currency)}</Text>
+                <View
+                  style={[
+                    styles.statusPill,
+                    { backgroundColor: s.status === 'Editing' ? '#FFF4D6' : '#E6F7EE' },
+                  ]}
+                >
+                  <Text
+                    style={[styles.statusLabel, { color: s.status === 'Editing' ? '#8A6800' : '#159A57' }]}
+                  >
+                    {s.status}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        ))}
+        <Text style={styles.blockNote}>
+          Need time off? Blocked dates sync automatically — clients can't book you on days you mark
+          unavailable.
+        </Text>
+        <View style={{ height: 130 }} />
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.offWhite },
+  header: { paddingTop: 66, paddingHorizontal: 22, paddingBottom: 8 },
+  title: { fontSize: 18, fontWeight: '800', letterSpacing: -0.35, color: colors.ink },
+  body: { paddingHorizontal: 22, paddingTop: 12 },
+  dayLabel: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: colors.yellowDark,
+    letterSpacing: 0.6,
+    marginTop: 16,
+    marginBottom: 8,
+    marginHorizontal: 2,
+  },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 15,
+    paddingHorizontal: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  cardTitle: { fontSize: 14.5, fontWeight: '800', letterSpacing: -0.2, color: colors.ink },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+  metaLabel: { fontSize: 11, color: colors.greyWarm },
+  pay: { fontSize: 15, fontWeight: '800', color: colors.ink },
+  statusPill: { borderRadius: 7, paddingHorizontal: 8, paddingVertical: 4 },
+  statusLabel: { fontSize: 9.5, fontWeight: '800' },
+  blockNote: { fontSize: 11.5, color: '#9A948B', lineHeight: 17, marginTop: 20, paddingHorizontal: 2 },
+});

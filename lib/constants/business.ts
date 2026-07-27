@@ -3,6 +3,9 @@
 
 export const CLIENT_SERVICE_FEE_RATE = 0.08;
 export const CREATOR_PLATFORM_FEE_RATE = 0.32;
+// Promo rates may apply, shown with strikethrough against the standard rate (§5).
+// Actual promo value is admin-set; 20% is the prototype's illustrative rate.
+export const CREATOR_PROMO_FEE_RATE = 0.2;
 
 export const XCD_PER_USD = 2.7;
 
