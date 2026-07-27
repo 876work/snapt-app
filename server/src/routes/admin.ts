@@ -1,6 +1,8 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { supabaseAdmin } from '../supabase.js';
-import { env } from '../env.js';
+import { audit, requireAdmin } from '../admin-auth.js';
+import { reassignBooking, offerWindowMs } from '../offers.js';
+import { notify } from '../notify.js';
 
 // Admin Portal (handoff §15) — Phase 5 foundation. Sits on the SAME backend
 // and data model as the apps (§15 mandate), served as a responsive single
@@ -10,21 +12,10 @@ import { env } from '../env.js';
 // history + overturn. Remaining §15 scope (fee settings UI, analytics,
 // moderation, legal CMS, manual dispatch) is tracked in the README.
 
-function guard(request: FastifyRequest, reply: FastifyReply): boolean {
-  if (!env.adminApiToken) {
-    reply.code(503).send({ error: 'Admin actions disabled' });
-    return false;
-  }
-  if (request.headers['x-admin-token'] !== env.adminApiToken) {
-    reply.code(403).send({ error: 'Forbidden' });
-    return false;
-  }
-  return true;
-}
-
 export function registerAdminRoutes(app: FastifyInstance) {
   app.get('/v1/admin/alerts', async (request, reply) => {
-    if (!guard(request, reply)) return;
+    const adminId = await requireAdmin(request, reply);
+    if (!adminId) return;
     const { data } = await supabaseAdmin
       .from('admin_alerts')
       .select('*')
@@ -37,16 +28,19 @@ export function registerAdminRoutes(app: FastifyInstance) {
   });
 
   app.post<{ Params: { id: string } }>('/v1/admin/alerts/:id/resolve', async (request, reply) => {
-    if (!guard(request, reply)) return;
+    const adminId = await requireAdmin(request, reply);
+    if (!adminId) return;
     await supabaseAdmin
       .from('admin_alerts')
       .update({ resolved_at: new Date().toISOString() })
       .eq('id', request.params.id);
+    await audit(adminId, 'alert_resolved', request.params.id);
     return { resolved: true };
   });
 
   app.get('/v1/admin/disputes', async (request, reply) => {
-    if (!guard(request, reply)) return;
+    const adminId = await requireAdmin(request, reply);
+    if (!adminId) return;
     const { data } = await supabaseAdmin
       .from('disputes')
       .select('*, dispute_evidence(id, submitted_by, kind, content, created_at)')
@@ -56,13 +50,129 @@ export function registerAdminRoutes(app: FastifyInstance) {
   });
 
   app.get('/v1/admin/applications', async (request, reply) => {
-    if (!guard(request, reply)) return;
+    const adminId = await requireAdmin(request, reply);
+    if (!adminId) return;
     const { data } = await supabaseAdmin
       .from('creator_profiles')
       .select('user_id, specialties, base_area, vetting_status, created_at, profiles!inner(full_name, email)')
       .eq('vetting_status', 'in_review')
       .order('created_at', { ascending: true });
     return { applications: data ?? [] };
+  });
+
+  // §15 fee/promo settings: every app_config row is admin-editable.
+  app.get('/v1/admin/config', async (request, reply) => {
+    const adminId = await requireAdmin(request, reply);
+    if (!adminId) return;
+    const { data } = await supabaseAdmin.from('app_config').select('*').order('key');
+    return { config: data ?? [] };
+  });
+  app.put<{ Params: { key: string }; Body: { value?: unknown; confirmed?: boolean } }>(
+    '/v1/admin/config/:key',
+    async (request, reply) => {
+      const adminId = await requireAdmin(request, reply);
+      if (!adminId) return;
+      const patch: Record<string, unknown> = {};
+      if (request.body?.value !== undefined) patch.value = request.body.value;
+      if (request.body?.confirmed !== undefined) patch.confirmed = request.body.confirmed;
+      const { error } = await supabaseAdmin.from('app_config').update(patch).eq('key', request.params.key);
+      if (error) return reply.code(500).send({ error: error.message });
+      await audit(adminId, 'config_updated', request.params.key, { value: request.body?.value });
+      return { updated: true };
+    },
+  );
+
+  // §15 analytics: platform counters off the shared data model.
+  app.get('/v1/admin/analytics', async (request, reply) => {
+    const adminId = await requireAdmin(request, reply);
+    if (!adminId) return;
+    const count = async (table: string, filter?: (q: any) => any) => {
+      let q = supabaseAdmin.from(table).select('*', { count: 'exact', head: true });
+      if (filter) q = filter(q);
+      return (await q).count ?? 0;
+    };
+    const { data: charges } = await supabaseAdmin.from('transactions').select('type, amount_usd');
+    const sum = (t: string) =>
+      Math.round((charges ?? []).filter((c) => c.type === t).reduce((s, c) => s + Number(c.amount_usd), 0) * 100) / 100;
+    return {
+      bookings: {
+        pending: await count('bookings', (q) => q.eq('status', 'pending')),
+        confirmed: await count('bookings', (q) => q.eq('status', 'confirmed')),
+        completed: await count('bookings', (q) => q.eq('status', 'completed')),
+        cancelled: await count('bookings', (q) => q.eq('status', 'cancelled')),
+        disputed: await count('bookings', (q) => q.eq('status', 'disputed')),
+      },
+      money: { charged_usd: sum('charge'), refunded_usd: sum('refund') },
+      creators: {
+        approved: await count('creator_profiles', (q) => q.eq('vetting_status', 'approved')),
+        in_review: await count('creator_profiles', (q) => q.eq('vetting_status', 'in_review')),
+      },
+      open_disputes: await count('disputes', (q) => q.not('status', 'in', '(resolved,closed)')),
+      active_strikes: await count('strikes', (q) => q.eq('overturned', false).gt('expires_at', new Date().toISOString())),
+    };
+  });
+
+  // §15 manual dispatch: assign a creator to an unassigned pending booking
+  // (goes through the normal accept window, not straight to confirmed).
+  app.get('/v1/admin/unassigned', async (request, reply) => {
+    const adminId = await requireAdmin(request, reply);
+    if (!adminId) return;
+    const { data } = await supabaseAdmin
+      .from('bookings')
+      .select('id, occasion, area, scheduled_at, type, declined_creator_ids')
+      .eq('status', 'pending')
+      .is('creator_id', null)
+      .order('created_at', { ascending: true });
+    return { bookings: data ?? [] };
+  });
+  app.post<{ Params: { id: string }; Body: { creator_id?: string } }>(
+    '/v1/admin/bookings/:id/assign',
+    async (request, reply) => {
+      const adminId = await requireAdmin(request, reply);
+      if (!adminId) return;
+      const creatorId = request.body?.creator_id;
+      if (!creatorId) return reply.code(400).send({ error: 'creator_id required' });
+      const { data: booking } = await supabaseAdmin
+        .from('bookings')
+        .select('id, status, occasion, area')
+        .eq('id', request.params.id)
+        .maybeSingle();
+      if (!booking || booking.status !== 'pending') {
+        return reply.code(409).send({ error: 'Only pending bookings can be dispatched' });
+      }
+      await supabaseAdmin
+        .from('bookings')
+        .update({
+          creator_id: creatorId,
+          offer_expires_at: new Date(Date.now() + (await offerWindowMs())).toISOString(),
+        })
+        .eq('id', booking.id);
+      await notify(creatorId, 'offer_received', 'New job offer',
+        `A ${booking.occasion ?? 'session'} booking near ${booking.area ?? 'you'} was assigned to you — accept within the offer window.`);
+      await audit(adminId, 'manual_dispatch', booking.id, { creator_id: creatorId });
+      return { assigned: true };
+    },
+  );
+
+  // Admin login: normal Supabase password auth; membership checked on use.
+  app.post<{ Body: { email?: string; password?: string } }>('/v1/admin/login', async (request, reply) => {
+    const { email, password } = request.body ?? {};
+    if (!email || !password) return reply.code(400).send({ error: 'email and password required' });
+    const res = await fetch(`${process.env.SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: {
+        apikey: process.env.SUPABASE_ANON_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? '',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, password }),
+    });
+    const json = (await res.json()) as { access_token?: string; user?: { id: string } };
+    if (!res.ok || !json.access_token || !json.user) {
+      return reply.code(401).send({ error: 'Invalid credentials' });
+    }
+    const { data } = await supabaseAdmin.from('admin_users').select('user_id, role').eq('user_id', json.user.id).maybeSingle();
+    if (!data) return reply.code(403).send({ error: 'Not an admin account' });
+    return { access_token: json.access_token, role: data.role };
   });
 
   // Responsive single-page portal on the same origin.
@@ -87,19 +197,28 @@ button.ghost{background:#eee}
 pre{white-space:pre-wrap;font-size:11px;color:#555;margin:6px 0 0}
 </style></head><body>
 <header>Snapt Admin
-<input id="tok" placeholder="Admin token" />
-<button onclick="save()">Load</button></header>
+<input id="em" placeholder="Admin email" />
+<input id="pw" placeholder="Password" type="password" />
+<button onclick="login()">Sign in</button></header>
 <main>
+<div id="stats" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+<h2>Fee & config settings</h2><div id="cfg"></div>
+<h2>Manual dispatch — unassigned bookings</h2><div id="unassigned"></div>
 <h2>Alerts (SOS first)</h2><div id="alerts"></div>
 <h2>Open disputes</h2><div id="disputes"></div>
 <h2>Creator applications</h2><div id="apps"></div>
 </main><script>
 const $=id=>document.getElementById(id);
-const H=()=>({'x-admin-token':localStorage.tok||'','Content-Type':'application/json'});
-function save(){localStorage.tok=$('tok').value;load()}
+const H=()=>({'Authorization':'Bearer '+(localStorage.jwt||''),'x-admin-token':localStorage.tok||'','Content-Type':'application/json'});
+async function login(){const r=await fetch('/v1/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('em').value,password:$('pw').value})});const d=await r.json();if(d.access_token){localStorage.jwt=d.access_token;load()}else alert(d.error||'Login failed')}
 async function j(u,o){const r=await fetch(u,Object.assign({headers:H()},o));return r.json()}
 async function load(){
- $('tok').value=localStorage.tok||'';
+ const st=await j('/v1/admin/analytics');
+ if(st.bookings){$('stats').innerHTML=[['Pending',st.bookings.pending],['Confirmed',st.bookings.confirmed],['Completed',st.bookings.completed],['Disputed',st.bookings.disputed],['GMV $',st.money.charged_usd],['Refunded $',st.money.refunded_usd],['Creators',st.creators.approved],['Open disputes',st.open_disputes],['Active strikes',st.active_strikes]].map(x=>'<div class="card" style="flex:1;min-width:90px;text-align:center"><div style="font-size:20px;font-weight:800">'+x[1]+'</div><div style="font-size:11px;color:#777">'+x[0]+'</div></div>').join('')}
+ const cfg=await j('/v1/admin/config');
+ $('cfg').innerHTML=(cfg.config||[]).map(c=>'<div class="card"><b>'+c.key+'</b> '+(c.confirmed?'':'<span class="tag">UNCONFIRMED</span>')+'<pre>'+c.description+'</pre><input style="width:70%" id="v-'+c.key+'" value=\''+JSON.stringify(c.value).replace(/'/g,"&#39;")+'\'/> <button onclick="saveCfg(\''+c.key+'\')">Save</button></div>').join('');
+ const un=await j('/v1/admin/unassigned');
+ $('unassigned').innerHTML=(un.bookings||[]).map(b=>'<div class="card"><span class="tag">'+(b.occasion||b.type)+'</span>'+(b.area||'')+' · '+(b.scheduled_at?new Date(b.scheduled_at).toLocaleString():'remote')+'<br/><input placeholder="creator uuid" id="a-'+b.id+'" style="width:60%"/> <button onclick="assign(\''+b.id+'\')">Assign</button></div>').join('')||'<div class="card">Nothing waiting for dispatch.</div>';
  const a=await j('/v1/admin/alerts');
  $('alerts').innerHTML=(a.alerts||[]).map(x=>'<div class="card '+(x.alert_type==='sos'?'sos':'')+'"><span class="tag">'+x.alert_type+'</span>'+new Date(x.created_at).toLocaleString()+'<pre>'+JSON.stringify(x.detail)+'</pre><button onclick="resolveAlert(\\''+x.id+'\\')">Resolve</button></div>').join('')||'<div class="card">Queue clear.</div>';
  const d=await j('/v1/admin/disputes');
@@ -107,8 +226,10 @@ async function load(){
  const p=await j('/v1/admin/applications');
  $('apps').innerHTML=(p.applications||[]).map(x=>'<div class="card"><b>'+x.profiles.full_name+'</b> · '+x.profiles.email+'<pre>'+(x.specialties||[]).join(', ')+' · '+(x.base_area||'')+'</pre><button onclick="approve(\\''+x.user_id+'\\')">Approve (bg check passed)</button></div>').join('')||'<div class="card">No pending applications.</div>';
 }
+async function saveCfg(k){try{const v=JSON.parse($('v-'+k).value);await j('/v1/admin/config/'+k,{method:'PUT',body:JSON.stringify({value:v})});load()}catch(e){alert('Invalid JSON')}}
+async function assign(id){await j('/v1/admin/bookings/'+id+'/assign',{method:'POST',body:JSON.stringify({creator_id:$('a-'+id).value.trim()})});load()}
 async function resolveAlert(id){await j('/v1/admin/alerts/'+id+'/resolve',{method:'POST'});load()}
 async function resolveDispute(id,rel){const note=prompt('Resolution note:')||'';await j('/v1/admin/disputes/'+id+'/resolve',{method:'POST',body:JSON.stringify({resolution:note,release_payout:rel})});load()}
 async function approve(id){await j('/v1/admin/creators/'+id+'/approve',{method:'POST',body:JSON.stringify({background_check_passed:true})});load()}
-if(localStorage.tok)load();
+if(localStorage.jwt||localStorage.tok)load();
 </script></body></html>`;

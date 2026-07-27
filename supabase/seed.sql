@@ -124,3 +124,17 @@ values
     '{"mon": [{"start": "09:00", "end": "15:00"}], "tue": [{"start": "09:00", "end": "15:00"}], "thu": [{"start": "09:00", "end": "15:00"}], "sat": [{"start": "07:00", "end": "19:00"}], "sun": [{"start": "07:00", "end": "19:00"}]}'),
   ('00000000-0000-4000-8000-000000000005', 'approved', 'pending', null, '{Social,Events}', 12, 'Soufrière', false,
     '{"thu": [{"start": "09:00", "end": "17:00"}], "fri": [{"start": "09:00", "end": "21:00"}], "sat": [{"start": "09:00", "end": "21:00"}]}');
+
+-- LOCAL-ONLY demo admin (password1234) — real admins are provisioned by
+-- inserting into admin_users against a normal Supabase auth user.
+insert into auth.users
+  (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
+   raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+   confirmation_token, recovery_token, email_change, email_change_token_new,
+   email_change_token_current, phone_change, phone_change_token, reauthentication_token)
+values
+  ('00000000-0000-4000-8000-00000000000a', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+   'admin@demo.snapt', crypt('password1234', gen_salt('bf')), now(),
+   '{"provider": "email", "providers": ["email"]}', '{"full_name": "Don (Admin)"}', now(), now(),
+   '', '', '', '', '', '', '', '');
+insert into admin_users (user_id, role) values ('00000000-0000-4000-8000-00000000000a', 'admin');

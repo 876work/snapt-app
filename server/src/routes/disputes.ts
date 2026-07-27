@@ -3,7 +3,7 @@ import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
 import { getConfig } from '../config.js';
 import { notify } from '../notify.js';
-import { env } from '../env.js';
+import { audit, requireAdmin } from '../admin-auth.js';
 
 // Phase 4 dispute intake (§10): tied to a booking, 72h evidence window,
 // and payout freezing — an open dispute blocks the booking's payout from
@@ -113,10 +113,8 @@ export function registerDisputeRoutes(app: FastifyInstance) {
     Params: { disputeId: string };
     Body: { resolution?: string; release_payout?: boolean };
   }>('/v1/admin/disputes/:disputeId/resolve', async (request, reply) => {
-    if (!env.adminApiToken) return reply.code(503).send({ error: 'Admin actions disabled' });
-    if (request.headers['x-admin-token'] !== env.adminApiToken) {
-      return reply.code(403).send({ error: 'Forbidden' });
-    }
+    const adminId = await requireAdmin(request, reply);
+    if (!adminId) return;
     const { data: dispute } = await supabaseAdmin
       .from('disputes')
       .select('id, booking_id, opened_by, status')
@@ -153,6 +151,7 @@ export function registerDisputeRoutes(app: FastifyInstance) {
         await notify(party, 'dispute_resolved', 'Dispute resolved', 'Your dispute has been reviewed and resolved — see the outcome in the app.');
       }
     }
+    await audit(adminId, 'dispute_resolved', dispute.id, { release_payout: Boolean(request.body?.release_payout) });
     return { resolved: true, payout_released: Boolean(request.body?.release_payout) };
   });
 }

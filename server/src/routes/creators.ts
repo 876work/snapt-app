@@ -4,7 +4,7 @@ import { supabaseAdmin } from '../supabase.js';
 import { eligibleCreators } from '../availability.js';
 import { creatorStanding } from '../strikes.js';
 import { notify } from '../notify.js';
-import { env } from '../env.js';
+import { audit, requireAdmin } from '../admin-auth.js';
 
 const OCCASIONS = ['Events', 'Portraits', 'Social', 'Family', 'Wedding'];
 
@@ -118,10 +118,8 @@ export function registerCreatorRoutes(app: FastifyInstance) {
   app.post<{ Params: { userId: string }; Body: { background_check_passed?: boolean } }>(
     '/v1/admin/creators/:userId/approve',
     async (request, reply) => {
-      if (!env.adminApiToken) return reply.code(503).send({ error: 'Admin actions disabled' });
-      if (request.headers['x-admin-token'] !== env.adminApiToken) {
-        return reply.code(403).send({ error: 'Forbidden' });
-      }
+      const adminId = await requireAdmin(request, reply);
+      if (!adminId) return;
       const passed = request.body?.background_check_passed ?? false;
       const { error } = await supabaseAdmin
         .from('creator_profiles')
@@ -138,6 +136,7 @@ export function registerCreatorRoutes(app: FastifyInstance) {
         .eq('user_id', request.params.userId);
       if (error) return reply.code(500).send({ error: error.message });
       await notify(request.params.userId, 'application_approved', 'You\'re approved!', 'Welcome to Snapt — you can now receive bookings. Set your availability to go live.');
+      await audit(adminId, 'creator_approved', request.params.userId);
       return { status: 'approved' };
     },
   );
@@ -147,10 +146,8 @@ export function registerCreatorRoutes(app: FastifyInstance) {
   app.get<{ Params: { userId: string } }>(
     '/v1/admin/creators/:userId/strikes',
     async (request, reply) => {
-      if (!env.adminApiToken) return reply.code(503).send({ error: 'Admin actions disabled' });
-      if (request.headers['x-admin-token'] !== env.adminApiToken) {
-        return reply.code(403).send({ error: 'Forbidden' });
-      }
+      const adminId = await requireAdmin(request, reply);
+      if (!adminId) return;
       const { data, error } = await supabaseAdmin
         .from('strikes')
         .select('*')
@@ -164,15 +161,14 @@ export function registerCreatorRoutes(app: FastifyInstance) {
   app.post<{ Params: { strikeId: string } }>(
     '/v1/admin/strikes/:strikeId/overturn',
     async (request, reply) => {
-      if (!env.adminApiToken) return reply.code(503).send({ error: 'Admin actions disabled' });
-      if (request.headers['x-admin-token'] !== env.adminApiToken) {
-        return reply.code(403).send({ error: 'Forbidden' });
-      }
+      const adminId = await requireAdmin(request, reply);
+      if (!adminId) return;
       const { error } = await supabaseAdmin
         .from('strikes')
         .update({ overturned: true })
         .eq('id', request.params.strikeId);
       if (error) return reply.code(500).send({ error: error.message });
+      await audit(adminId, 'strike_overturned', request.params.strikeId);
       return { overturned: true };
     },
   );
