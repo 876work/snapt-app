@@ -8,7 +8,22 @@ import { colors } from '../../lib/theme';
 
 export default function UploadFootage() {
   const router = useRouter();
-  const { files, note, setNote, addFile } = useUpload();
+  const { files, note, setNote, addFile, addPicked } = useUpload();
+  const pick = async () => {
+    const { supabaseConfigured } = await import('../../lib/supabase');
+    if (!supabaseConfigured) return addFile(); // mock mode keeps demo files
+    const ImagePicker = await import('expo-image-picker');
+    const result = await ImagePicker.launchImageLibraryAsync({ allowsMultipleSelection: true, quality: 1 });
+    if (result.canceled) return;
+    addPicked(
+      result.assets.map((a, i) => ({
+        uri: a.uri,
+        name: a.fileName ?? `upload-${Date.now()}-${i}.jpg`,
+        mimeType: a.mimeType ?? undefined,
+        sizeMb: Math.round(((a.fileSize ?? 0) / 1048576) * 10) / 10,
+      })),
+    );
+  };
   const atLimit = files.length >= MAX_FILES;
   const totalMb = files.reduce((s, f) => s + f.sizeMb, 0);
   const usage = totalMb >= 1000 ? `${(totalMb / 1000).toFixed(1)}GB` : `${totalMb}MB`;
@@ -22,7 +37,7 @@ export default function UploadFootage() {
         </Text>
 
         {!atLimit ? (
-          <Pressable onPress={addFile} style={styles.dropzone}>
+          <Pressable onPress={pick} style={styles.dropzone}>
             <View style={styles.dropIcon}>
               <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
                 <Path d="M12 16V5m0 0L7.5 9.5M12 5l4.5 4.5" stroke={colors.ink} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />

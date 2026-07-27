@@ -49,7 +49,11 @@ be filed, so no clawback path is needed.
      to both parties before the 72h window closes).
 2. **Dispute evidence-upload screen** — intake + RLS submission path exist;
    the client/creator UI is Phase 5-adjacent design work.
-3. **notify.ts trigger table reconciliation** — the channel map is a
+3. **Content moderation queue** — BLOCKED ON DESIGN, deliberately not
+   built: what user actions flag content, what severities exist, and what
+   a flag triggers all need a policy design pass from Don first
+   (04_Content_and_Usage_Policy covers rules, not tooling). Do not guess.
+4. **notify.ts trigger table reconciliation** — the channel map is a
    reconstruction; diff against `11_Notification_Trigger_Mapping.md` the
    moment that document is actually delivered (not yet received as of
    2026-07-28), especially its Section 7 internal/admin routing.

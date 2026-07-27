@@ -12,6 +12,7 @@ import { registerEarningsRoutes } from './routes/earnings.js';
 import { registerSafetyRoutes } from './routes/safety.js';
 import { registerDisputeRoutes } from './routes/disputes.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { registerRevisionRoutes } from './routes/revisions.js';
 import { startScheduler } from './scheduler.js';
 
 const app = Fastify({ logger: true });
@@ -52,6 +53,7 @@ registerEarningsRoutes(app);
 registerSafetyRoutes(app);
 registerDisputeRoutes(app);
 registerAdminRoutes(app);
+registerRevisionRoutes(app);
 startScheduler();
 
 app.listen({ port: env.port, host: env.host }).catch((err) => {

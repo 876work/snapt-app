@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
@@ -80,6 +80,25 @@ export default function Delivery() {
     }
   };
 
+  // Revision request (1 free round; extra rounds only if purchased at
+  // booking). Server enforces entitlement; quality disputes require a
+  // delivered revision first (Policy 08 §2).
+  const [revText, setRevText] = React.useState('');
+  const [revStatus, setRevStatus] = React.useState<string | null>(null);
+  const requestRevision = async () => {
+    setRevStatus(null);
+    const api = await import('../../../lib/api');
+    if (api.apiConfigured && id) {
+      const result = await api.requestRevisionApi(id, revText.trim());
+      if (result && 'error' in result) {
+        setRevStatus(result.error);
+        return;
+      }
+    }
+    setRevText('');
+    setRevStatus('Revision requested — your creator has been notified.');
+  };
+
   const saveAll = async () => {
     setSaveNote(null);
     let ok = 0;
@@ -133,6 +152,25 @@ export default function Delivery() {
               </View>
             </View>
           ))}
+        </View>
+        <View style={styles.revCard}>
+          <Text style={styles.revTitle}>Need changes? Use your included revision</Text>
+          <TextInput
+            value={revText}
+            onChangeText={setRevText}
+            placeholder="Describe specifically what should change"
+            placeholderTextColor="#9A9A9A"
+            multiline
+            style={styles.revInput}
+          />
+          {revStatus ? <Text style={styles.revStatus}>{revStatus}</Text> : null}
+          <Pressable
+            onPress={requestRevision}
+            style={[styles.revBtn, revText.trim().length < 10 && { opacity: 0.4 }]}
+            disabled={revText.trim().length < 10}
+          >
+            <Text style={styles.revBtnLabel}>Request revision</Text>
+          </Pressable>
         </View>
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -230,4 +268,10 @@ const styles = StyleSheet.create({
   },
   rateLabel: { fontSize: 15, fontWeight: '700', color: colors.ink },
   saveNote: { fontSize: 12.5, color: colors.grey, fontWeight: '600', textAlign: 'center' },
+  revCard: { backgroundColor: '#fff', borderRadius: 14, padding: 14, marginTop: 18, gap: 10 },
+  revTitle: { fontSize: 13.5, fontWeight: '800', color: colors.ink },
+  revInput: { minHeight: 70, borderWidth: 1.5, borderColor: '#EFEBE3', borderRadius: 10, padding: 10, fontSize: 13, color: colors.ink, textAlignVertical: 'top' },
+  revStatus: { fontSize: 12.5, color: colors.grey, fontWeight: '600' },
+  revBtn: { height: 44, borderRadius: 12, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
+  revBtnLabel: { fontSize: 13.5, fontWeight: '800', color: '#fff' },
 });

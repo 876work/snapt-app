@@ -30,6 +30,8 @@ const TRIGGERS: Record<string, TriggerSpec> = {
   session_started: { category: 'bookings', push: true, email: false }, // §2: creator checked in
   session_ended: { category: 'bookings', push: false, email: false }, // §2: in-app only
   delivery_ready: { category: 'bookings', push: true, email: true }, // §3: "always push"
+  revision_requested: { category: 'bookings', push: true, email: false }, // §3: actionable
+  revision_delivered: { category: 'bookings', push: true, email: true }, // §3
   payment_charged: { category: 'account', push: false, email: true }, // §4: receipt, no push
   fee_charged: { category: 'account', push: true, email: true }, // §4: unexpected charge → push
   refund_processed: { category: 'account', push: true, email: true }, // §4

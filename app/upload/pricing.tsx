@@ -55,6 +55,17 @@ export default function RemoteOrderSummary() {
         extraRevisions: addons.includes('revision') ? 1 : 0,
       });
       if (result && 'booking' in result) {
+        // Upload the picked source files as raw footage (creator/editor-side
+        // only — clients can never read raw back).
+        for (const f of files) {
+          if (f.uri) {
+            await (await import('../../lib/api')).uploadMediaApi(result.booking.id, 'raw', {
+              uri: f.uri,
+              name: f.name ?? 'upload.jpg',
+              mimeType: f.mimeType,
+            });
+          }
+        }
         addServerBooking(result.booking);
         reset();
         setPayOpen(false);

@@ -5,9 +5,13 @@ export interface UploadFile {
   id: string;
   type: 'JPG' | 'PNG' | 'MP4' | 'MOV';
   sizeMb: number;
-  thumb: number | null; // require() asset or null for tint-only
+  thumb: number | { uri: string } | null; // asset, picked-file preview, or tint-only
   tint: string;
   oversize?: boolean;
+  /** Real picked file (API mode) — uploaded as raw after order creation. */
+  uri?: string;
+  name?: string;
+  mimeType?: string;
 }
 
 export interface EditStyle {
@@ -76,6 +80,7 @@ interface UploadState {
   /** Selected remote package tier (key in REMOTE_PACKAGES[mediaKind]). */
   tier: string;
   addFile: () => void;
+  addPicked: (files: { uri: string; name: string; mimeType?: string; sizeMb: number }[]) => void;
   setNote: (n: string) => void;
   setMediaKind: (k: MediaKind) => void;
   setStyleId: (id: string) => void;
@@ -103,6 +108,22 @@ export const useUpload = create<UploadState>((set, get) => ({
     const next = DEMO_POOL[files.length % DEMO_POOL.length];
     set({ files: [...files, { ...next, id: `f${Date.now()}` }] });
   },
+  addPicked: (picked) =>
+    set((s) => ({
+      files: [
+        ...s.files,
+        ...picked.slice(0, Math.max(0, MAX_FILES - s.files.length)).map((f, i) => ({
+          id: `p${Date.now()}-${i}`,
+          type: (f.mimeType?.includes('video') ? 'MP4' : 'JPG') as UploadFile['type'],
+          sizeMb: f.sizeMb,
+          thumb: { uri: f.uri },
+          tint: '#F2C14E',
+          uri: f.uri,
+          name: f.name,
+          mimeType: f.mimeType,
+        })),
+      ],
+    })),
   setNote: (note) => set({ note }),
   setMediaKind: (mediaKind) =>
     set((s) => ({

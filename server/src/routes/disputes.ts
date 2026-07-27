@@ -38,6 +38,23 @@ export function registerDisputeRoutes(app: FastifyInstance) {
         return reply.code(409).send({ error: 'Disputes open after a session/delivery outcome' });
       }
 
+      // Policy 08 §2: the free revision round is the REQUIRED first step
+      // for quality disputes — a quality dispute opens only if a delivered
+      // revision still allegedly fails the package spec.
+      if (category === 'quality') {
+        const { count: revised } = await supabaseAdmin
+          .from('revision_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('booking_id', booking.id)
+          .eq('status', 'delivered');
+        if (!revised) {
+          return reply.code(409).send({
+            error: 'Quality concerns start with your included revision round — request a revision first; a dispute opens only if the revised delivery still falls short.',
+            action: 'request_revision',
+          });
+        }
+      }
+
       // Payout gate: filing is only possible while the payout is held.
       const { data: payout } = await supabaseAdmin
         .from('creator_payouts')

@@ -309,6 +309,11 @@ export function deliverApi(id: string) {
   return authedPost<{ delivered: boolean }>(`/v1/bookings/${id}/deliver`);
 }
 
+/** Request a revision round (Policy 08 §2 first step for quality issues). */
+export function requestRevisionApi(id: string, details: string) {
+  return authedPost<{ revision: { id: string } }>(`/v1/bookings/${id}/revisions`, { details });
+}
+
 /** Frictionless safety end — no fees, no penalties, server records for admin review. */
 export function endSessionSafetyApi(id: string) {
   return authedPost<{ ended: boolean }>(`/v1/bookings/${id}/safety/end-session`);
