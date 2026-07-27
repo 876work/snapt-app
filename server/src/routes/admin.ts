@@ -174,8 +174,16 @@ export function registerAdminRoutes(app: FastifyInstance) {
     const requests: Record<string, unknown>[] = [];
     for (const e of byCreator.values()) {
       const { data: prof } = await supabaseAdmin.from('profiles').select('full_name, email').eq('id', e.creator_id).single();
-      const { data: cp } = await supabaseAdmin.from('creator_profiles').select('payout_details').eq('user_id', e.creator_id).single();
-      requests.push({ ...e, name: prof?.full_name, email: prof?.email, payout_details: cp?.payout_details ?? null });
+      const { data: cp } = await supabaseAdmin.from('creator_profiles').select('payout_methods').eq('user_id', e.creator_id).single();
+      const pm = (cp?.payout_methods ?? {}) as { selected?: string; methods?: Record<string, Record<string, string>> };
+      const sel = pm.selected;
+      const det = sel ? pm.methods?.[sel] : undefined;
+      const label = sel === 'cash'
+        ? 'Cash pickup — partner location (pickup mechanics TBD)'
+        : sel && det
+          ? `${sel}: ${Object.entries(det).map(([k, v]) => k + '=' + v).join(', ')}`
+          : null;
+      requests.push({ ...e, name: prof?.full_name, email: prof?.email, payout_details: label });
     }
     return { requests };
   });

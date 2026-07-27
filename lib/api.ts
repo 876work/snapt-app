@@ -229,6 +229,37 @@ export async function fetchEarnings(): Promise<{
   return request(`/v1/creator/earnings`);
 }
 
+export interface PayoutMethods {
+  selected?: string;
+  methods?: Record<string, Record<string, string>>;
+}
+
+export async function fetchPayoutMethods(): Promise<PayoutMethods | null> {
+  const result = await request<{ payout_methods: PayoutMethods }>(`/v1/creator/payout-methods`);
+  return result?.payout_methods ?? null;
+}
+
+export async function savePayoutMethod(method: string, details: Record<string, string>) {
+  if (!apiUrl) return null;
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (supabase) {
+      const { data } = await supabase.auth.getSession();
+      if (data.session?.access_token) headers.Authorization = `Bearer ${data.session.access_token}`;
+    }
+    const res = await fetch(`${apiUrl}/v1/creator/payout-method`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ method, details }),
+    });
+    const json = (await res.json()) as { saved?: boolean; error?: string };
+    if (!res.ok) return { error: json.error ?? 'Could not save' };
+    return { saved: true };
+  } catch {
+    return null;
+  }
+}
+
 export function cashOutApi() {
   return authedPost<{ paid_out_usd: number; count: number }>(`/v1/creator/cash-out`);
 }

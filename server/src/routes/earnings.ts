@@ -8,7 +8,56 @@ import { notify } from '../notify.js';
 // lazily on read — a scheduled job can take this over later without any
 // schema change.
 
+// Payout methods (six, matching the cash-out screen design). Per-method
+// required fields; 'cash' needs none but its pickup locations + identity
+// verification are a PENDING PRODUCT DECISION (flagged — not guessed here).
+// 'penny_pinch' field is account_id pending confirmation of what the wallet
+// actually requires.
+const METHOD_FIELDS: Record<string, string[]> = {
+  cash: [],
+  penny_pinch: ['account_id'],
+  cibc: ['holder_name', 'account_number'],
+  republic_ec: ['holder_name', 'account_number'],
+  bank_slu: ['holder_name', 'account_number'],
+  paypal: ['email'],
+};
+
 export function registerEarningsRoutes(app: FastifyInstance) {
+  app.get('/v1/creator/payout-methods', async (request, reply) => {
+    const user = requireUser(request);
+    const { data } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('payout_methods')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    return { payout_methods: data?.payout_methods ?? {} };
+  });
+
+  app.put<{ Body: { method?: string; details?: Record<string, string> } }>(
+    '/v1/creator/payout-method',
+    async (request, reply) => {
+      const user = requireUser(request);
+      const { method, details } = request.body ?? {};
+      if (!method || !(method in METHOD_FIELDS)) {
+        return reply.code(400).send({ error: `method must be one of ${Object.keys(METHOD_FIELDS).join(', ')}` });
+      }
+      for (const f of METHOD_FIELDS[method]) {
+        if (!details?.[f]?.trim()) return reply.code(400).send({ error: `${f} is required for ${method}` });
+      }
+      const { data: row } = await supabaseAdmin
+        .from('creator_profiles')
+        .select('payout_methods')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (!row) return reply.code(403).send({ error: 'Not a creator' });
+      const pm = (row.payout_methods ?? {}) as { selected?: string; methods?: Record<string, unknown> };
+      const methods = { ...(pm.methods ?? {}), [method]: details ?? {} };
+      const next = { selected: method, methods };
+      await supabaseAdmin.from('creator_profiles').update({ payout_methods: next }).eq('user_id', user.id);
+      return { saved: true, payout_methods: next };
+    },
+  );
+
   app.get('/v1/creator/earnings', async (request, reply) => {
     const user = requireUser(request);
 
@@ -64,6 +113,23 @@ export function registerEarningsRoutes(app: FastifyInstance) {
     if (error) return reply.code(500).send({ error: error.message });
     if (!rows?.length) return reply.code(409).send({ error: 'Nothing available to cash out' });
 
+    // Per-method requirement: the selected payout method must be configured
+    // (cash requires no fields; its pickup mechanics are a pending product
+    // decision).
+    const { data: cp } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('payout_methods')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    const pm = (cp?.payout_methods ?? {}) as { selected?: string; methods?: Record<string, unknown> };
+    const selected = pm.selected;
+    if (!selected || (METHOD_FIELDS[selected]?.length > 0 && !pm.methods?.[selected])) {
+      return reply.code(409).send({
+        error: 'Add payout details for your selected method first',
+        action: 'add_payout_details',
+      });
+    }
+
     const total = Math.round(rows.reduce((s, r) => s + Number(r.amount_usd), 0) * 100) / 100;
 
     // NO Stripe Connect (Don, 2026-07-28): cash-out creates a payout
@@ -75,7 +141,13 @@ export function registerEarningsRoutes(app: FastifyInstance) {
       .in('id', rows.map((r) => r.id));
     await supabaseAdmin.from('admin_alerts').insert({
       alert_type: 'payout_requested',
-      detail: { creator_id: user.id, amount_usd: total, payout_ids: rows.map((r) => r.id) },
+      detail: {
+        creator_id: user.id,
+        amount_usd: total,
+        payout_ids: rows.map((r) => r.id),
+        method: selected,
+        method_details: pm.methods?.[selected] ?? {},
+      },
     });
     await notify(user.id, 'payout_pending', 'Cash-out requested',
       `Your $${total.toFixed(2)} payout request is with our team — you'll be notified the moment it's sent.`);
