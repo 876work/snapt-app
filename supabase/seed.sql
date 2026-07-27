@@ -77,6 +77,15 @@ update profiles set mode = 'creator'
     '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000004',
     '00000000-0000-4000-8000-000000000005');
 
+-- Placeholder avatars (external placeholder service) so Creator Assignment
+-- cards are visually distinct during local testing. NOT the real avatar
+-- pipeline — creator photo upload to Cloudflare R2 is Phase 3.
+update profiles set avatar_url = 'https://i.pravatar.cc/300?img=12' where id = '00000000-0000-4000-8000-000000000001';
+update profiles set avatar_url = 'https://i.pravatar.cc/300?img=47' where id = '00000000-0000-4000-8000-000000000002';
+update profiles set avatar_url = 'https://i.pravatar.cc/300?img=53' where id = '00000000-0000-4000-8000-000000000003';
+update profiles set avatar_url = 'https://i.pravatar.cc/300?img=44' where id = '00000000-0000-4000-8000-000000000004';
+update profiles set avatar_url = 'https://i.pravatar.cc/300?img=59' where id = '00000000-0000-4000-8000-000000000005';
+
 -- Weekly availability template: {"mon": [{"start": "09:00", "end": "17:00"}], ...}
 insert into creator_profiles
   (user_id, vetting_status, background_check_status, background_check_completed_at,
