@@ -27,14 +27,16 @@ export interface Creator {
   verified: boolean;
   distanceKm: number;
   tint: string;
+  photo: number; // require() asset id
+  loc: string;
 }
 
 export const CREATORS: Creator[] = [
-  { id: 'jordan', name: 'Jordan M.', rating: 4.9, sessions: 128, specialties: ['Portraits', 'Wedding', 'Events'], verified: true, distanceKm: 2.1, tint: '#F2C14E' },
-  { id: 'amara', name: 'Amara J.', rating: 4.8, sessions: 96, specialties: ['Family', 'Portraits', 'Social'], verified: true, distanceKm: 3.4, tint: '#6FD3E0' },
-  { id: 'marcus', name: 'Marcus D.', rating: 4.7, sessions: 74, specialties: ['Events', 'Social'], verified: false, distanceKm: 1.2, tint: '#8ED7A6' },
-  { id: 'nia', name: 'Nia T.', rating: 5.0, sessions: 61, specialties: ['Wedding', 'Family', 'Portraits'], verified: true, distanceKm: 5.0, tint: '#F2A0B5' },
-  { id: 'sam', name: 'Sam R.', rating: 4.6, sessions: 42, specialties: ['Social', 'Events'], verified: false, distanceKm: 4.2, tint: '#E8863D' },
+  { id: 'jordan', name: 'Jordan M.', rating: 4.9, sessions: 128, specialties: ['Portraits', 'Wedding', 'Events'], verified: true, distanceKm: 2.1, tint: '#F2C14E', photo: require('../../assets/design/creators/jordan.webp'), loc: 'Rodney Bay' },
+  { id: 'amara', name: 'Amara J.', rating: 5.0, sessions: 96, specialties: ['Family', 'Portraits', 'Social', 'Wedding'], verified: true, distanceKm: 3.4, tint: '#6FD3E0', photo: require('../../assets/design/creators/amara.webp'), loc: 'Gros Islet' },
+  { id: 'marcus', name: 'Marcus D.', rating: 4.7, sessions: 74, specialties: ['Events', 'Social'], verified: false, distanceKm: 1.2, tint: '#8ED7A6', photo: require('../../assets/design/creators/marcus.webp'), loc: 'Castries' },
+  { id: 'nia', name: 'Nia T.', rating: 5.0, sessions: 61, specialties: ['Wedding', 'Family', 'Portraits'], verified: true, distanceKm: 5.0, tint: '#F2A0B5', photo: require('../../assets/design/creators/nia.webp'), loc: 'Marigot Bay' },
+  { id: 'sam', name: 'Sam R.', rating: 4.6, sessions: 42, specialties: ['Social', 'Events'], verified: false, distanceKm: 4.2, tint: '#E8863D', photo: require('../../assets/design/creators/sam.webp'), loc: 'Soufrière' },
 ];
 
 export const AREAS = ['Rodney Bay', 'Castries', 'Gros Islet', 'Marigot Bay', 'Soufrière'] as const;

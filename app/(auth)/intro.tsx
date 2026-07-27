@@ -1,5 +1,5 @@
 import React from 'react';
-import { Dimensions, FlatList, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, FlatList, Image, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { Button } from '../../components/ui/Button';
@@ -13,6 +13,7 @@ const SLIDES = [
   {
     key: 's1',
     tint: '#FFF4D6',
+    image: require('../../assets/design/onboarding/s1.webp'),
     title: 'Book a creator near you',
     sub: 'Vetted photographers and videographers across Saint Lucia, matched to your moment.',
     icon: (
@@ -28,6 +29,7 @@ const SLIDES = [
   {
     key: 's2',
     tint: '#EAFBFD',
+    image: require('../../assets/design/onboarding/s2.webp'),
     title: 'Or send us your footage',
     sub: 'Already shot the moment? Upload it and a Snapt editor delivers a polished edit.',
     icon: (
@@ -52,6 +54,7 @@ const SLIDES = [
   {
     key: 's3',
     tint: '#F3FBF1',
+    image: require('../../assets/design/onboarding/s3.webp'),
     title: 'Safe, simple, yours',
     sub: 'Verified creators, safety check-ins, and your photos delivered right in the app.',
     icon: (
@@ -89,7 +92,13 @@ export default function Intro() {
         onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / width))}
         renderItem={({ item }) => (
           <View style={{ width, paddingHorizontal: 24 }}>
-            <View style={[styles.art, { backgroundColor: item.tint }]}>{item.icon}</View>
+            <View style={[styles.art, { backgroundColor: item.tint }]}>
+              {item.image ? (
+                <Image source={item.image} style={styles.artImg} resizeMode="cover" />
+              ) : (
+                item.icon
+              )}
+            </View>
             <Text style={styles.title}>{item.title}</Text>
             <Text style={styles.sub}>{item.sub}</Text>
           </View>
@@ -127,7 +136,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 34,
+    overflow: 'hidden',
   },
+  artImg: { width: '100%', height: '100%' },
   title: { fontSize: 28, fontWeight: '800', letterSpacing: -0.8, color: colors.ink, marginBottom: 10 },
   sub: { fontSize: 14.5, lineHeight: 21, color: colors.grey },
   footer: { paddingHorizontal: 24, paddingBottom: 48, gap: 22 },

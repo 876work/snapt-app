@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -74,8 +75,8 @@ export function QuickBookSheet({ open, onClose }: { open: boolean; onClose: () =
           {lastCompleted && lastCreator && (
             <>
               <Pressable onPress={bookAgain} style={styles.againCard}>
-                <View style={[styles.againAvatar, { backgroundColor: lastCreator.tint }]}>
-                  <Text style={styles.againAvatarLetter}>{lastCreator.name.charAt(0)}</Text>
+                <View style={[styles.againAvatar, { backgroundColor: lastCreator.tint, overflow: 'hidden' }]}>
+                  <Image source={lastCreator.photo} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.againOverline}>Book again</Text>
