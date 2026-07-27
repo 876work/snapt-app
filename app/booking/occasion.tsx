@@ -7,15 +7,54 @@ import { OccasionIcon } from '../../components/ui/Icons';
 import { InfoBanner } from '../../components/ui/Misc';
 import { OCCASIONS } from '../../lib/mock/data';
 import { creatorById, useBookings } from '../../lib/store';
+import { apiConfigured, fetchDayFlags, fetchDaySlots } from '../../lib/api';
 import { ADVANCE_BOOKING_WINDOW_DAYS } from '../../lib/constants/business';
 import { colors, spacing } from '../../lib/theme';
 
 const TIMES = ['9:00', '10:30', '12:00', '14:00', '15:30', '17:00'];
 
+// Duration is chosen on the next screen, so availability here is checked at
+// the smallest package (1h); the server re-validates with the real duration
+// at booking creation.
+const AVAILABILITY_PROBE_HOURS = 1;
+
 export default function OccasionAndDate() {
   const router = useRouter();
   const { bookAgain } = useLocalSearchParams<{ bookAgain?: string }>();
   const { draft, setDraft } = useBookings();
+
+  // Real availability (API mode). null = mock mode or still loading — the
+  // static prototype behavior stays untouched in that case.
+  const [dayFlags, setDayFlags] = React.useState<Record<string, boolean> | null>(null);
+  const [daySlots, setDaySlots] = React.useState<string[] | null>(null);
+
+  React.useEffect(() => {
+    if (!apiConfigured || !draft.occasion) return;
+    let stale = false;
+    setDayFlags(null);
+    fetchDayFlags(draft.occasion, AVAILABILITY_PROBE_HOURS).then((flags) => {
+      if (!stale) setDayFlags(flags);
+    });
+    return () => {
+      stale = true;
+    };
+  }, [draft.occasion]);
+
+  React.useEffect(() => {
+    if (!apiConfigured || !draft.occasion || !draft.date) return;
+    let stale = false;
+    setDaySlots(null);
+    fetchDaySlots(draft.occasion, draft.date, AVAILABILITY_PROBE_HOURS).then((slots) => {
+      if (!stale) {
+        setDaySlots(slots);
+        // Deselect a time that's gone on the newly picked day.
+        if (slots && draft.time && !slots.includes(draft.time)) setDraft({ time: null });
+      }
+    });
+    return () => {
+      stale = true;
+    };
+  }, [draft.occasion, draft.date]);
 
   const days = React.useMemo(() => {
     // 14-day advance window — handoff §5
@@ -69,25 +108,31 @@ export default function OccasionAndDate() {
           {days.map((d) => {
             const iso = d.toISOString().slice(0, 10);
             const active = draft.date === iso;
+            // Real availability when the API answered; optimistic otherwise.
+            const bookable = dayFlags ? dayFlags[iso] === true : true;
             return (
               <Pressable
                 key={iso}
+                disabled={!bookable}
                 onPress={() => setDraft({ date: iso })}
-                style={[styles.day, active && styles.dayActive]}
+                style={[styles.day, active && styles.dayActive, !bookable && styles.dayOff]}
               >
                 <Text style={[styles.dayDow, active && { color: colors.ink }]}>
                   {d.toLocaleDateString(undefined, { weekday: 'short' })}
                 </Text>
                 <Text style={[styles.dayNum, active && { color: colors.ink }]}>{d.getDate()}</Text>
-                <View style={styles.dayDot} />
+                <View style={[styles.dayDot, !bookable && { backgroundColor: colors.borderWarm }]} />
               </Pressable>
             );
           })}
         </ScrollView>
 
         <Text style={[styles.sectionLabel, { marginTop: 26 }]}>Pick a time</Text>
+        {apiConfigured && draft.date && daySlots?.length === 0 ? (
+          <Text style={styles.hint}>No times left this day — try another date.</Text>
+        ) : null}
         <View style={styles.chipWrap}>
-          {TIMES.map((t) => {
+          {(daySlots ?? TIMES).map((t) => {
             const active = draft.time === t;
             return (
               <Pressable
@@ -145,6 +190,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   dayActive: { borderColor: colors.yellow, backgroundColor: colors.yellowSoft },
+  dayOff: { opacity: 0.45 },
   dayDow: { fontSize: 11, fontWeight: '700', color: colors.grey },
   dayNum: { fontSize: 17, fontWeight: '800', color: colors.ink },
   dayDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.success },

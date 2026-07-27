@@ -3,6 +3,8 @@ import { env, stripeConfigured } from './env.js';
 import { registerAuth } from './plugins/auth.js';
 import { registerConfigRoutes } from './routes/config.js';
 import { registerPaymentRoutes } from './routes/payments.js';
+import { registerCreatorRoutes } from './routes/creators.js';
+import { registerBookingRoutes } from './routes/bookings.js';
 
 const app = Fastify({ logger: true });
 
@@ -33,6 +35,8 @@ app.get('/v1/health', async () => ({
 
 registerConfigRoutes(app);
 registerPaymentRoutes(app);
+registerCreatorRoutes(app);
+registerBookingRoutes(app);
 
 app.listen({ port: env.port, host: env.host }).catch((err) => {
   app.log.error(err);

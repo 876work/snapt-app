@@ -19,6 +19,10 @@ export const env = {
   // Optional until Stripe accounts exist (handoff §3 Phase 7).
   stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? null,
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? null,
+
+  // Stopgap guard for admin actions (creator approval) until the Admin
+  // Portal exists (Phase 5). Unset = admin endpoints disabled.
+  adminApiToken: process.env.ADMIN_API_TOKEN ?? null,
 };
 
 export const stripeConfigured = env.stripeSecretKey !== null;

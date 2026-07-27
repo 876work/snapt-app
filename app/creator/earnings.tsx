@@ -57,7 +57,7 @@ export default function CreatorEarnings() {
           </Pressable>
           {/* Holding window is a §6 open value — dispute-window conflict unresolved */}
           <Text style={styles.balNote}>
-            Pending funds clear 48–72h after delivery, once the client's review window closes.
+            Pending funds clear 7 days after delivery, once the client's dispute window closes.
           </Text>
         </View>
 

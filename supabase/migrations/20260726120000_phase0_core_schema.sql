@@ -219,9 +219,9 @@ create table creator_payouts (
   fee_rate_applied numeric not null,
   is_promo_rate boolean not null default false,
   status payout_status not null default 'pending',
-  -- Holding window timestamps (§4). NOTE: the holding-window length vs the
-  -- 7-day dispute window conflict (§6) is UNRESOLVED — do not build payout
-  -- release logic until Don decides.
+  -- Holding window timestamps (§4). Hold = 7 days (payout_hold_days config),
+  -- matching the dispute filing window exactly so no payout can precede a
+  -- dispute — clawback scenario eliminated (Don's decision, 2026-07-26).
   hold_until timestamptz,
   available_at timestamptz,
   paid_out_at timestamptz,

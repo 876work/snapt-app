@@ -19,6 +19,7 @@ insert into app_config (key, value, description, confirmed) values
   ('strike_tiers', '["warning", "deprioritization_2w", "suspension_1w", "admin_review"]',
     'Consequence at cumulative strike count 1..4+ within window', true),
   ('dispute_filing_window_days', '7', 'From session/delivery', true),
+  ('payout_hold_days', '7', 'Creator payout hold after session/delivery; matches the dispute filing window exactly so no payout precedes a possible dispute (Don, 2026-07-26)', true),
   ('dispute_evidence_window_hours', '72', 'From notification', true),
   ('dispute_appeal_window_days', '14', 'From decision', true),
 
@@ -27,11 +28,16 @@ insert into app_config (key, value, description, confirmed) values
   ('raw_footage_retention_days', '90', 'UNCONFIRMED (§6) — also sets the re-edit ordering window', false),
   ('delivered_content_availability_months', '12', 'UNCONFIRMED (§6)', false),
   ('creator_non_circumvention_months', '12', 'UNCONFIRMED (§6) — Creator Agreement §7', false),
-  ('payout_hold_hours', '72', 'UNCONFIRMED (§6) — conflicts with 7-day dispute window; needs Don''s decision before Phase 2', false),
   ('background_check_recheck_months', '24', 'UNCONFIRMED (§6)', false),
   ('occasion_default_duration_hours',
     '{"Events": 3, "Portraits": 1, "Social": 1, "Family": 2, "Wedding": 6}',
-    'UNCONFIRMED (§6) — only Portraits and Wedding were illustrative examples; other three need real values', false);
+    'UNCONFIRMED (§6) — only Portraits and Wedding were illustrative examples; other three need real values', false),
+  ('duration_packages',
+    '[{"hours": 1, "label": "1 hour", "deliverables": "20+ edited photos", "price_usd": 120},
+      {"hours": 2, "label": "2 hours", "deliverables": "45+ edited photos", "price_usd": 220},
+      {"hours": 3, "label": "3 hours", "deliverables": "70+ edited photos", "price_usd": 310},
+      {"hours": 6, "label": "Half day (6 hrs)", "deliverables": "Full coverage + highlights", "price_usd": 560}]',
+    'UNCONFIRMED — prototype pricing from the design file; confirm with Don before real charges', false);
 
 -- Placeholder drafts for the 13 policy docs (slugs match lib/mock/legal.ts).
 -- Status stays 'draft': §14 requires explicit publish after attorney review.
@@ -50,3 +56,41 @@ values
   ('background-check', 1, 'Background Check & Vetting Disclosure', '[DRAFT — see 09_Background_Check_and_Vetting_Disclosure.md. Active consent required (§14). Provider-dependent placeholders unresolved.]', 'draft', true),
   ('accessibility', 1, 'Accessibility Statement', '[DRAFT — see 10_Accessibility_Statement.md. Pending review.]', 'draft', false),
   ('notifications', 1, 'Notification Policy', '[DRAFT — see 11_Notification_Trigger_Mapping.md (internal source of truth for the dispatcher).]', 'draft', false);
+
+-- ---------------------------------------------------------------------------
+-- LOCAL-ONLY demo creators (mirror lib/mock/data.ts). seed.sql never runs in
+-- production. Password for all: "password1234". Profiles rows are created by
+-- the on_auth_user_created trigger; we then flip them to approved creators.
+-- ---------------------------------------------------------------------------
+
+insert into auth.users
+  (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
+   raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+values
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'jordan@demo.snapt', crypt('password1234', gen_salt('bf')), now(), '{"provider": "email", "providers": ["email"]}', '{"full_name": "Jordan M."}', now(), now()),
+  ('00000000-0000-4000-8000-000000000002', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'amara@demo.snapt', crypt('password1234', gen_salt('bf')), now(), '{"provider": "email", "providers": ["email"]}', '{"full_name": "Amara J."}', now(), now()),
+  ('00000000-0000-4000-8000-000000000003', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'marcus@demo.snapt', crypt('password1234', gen_salt('bf')), now(), '{"provider": "email", "providers": ["email"]}', '{"full_name": "Marcus D."}', now(), now()),
+  ('00000000-0000-4000-8000-000000000004', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'nia@demo.snapt', crypt('password1234', gen_salt('bf')), now(), '{"provider": "email", "providers": ["email"]}', '{"full_name": "Nia T."}', now(), now()),
+  ('00000000-0000-4000-8000-000000000005', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'sam@demo.snapt', crypt('password1234', gen_salt('bf')), now(), '{"provider": "email", "providers": ["email"]}', '{"full_name": "Sam R."}', now(), now());
+
+update profiles set mode = 'creator'
+  where id in (
+    '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000004',
+    '00000000-0000-4000-8000-000000000005');
+
+-- Weekly availability template: {"mon": [{"start": "09:00", "end": "17:00"}], ...}
+insert into creator_profiles
+  (user_id, vetting_status, background_check_status, background_check_completed_at,
+   specialties, service_radius_km, base_area, verified, availability)
+values
+  ('00000000-0000-4000-8000-000000000001', 'approved', 'passed', now(), '{Portraits,Wedding,Events}', 15, 'Rodney Bay', true,
+    '{"mon": [{"start": "09:00", "end": "17:00"}], "tue": [{"start": "09:00", "end": "17:00"}], "wed": [{"start": "09:00", "end": "17:00"}], "thu": [{"start": "09:00", "end": "17:00"}], "fri": [{"start": "09:00", "end": "17:00"}], "sat": [{"start": "08:00", "end": "18:00"}]}'),
+  ('00000000-0000-4000-8000-000000000002', 'approved', 'passed', now(), '{Family,Portraits,Social,Wedding}', 20, 'Gros Islet', true,
+    '{"tue": [{"start": "10:00", "end": "18:00"}], "wed": [{"start": "10:00", "end": "18:00"}], "thu": [{"start": "10:00", "end": "18:00"}], "fri": [{"start": "10:00", "end": "18:00"}], "sat": [{"start": "08:00", "end": "18:00"}], "sun": [{"start": "08:00", "end": "14:00"}]}'),
+  ('00000000-0000-4000-8000-000000000003', 'approved', 'pending', null, '{Events,Social}', 10, 'Castries', false,
+    '{"mon": [{"start": "12:00", "end": "20:00"}], "wed": [{"start": "12:00", "end": "20:00"}], "fri": [{"start": "12:00", "end": "20:00"}], "sat": [{"start": "10:00", "end": "20:00"}], "sun": [{"start": "10:00", "end": "16:00"}]}'),
+  ('00000000-0000-4000-8000-000000000004', 'approved', 'passed', now(), '{Wedding,Family,Portraits}', 25, 'Marigot Bay', true,
+    '{"mon": [{"start": "09:00", "end": "15:00"}], "tue": [{"start": "09:00", "end": "15:00"}], "thu": [{"start": "09:00", "end": "15:00"}], "sat": [{"start": "07:00", "end": "19:00"}], "sun": [{"start": "07:00", "end": "19:00"}]}'),
+  ('00000000-0000-4000-8000-000000000005', 'approved', 'pending', null, '{Social,Events}', 12, 'Soufrière', false,
+    '{"thu": [{"start": "09:00", "end": "17:00"}], "fri": [{"start": "09:00", "end": "21:00"}], "sat": [{"start": "09:00", "end": "21:00"}]}');

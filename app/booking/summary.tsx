@@ -8,6 +8,7 @@ import { Divider } from '../../components/ui/Misc';
 import { SlideToConfirm } from '../../components/ui/SlideToConfirm';
 import { DURATIONS } from '../../lib/mock/data';
 import { creatorById, useAuth, useBookings } from '../../lib/store';
+import { apiConfigured, createBookingApi } from '../../lib/api';
 import {
   CANCEL_FULL_REFUND_HOURS,
   CLIENT_SERVICE_FEE_RATE,
@@ -43,6 +44,7 @@ export default function OrderSummary() {
   const [cardExp, setCardExp] = React.useState('');
   const [cardCvc, setCardCvc] = React.useState('');
   const [saveCard, setSaveCard] = React.useState(true);
+  const [bookError, setBookError] = React.useState<string | null>(null);
 
   const base = duration?.priceUsd ?? 0;
   const addonsTotal = ADDONS.filter((a) => addons.includes(a.id)).reduce((s, a) => s + a.priceUsd, 0);
@@ -67,7 +69,24 @@ export default function OrderSummary() {
   const pkgLabel =
     draft.mediaKind === 'both' ? 'Photos + video' : draft.mediaKind === 'photo' ? 'Photos' : 'Video';
 
-  const book = () => {
+  const book = async () => {
+    if (apiConfigured) {
+      // Server computes price + fees and re-validates the slot (§8).
+      // Add-ons stay client-side until the add-on catalog moves to config.
+      const result = await createBookingApi(useBookings.getState().draft);
+      if (result && 'booking' in result) {
+        useBookings.getState().addServerBooking(result.booking);
+        setPayOpen(false);
+        router.dismissAll();
+        router.replace(`/bookings/${result.booking.id}`);
+        return;
+      }
+      if (result && 'error' in result) {
+        setBookError(result.error);
+        return;
+      }
+      // API unreachable — fall through to the local mock path.
+    }
     const booking = confirmDraft(base + addonsTotal);
     setPayOpen(false);
     router.dismissAll();
@@ -290,6 +309,11 @@ export default function OrderSummary() {
                 <Text style={styles.payingLabel}>You're paying</Text>
                 <Text style={styles.payingValue}>{formatMoney(total, currency)}</Text>
               </View>
+              {bookError ? (
+                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.error, marginBottom: 10 }}>
+                  {bookError}
+                </Text>
+              ) : null}
               {cardValid ? (
                 <SlideToConfirm label="Slide to pay & book" onConfirm={book} />
               ) : (

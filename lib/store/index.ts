@@ -82,6 +82,8 @@ interface BookingState {
   /** Specialty match is a hard filter (exclusion), not a ranking weight — handoff §12. */
   eligibleCreators: () => Creator[];
   confirmDraft: (priceUsd: number) => Booking;
+  /** Insert a booking already created server-side (API mode) and clear the draft. */
+  addServerBooking: (booking: Booking) => void;
   cancelBooking: (id: string) => void;
   rescheduleBooking: (id: string, newDateIso: string) => void;
   reportNoShow: (id: string) => void;
@@ -116,6 +118,8 @@ export const useBookings = create<BookingState>((set, get) => ({
     set((s) => ({ bookings: [booking, ...s.bookings], draft: emptyDraft }));
     return booking;
   },
+  addServerBooking: (booking) =>
+    set((s) => ({ bookings: [booking, ...s.bookings], draft: emptyDraft })),
   cancelBooking: (id) =>
     set((s) => ({
       bookings: s.bookings.map((b) => (b.id === id ? { ...b, status: 'cancelled' as const } : b)),

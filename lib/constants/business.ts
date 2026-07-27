@@ -37,6 +37,9 @@ export const STRIKE_TIERS = [
 export const DISPUTE_FILING_WINDOW_DAYS = 7;
 export const DISPUTE_EVIDENCE_WINDOW_HOURS = 72;
 export const DISPUTE_APPEAL_WINDOW_DAYS = 14;
+// Confirmed by Don 2026-07-26: hold matches the dispute filing window exactly,
+// so no payout is ever released while a dispute could still be filed.
+export const PAYOUT_HOLD_DAYS = 7;
 
 // ---------------------------------------------------------------------------
 // UNCONFIRMED — verify with Don before these affect financial/legal logic
