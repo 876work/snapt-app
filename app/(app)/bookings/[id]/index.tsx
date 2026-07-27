@@ -114,6 +114,18 @@ export default function BookingDetail() {
             )}
 
             <View style={{ gap: 10, marginTop: 18 }}>
+              {booking.type === 'in-person' && (
+                <Button
+                  title="Session day — track & check in"
+                  onPress={() => router.push(`/session/${booking.id}`)}
+                />
+              )}
+              {booking.type === 'remote' && (
+                <Button
+                  title="Track your order"
+                  onPress={() => router.push(`/order/${booking.id}`)}
+                />
+              )}
               {sessionWindow && (
                 <Button
                   title="Creator didn't show up"
@@ -145,7 +157,7 @@ export default function BookingDetail() {
 
         {booking.status === 'completed' && (
           <View style={{ marginTop: 18 }}>
-            <Button title="View delivery" onPress={() => router.push('/delivery')} />
+            <Button title="View delivery" onPress={() => router.push(`/order/${booking.id}/delivery`)} />
           </View>
         )}
         <View style={{ height: 130 }} />
