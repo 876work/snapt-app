@@ -14,14 +14,8 @@ export function registerEarningsRoutes(app: FastifyInstance) {
   app.get('/v1/creator/earnings', async (request, reply) => {
     const user = requireUser(request);
 
-    // Release any holds that have elapsed (no dispute hold-back yet — open
-    // disputes freezing a payout lands with the Phase 4 dispute intake).
-    await supabaseAdmin
-      .from('creator_payouts')
-      .update({ status: 'available', available_at: new Date().toISOString() })
-      .eq('creator_id', user.id)
-      .eq('status', 'held')
-      .lt('hold_until', new Date().toISOString());
+    // Held→available release is owned by the scheduler (Phase 5) so the
+    // payout_available notification fires at release time.
 
     const { data, error } = await supabaseAdmin
       .from('creator_payouts')

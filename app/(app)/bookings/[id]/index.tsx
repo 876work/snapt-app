@@ -180,6 +180,16 @@ export default function BookingDetail() {
           </>
         )}
 
+        {booking.status === 'disputed' && (
+          <View style={{ marginTop: 14, gap: 10 }}>
+            <InfoBanner
+              tone="error"
+              text="A dispute is open on this booking. You have 72 hours from when it opened to add your evidence."
+            />
+            <Button title="Add evidence" onPress={() => router.push(`/bookings/${booking.id}/evidence`)} />
+          </View>
+        )}
+
         {booking.status === 'completed' && (
           <View style={{ marginTop: 18 }}>
             <Button title="View delivery" onPress={() => router.push(`/order/${booking.id}/delivery`)} />
