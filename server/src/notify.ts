@@ -4,9 +4,11 @@ import { sendEmail } from './email.js';
 // Central notification dispatcher (handoff §13): every backend state change
 // routes through here, never per-feature ad-hoc sends.
 //
-// FLAGGED: 11_Notification_Trigger_Mapping.md (the source-of-truth trigger
-// table) is not in this repo — the channel map below is reconstructed from
-// the handoff's category rules and MUST be reconciled against the real doc.
+// Reconciled against docs/11_Notification_Trigger_Mapping.md (2026-07-28).
+// Doc rule: push only when time-sensitive/actionable/money/safety; routine
+// events are in-app only. NOTE: the doc's table specifies push/in-app only —
+// the email column below is OUR default (mirrors push for money/account/
+// dispute events), pending Don's explicit ruling.
 // Push = FCM, stubbed until Phase 7 credentials (logged, never dropped
 // silently); email = Resend; in-app = notifications table (always written).
 
@@ -19,21 +21,30 @@ interface TriggerSpec {
 }
 
 const TRIGGERS: Record<string, TriggerSpec> = {
+  // §8: offer/accept model now exists — time-sensitive (15-min window) → push.
   offer_received: { category: 'bookings', push: true, email: false },
-  booking_confirmed: { category: 'bookings', push: true, email: true },
-  booking_cancelled_by_creator: { category: 'bookings', push: true, email: true },
-  assignment_failed_refunded: { category: 'account', push: true, email: true },
-  refund_processed: { category: 'account', push: true, email: true },
-  reschedule_confirmed: { category: 'bookings', push: true, email: false },
-  no_show_reported: { category: 'account', push: true, email: true },
-  strike_issued: { category: 'account', push: true, email: true },
-  payout_pending: { category: 'account', push: false, email: false },
-  payout_available: { category: 'account', push: true, email: true },
-  payout_paid: { category: 'account', push: true, email: true },
-  delivery_ready: { category: 'bookings', push: true, email: true },
-  dispute_opened: { category: 'account', push: true, email: true },
-  dispute_resolved: { category: 'account', push: true, email: true },
-  safety_report_received: { category: 'safety', push: true, email: false },
+  booking_confirmed: { category: 'bookings', push: true, email: true }, // §1: both parties
+  booking_cancelled_by_creator: { category: 'bookings', push: true, email: true }, // §1
+  client_cancelled: { category: 'bookings', push: false, email: false }, // §1: in-app only
+  reschedule_confirmed: { category: 'bookings', push: true, email: false }, // §1: both parties
+  session_started: { category: 'bookings', push: true, email: false }, // §2: creator checked in
+  session_ended: { category: 'bookings', push: false, email: false }, // §2: in-app only
+  delivery_ready: { category: 'bookings', push: true, email: true }, // §3: "always push"
+  payment_charged: { category: 'account', push: false, email: true }, // §4: receipt, no push
+  fee_charged: { category: 'account', push: true, email: true }, // §4: unexpected charge → push
+  refund_processed: { category: 'account', push: true, email: true }, // §4
+  assignment_failed_refunded: { category: 'account', push: true, email: true }, // refund class (§4)
+  payout_pending: { category: 'account', push: false, email: false }, // not in doc; routine
+  payout_available: { category: 'account', push: false, email: false }, // §4: in-app ONLY
+  payout_paid: { category: 'account', push: true, email: true }, // §4: "payout sent"
+  application_submitted: { category: 'account', push: false, email: false }, // §5
+  application_approved: { category: 'account', push: true, email: true }, // §5
+  no_show_reported: { category: 'account', push: true, email: true }, // not in doc — flagged
+  safety_report_received: { category: 'safety', push: false, email: false }, // §6: NO push (deliberate)
+  dispute_opened: { category: 'account', push: true, email: true }, // §6
+  dispute_resolved: { category: 'account', push: true, email: true }, // §6
+  strike_issued: { category: 'account', push: true, email: true }, // §6: with reason stated
+  suspension_applied: { category: 'account', push: true, email: true }, // §6
 };
 
 export async function notify(

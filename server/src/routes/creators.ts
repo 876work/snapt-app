@@ -3,6 +3,7 @@ import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
 import { eligibleCreators } from '../availability.js';
 import { creatorStanding } from '../strikes.js';
+import { notify } from '../notify.js';
 import { env } from '../env.js';
 
 const OCCASIONS = ['Events', 'Portraits', 'Social', 'Family', 'Wedding'];
@@ -73,6 +74,7 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       if (consentError) request.log.error(consentError, 'consent recording failed');
     }
 
+    await notify(user.id, 'application_submitted', 'Application received', 'Your creator application is in review — we\'ll notify you the moment there\'s a decision.');
     return reply.code(201).send({ status: 'in_review' });
   });
 
@@ -135,6 +137,7 @@ export function registerCreatorRoutes(app: FastifyInstance) {
         })
         .eq('user_id', request.params.userId);
       if (error) return reply.code(500).send({ error: error.message });
+      await notify(request.params.userId, 'application_approved', 'You\'re approved!', 'Welcome to Snapt — you can now receive bookings. Set your availability to go live.');
       return { status: 'approved' };
     },
   );

@@ -219,6 +219,7 @@ export function registerBookingRoutes(app: FastifyInstance) {
     // window — 'confirmed' now means a creator actually said yes.
     if (!stripeConfigured) {
       await recordBookingCharge(booking);
+      await notify(user.id, 'payment_charged', 'Payment received', `Your payment of $${total.toFixed(2)} for this booking went through — receipt in your wallet.`);
     }
     if (assignedCreatorId) {
       const expires = new Date(Date.now() + (await offerWindowMs())).toISOString();
@@ -269,6 +270,7 @@ export function registerBookingRoutes(app: FastifyInstance) {
       'Your booking is confirmed',
       'Your creator accepted — you\'re locked in. Full details are in your bookings.',
     );
+    await notify(user.id, 'booking_confirmed', 'Booking locked in', 'You accepted this job — it\'s on your schedule. Details in Jobs.');
     return { accepted: true, status: 'confirmed' };
   });
 

@@ -139,11 +139,17 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
         .from('bookings')
         .update({ status: 'cancelled', cancelled_by: user.id, cancelled_at: new Date().toISOString() })
         .eq('id', booking.id);
+      if (booking.creator_id) {
+        await notify(booking.creator_id, 'client_cancelled', 'Booking cancelled by client', 'A booking on your schedule was cancelled — the slot is free again.');
+      }
+      if (quote.chargeUsd > 0) {
+        await notify(user.id, 'fee_charged', 'Cancellation fee applied', `A late-cancellation charge of $${quote.chargeUsd.toFixed(2)} applied per the ${quote.tier} notice tier.`);
+      }
       await notify(
         user.id,
         'refund_processed',
         'Cancellation confirmed',
-        `Your booking is cancelled. Refund on its way: $${quote.refundUsd.toFixed(2)} to your original payment method within 3–5 business days.`,
+        `Your booking is cancelled. Refund on its way: $${quote.refundUsd.toFixed(2)} to your original payment method within 5–10 business days.`,
       );
       return { cancelled_by: 'client', ...quote };
     }
@@ -249,6 +255,12 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
         'Booking rescheduled',
         quote.free ? 'Your new time is locked in — no charge.' : `Your new time is locked in. A $${quote.feeUsd.toFixed(2)} reschedule charge applied.`,
       );
+      if (!quote.free && quote.feeUsd > 0) {
+        await notify(user.id, 'fee_charged', 'Reschedule fee applied', `A $${quote.feeUsd.toFixed(2)} reschedule charge applied (24–48h window).`);
+      }
+      if (booking.creator_id) {
+        await notify(booking.creator_id, 'reschedule_confirmed', 'A booking moved', 'A session on your schedule was rescheduled — check Jobs for the new time.');
+      }
       return { rescheduled: true, scheduled_at: scheduled.toISOString(), ...quote };
     },
   );

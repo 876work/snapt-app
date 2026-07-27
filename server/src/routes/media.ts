@@ -94,6 +94,15 @@ export function registerMediaRoutes(app: FastifyInstance) {
       .select()
       .single();
     if (error) return reply.code(500).send({ error: error.message });
+    if (kind === 'raw' && isCreator) {
+      // Doc §3: footage submission is internal-only — editing queue, never
+      // a client-facing notification.
+      await supabaseAdmin.from('admin_alerts').insert({
+        alert_type: 'footage_submitted',
+        booking_id: booking.id,
+        detail: { storage_path, uploaded_by: user.id },
+      });
+    }
     return reply.code(201).send({ media: data });
   });
 

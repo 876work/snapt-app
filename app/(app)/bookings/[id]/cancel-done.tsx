@@ -22,7 +22,7 @@ export default function CancelDone() {
         </Svg>
         <Text style={styles.title}>Booking cancelled</Text>
         <Text style={styles.sub}>
-          Any refund due will go back to your original payment method within 3–5 business days.
+          Any refund due will go back to your original payment method within 5–10 business days.
           The service fee is non-refundable. You'll get a confirmation notification shortly.
         </Text>
       </View>

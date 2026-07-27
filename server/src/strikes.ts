@@ -37,6 +37,21 @@ export async function recordStrike(
     'Reliability strike recorded',
     `A ${type.replace('_', ' ')} strike (weight ${weight}) was added to your account. Current standing: ${standing.tierLabel}. Strikes expire ${windowDays} days after they occur.`,
   );
+  if (standing.tier >= 3) {
+    // Doc §6: suspension is its own always-push notification; doc §7:
+    // 3rd/4th-strike creators route to the admin creator-review queue.
+    await notify(
+      creatorId,
+      'suspension_applied',
+      'Your account is suspended from new bookings',
+      `Reason: reliability strikes reached ${standing.tierLabel}. ${standing.suspendedUntil ? `Suspension lifts ${new Date(standing.suspendedUntil).toDateString()}.` : ''} You can contest via hello@snaptcarib.app.`,
+    );
+    await supabaseAdmin.from('admin_alerts').insert({
+      alert_type: 'creator_review',
+      booking_id: bookingId,
+      detail: { creator_id: creatorId, standing: standing.tierLabel, active_weight: standing.activeWeight },
+    });
+  }
 }
 
 export interface CreatorStanding {
