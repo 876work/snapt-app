@@ -14,14 +14,19 @@ export const FREE_REVISIONS_PER_ORDER = 1;
 
 export const CANCEL_FULL_REFUND_HOURS = 48;
 export const CANCEL_HALF_CHARGE_HOURS = 24;
+// Charge rates apply to the SESSION cost; the 8% client service fee is
+// non-refundable at every tier (Don, 2026-07-27).
 export const CANCEL_TIERS = {
-  over48h: { chargeRate: 0, label: 'Full refund' },
+  over48h: { chargeRate: 0, label: 'Full session refund' },
   between24and48h: { chargeRate: 0.5, label: '50% charge' },
   under24h: { chargeRate: 1, label: '100% charge, no refund' },
 } as const;
 
 export const RESCHEDULE_FREE_COUNT = 1;
-export const RESCHEDULE_DISABLED_UNDER_HOURS = 6;
+// Confirmed by Don 2026-07-27: widened from 6h to 24h — inside 24 hours the
+// only path is cancel (normal fee tiers) or support. The 24–48h reschedule
+// keeps the 50% charge; >48h stays free once.
+export const RESCHEDULE_DISABLED_UNDER_HOURS = 24;
 
 export const NO_SHOW_GRACE_MINUTES = 15;
 

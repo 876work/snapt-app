@@ -95,7 +95,7 @@ export default function BookingDetail() {
               <InfoBanner
                 text={
                   tier === 'over48h'
-                    ? 'Cancelling now: full refund.'
+                    ? 'Cancelling now: session cost refunded in full (service fee non-refundable).'
                     : tier === 'between24and48h'
                       ? `Cancelling now: ${CANCEL_TIERS.between24and48h.label} applies (24–48 hrs before session).`
                       : `Cancelling now: ${CANCEL_TIERS.under24h.label} (less than 24 hrs before session).`
@@ -142,10 +142,11 @@ export default function BookingDetail() {
                 variant="ghost"
                 onPress={() => {
                   if (hrs < RESCHEDULE_DISABLED_UNDER_HOURS) {
+                    // Under 24h: reschedule is disabled entirely — cancel or
+                    // contact support (Don, 2026-07-27).
                     router.push(`/bookings/${booking.id}/reschedule-blocked`);
                   } else if (tier !== 'over48h') {
-                    // Any paid window (24–48h, and the 6–24h band) shows the
-                    // fee warning before the picker.
+                    // Only the 24–48h band reaches the fee warning.
                     router.push(`/bookings/${booking.id}/reschedule-warn`);
                   } else {
                     router.push(`/bookings/${booking.id}/reschedule`);

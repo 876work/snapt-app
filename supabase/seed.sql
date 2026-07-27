@@ -12,7 +12,7 @@ insert into app_config (key, value, description, confirmed) values
   ('cancel_tiers', '{"over48h": 0, "between24and48h": 0.5, "under24h": 1}',
     'Charge rate by notice window; computed SERVER-SIDE at time of action (§8)', true),
   ('reschedule_free_count', '1', 'Free reschedules (>48h); additional treated as cancel+rebook', true),
-  ('reschedule_disabled_under_hours', '6', 'Reschedule disabled entirely under this many hours', true),
+  ('reschedule_disabled_under_hours', '24', 'Reschedule disabled entirely under this many hours (widened from 6 to 24 — Don, 2026-07-27; closes the former 6–24h gap)', true),
   ('no_show_grace_minutes', '15', 'Grace period past scheduled start, both directions', true),
   ('strike_window_days', '60', 'Rolling window for creator strikes', true),
   ('late_cancel_strike_weight', '2', 'Late (<24h) cancellation counts as 2 strikes', true),

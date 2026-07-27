@@ -23,7 +23,7 @@ export default function CancelDone() {
         <Text style={styles.title}>Booking cancelled</Text>
         <Text style={styles.sub}>
           Any refund due will go back to your original payment method within 3–5 business days.
-          You'll get a confirmation notification shortly.
+          The service fee is non-refundable. You'll get a confirmation notification shortly.
         </Text>
       </View>
       <View style={styles.footer}>

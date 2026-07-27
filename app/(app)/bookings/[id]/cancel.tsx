@@ -38,33 +38,45 @@ export default function CancelConfirm() {
     router.replace(`/bookings/${booking.id}/cancel-done`);
   };
 
-  // Displayed tier is advisory — the authoritative fee computation must run
-  // server-side at time of action (handoff §8).
+  // Displayed tier is advisory — the authoritative fee computation runs
+  // server-side at time of action (handoff §8). The 8% service fee is
+  // non-refundable at every tier (Don, 2026-07-27); the charge rate applies
+  // to the session cost only.
+  const remote = booking.type === 'remote';
   const tier = cancelTierForHoursUntil(hoursUntil(booking.scheduledAt));
   const info = CANCEL_TIERS[tier];
-  const total = booking.priceUsd * (1 + CLIENT_SERVICE_FEE_RATE);
-  const charge = total * info.chargeRate;
-  const refund = total - charge;
+  const serviceFee = booking.priceUsd * CLIENT_SERVICE_FEE_RATE;
+  const charge = remote ? 0 : booking.priceUsd * info.chargeRate;
+  const refund = booking.priceUsd - charge;
 
   return (
     <View style={styles.root}>
-      <ScreenHeader title="Cancel this booking?" />
+      <ScreenHeader title={remote ? 'Cancel this order?' : 'Cancel this booking?'} />
       <ScrollView contentContainerStyle={styles.body}>
         <Card style={{ gap: 12 }}>
-          <Row label="Cancellation window" value={
-            tier === 'over48h' ? 'More than 48 hrs before' : tier === 'between24and48h' ? '24–48 hrs before' : 'Less than 24 hrs before'
-          } />
-          <Row label="Policy" value={info.label} />
-          <Row label="Charge" value={formatMoney(charge, currency)} />
+          {remote ? (
+            <Row label="Policy" value="Free before editing begins" />
+          ) : (
+            <>
+              <Row label="Cancellation window" value={
+                tier === 'over48h' ? 'More than 48 hrs before' : tier === 'between24and48h' ? '24–48 hrs before' : 'Less than 24 hrs before'
+              } />
+              <Row label="Policy" value={info.label} />
+              <Row label="Late charge" value={formatMoney(charge, currency)} />
+            </>
+          )}
+          <Row label="Service fee (non-refundable)" value={formatMoney(serviceFee, currency)} />
           <Row label="Refund to you" value={formatMoney(refund, currency)} strong />
         </Card>
         <View style={{ marginTop: 14 }}>
           <InfoBanner
-            tone={tier === 'over48h' ? 'gold' : 'error'}
+            tone={remote || tier === 'over48h' ? 'gold' : 'error'}
             text={
-              tier === 'over48h'
-                ? "You're outside the fee window — cancelling now is free."
-                : 'Cancelling this close to the session has a fee. Rescheduling may be cheaper if your plans changed.'
+              remote
+                ? 'Orders can be cancelled free of charge until an editor begins work. After that, use your included revision instead. The service fee is non-refundable.'
+                : tier === 'over48h'
+                  ? 'Session cost refunded in full. The service fee is non-refundable.'
+                  : 'Cancelling this close to the session has a fee, and the service fee is non-refundable. Rescheduling may be cheaper if your plans changed.'
             }
           />
         </View>

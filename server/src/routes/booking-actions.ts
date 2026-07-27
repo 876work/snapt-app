@@ -74,16 +74,47 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
     if (!role) return reply.code(403).send({ error: 'Not your booking' });
 
     if (role === 'client') {
-      // Remote-edit orders have no session time — the §5 notice tiers don't
-      // apply. Pending remote orders refund in full (FLAGGED: remote-edit
-      // cancellation policy after editing starts is undefined).
-      const quote = booking.scheduled_at
-        ? await cancelQuote(booking.scheduled_at, booking.price_usd)
-        : { tier: 'over48h' as const, chargeRate: 0, chargeUsd: 0, refundUsd: booking.price_usd };
+      const sessionPrice =
+        (booking.pricing_snapshot['session_price_usd'] as number) ?? booking.price_usd;
+      const serviceFee =
+        (booking.pricing_snapshot['client_service_fee_usd'] as number) ??
+        Math.max(0, booking.price_usd - sessionPrice);
+
+      let quote;
+      if (booking.type === 'remote') {
+        // Remote-edit orders (01_Cancellation_and_Refund_Policy §6, confirmed
+        // 2026-07-27): cancellable only before an editor has been assigned
+        // and begun work — once editing starts, the path is revisions, not
+        // cancellation. Editing state isn't modeled yet (Phase 3 delivery
+        // pipeline); an assigned editor is the proxy for "work begun".
+        if (booking.creator_id != null) {
+          return reply.code(409).send({
+            error:
+              'Editing has already begun on this order — it can no longer be cancelled. Use the revision process instead.',
+            action: 'use_revisions',
+          });
+        }
+        quote = {
+          tier: 'pre_editing' as const,
+          chargeRate: 0,
+          chargeUsd: 0,
+          serviceFeeUsd: serviceFee,
+          refundUsd: sessionPrice,
+        };
+      } else if (booking.scheduled_at) {
+        quote = await cancelQuote(booking.scheduled_at, sessionPrice, serviceFee);
+      } else {
+        return reply.code(422).send({ error: 'Booking has no scheduled time' });
+      }
+
+      // Service fee is non-refundable at every tier (Don, 2026-07-27):
+      // refund covers the session cost minus the late charge only.
       await refundClient(booking, quote.refundUsd, `client_cancel_${quote.tier}`);
-      await recordFee(booking, 'cancellation_fee', quote.chargeUsd, {
+      await recordFee(booking, 'cancellation_fee', booking.price_usd - quote.refundUsd, {
         tier: quote.tier,
         charge_rate: quote.chargeRate,
+        session_charge_usd: quote.chargeUsd,
+        service_fee_kept_usd: quote.serviceFeeUsd,
       });
       await supabaseAdmin
         .from('bookings')
@@ -108,8 +139,9 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
     };
   });
 
-  // Reschedule — free 1x >48h; 24–48h same 50% charge as cancelling; <6h
-  // disabled; 6–24h implemented as 100% (POLICY GAP — flagged to Don).
+  // Reschedule — free 1x >48h; 24–48h same 50% charge as cancelling;
+  // disabled entirely under 24h (Don, 2026-07-27 — inside that, cancel or
+  // contact support).
   app.post<{ Params: { id: string }; Body: { date?: string; time?: string } }>(
     '/v1/bookings/:id/reschedule',
     async (request, reply) => {
@@ -126,16 +158,19 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
       const { date, time } = request.body ?? {};
       if (!date || !time) return reply.code(400).send({ error: 'date and time are required' });
 
+      const sessionPrice =
+        (booking.pricing_snapshot['session_price_usd'] as number) ?? booking.price_usd;
       const quote = await rescheduleQuote(
         booking.scheduled_at,
-        booking.price_usd,
+        sessionPrice,
         booking.reschedule_count,
       );
       if (!quote.allowed) {
-        if (quote.reason === 'disabled_under_6h') {
-          return reply
-            .code(422)
-            .send({ error: 'Rescheduling is disabled within 6 hours of the session' });
+        if (quote.reason === 'disabled_under_cutoff') {
+          const cutoff = ((await getConfig())['reschedule_disabled_under_hours'] as number) ?? 24;
+          return reply.code(422).send({
+            error: `Rescheduling is disabled within ${cutoff} hours of the session — cancel (normal fee tiers apply) or contact support`,
+          });
         }
         return reply.code(422).send({
           error:

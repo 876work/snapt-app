@@ -6,7 +6,9 @@ import { Button } from '../../../../components/ui/Button';
 import { RESCHEDULE_DISABLED_UNDER_HOURS } from '../../../../lib/constants/business';
 import { colors } from '../../../../lib/theme';
 
-// Rescheduling under 6 hours is disabled entirely (§5).
+// Rescheduling under 24 hours is disabled entirely (widened from 6h —
+// Don, 2026-07-27). The only paths inside that window are cancellation
+// (normal fee tiers) or support.
 export default function RescheduleBlocked() {
   const router = useRouter();
   return (
@@ -21,7 +23,7 @@ export default function RescheduleBlocked() {
         <Text style={styles.sub}>
           Your session starts in under {RESCHEDULE_DISABLED_UNDER_HOURS} hours, so rescheduling is
           no longer available. Your creator has already planned around this time. If you can't make
-          it, you can still cancel — the late-cancellation fee schedule applies.
+          it, you can cancel — the late-cancellation fee schedule applies — or contact support.
         </Text>
       </View>
       <View style={styles.footer}>

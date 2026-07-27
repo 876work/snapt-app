@@ -141,6 +141,8 @@ export interface CancelResult {
   cancelled_by: 'client' | 'creator';
   tier?: string;
   chargeUsd?: number;
+  /** Non-refundable at every tier (client-initiated cancellations). */
+  serviceFeeUsd?: number;
   refundUsd: number;
 }
 
