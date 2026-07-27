@@ -85,6 +85,18 @@ export default function Delivery() {
   // delivered revision first (Policy 08 §2).
   const [revText, setRevText] = React.useState('');
   const [revStatus, setRevStatus] = React.useState<string | null>(null);
+  const [canBuyRound, setCanBuyRound] = React.useState(false);
+  const buyRound = async () => {
+    const api = await import('../../../lib/api');
+    if (!api.apiConfigured || !id) return;
+    const result = await api.purchaseRevisionApi(id);
+    if (result && 'purchased' in result) {
+      setCanBuyRound(false);
+      setRevStatus(`Extra round added ($${result.charged_usd.toFixed(2)}) — send your request again.`);
+    } else if (result && 'error' in result) {
+      setRevStatus(result.error);
+    }
+  };
   const requestRevision = async () => {
     setRevStatus(null);
     const api = await import('../../../lib/api');
@@ -92,8 +104,10 @@ export default function Delivery() {
       const result = await api.requestRevisionApi(id, revText.trim());
       if (result && 'error' in result) {
         setRevStatus(result.error);
+        setCanBuyRound((result as { action?: string }).action === 'purchase_revision' || result.error.includes('used up'));
         return;
       }
+      setCanBuyRound(false);
     }
     setRevText('');
     setRevStatus('Revision requested — your creator has been notified.');
@@ -164,6 +178,11 @@ export default function Delivery() {
             style={styles.revInput}
           />
           {revStatus ? <Text style={styles.revStatus}>{revStatus}</Text> : null}
+          {canBuyRound ? (
+            <Pressable onPress={buyRound} style={[styles.revBtn, { backgroundColor: colors.yellow }]}>
+              <Text style={[styles.revBtnLabel, { color: colors.ink }]}>Buy an extra revision round</Text>
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={requestRevision}
             style={[styles.revBtn, revText.trim().length < 10 && { opacity: 0.4 }]}

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
-import { getConfig } from '../config.js';
+import { getConfig, inPersonAddonPrices, remoteAddonPrices } from '../config.js';
 import { notify } from '../notify.js';
 
 // Revision flow (Policy 08 §2 first step): client requests → creator
@@ -41,7 +41,7 @@ export function registerRevisionRoutes(app: FastifyInstance) {
         // paid rounds are the ones bought at booking time.
         return reply.code(409).send({
           error: 'Revision rounds used up for this order',
-          action: 'contact_support',
+          action: 'purchase_revision',
         });
       }
 
@@ -63,6 +63,48 @@ export function registerRevisionRoutes(app: FastifyInstance) {
       return reply.code(201).send({ revision });
     },
   );
+
+  // Post-delivery purchase of an additional round — same add-on pricing and
+  // charge pattern as booking-time add-ons (Policy 05 §3.4: add-ons are
+  // charged when ordered). Increments the snapshot entitlement.
+  app.post<{ Params: { id: string } }>('/v1/bookings/:id/revisions/purchase', async (request, reply) => {
+    const user = requireUser(request);
+    const { data: booking } = await supabaseAdmin
+      .from('bookings')
+      .select('id, client_id, type, status, pricing_snapshot')
+      .eq('id', request.params.id)
+      .maybeSingle();
+    if (!booking) return reply.code(404).send({ error: 'Booking not found' });
+    if (user.id !== booking.client_id) return reply.code(403).send({ error: 'Not your booking' });
+    if (booking.status !== 'completed') {
+      return reply.code(409).send({ error: 'Extra rounds are purchased after delivery' });
+    }
+    const prices = booking.type === 'remote' ? await remoteAddonPrices() : await inPersonAddonPrices();
+    const config = await getConfig();
+    const feeRate = (config['client_service_fee_rate'] as number) ?? 0.08;
+    const charge = Math.round(prices.extra_revision * (1 + feeRate) * 100) / 100;
+
+    // Simulated charge pre-Phase 7, same as booking-time payments.
+    await supabaseAdmin.from('transactions').insert({
+      booking_id: booking.id,
+      user_id: user.id,
+      type: 'charge',
+      status: 'succeeded',
+      amount_usd: charge,
+      fees: { kind: 'extra_revision_purchase', base_usd: prices.extra_revision, fee_rate: feeRate },
+    });
+    const snapshot = (booking.pricing_snapshot ?? {}) as { addons?: Record<string, number> };
+    const addons = { ...(snapshot.addons ?? {}) };
+    addons.extra_revisions = Number(addons.extra_revisions ?? 0) + 1;
+    addons.extra_revisions_usd = Number(addons.extra_revisions_usd ?? 0) + prices.extra_revision;
+    await supabaseAdmin
+      .from('bookings')
+      .update({ pricing_snapshot: { ...snapshot, addons } })
+      .eq('id', booking.id);
+    await notify(user.id, 'payment_charged', 'Extra revision round added',
+      `$${charge.toFixed(2)} charged — you can now request another revision on this order.`);
+    return reply.code(201).send({ purchased: true, charged_usd: charge });
+  });
 
   app.post<{ Params: { id: string; revId: string } }>(
     '/v1/bookings/:id/revisions/:revId/deliver',

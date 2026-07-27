@@ -23,7 +23,7 @@ export default function CreatorHome() {
     if (!apiConfigured) return;
     fetchMyBookings().then((bookings) => {
       if (!bookings) return;
-      const mine = bookings.filter((b) => b.status === 'pending' || b.status === 'confirmed');
+      const mine = bookings.filter((b) => ['pending', 'confirmed', 'completed'].includes(b.status));
       const jobs: JobOffer[] = mine.map((b) => ({
         id: b.id,
         title: b.occasion ? `${b.occasion} session` : 'Remote edit order',
@@ -44,7 +44,7 @@ export default function CreatorHome() {
         type: b.type === 'in_person' ? 'in-person' : 'remote',
       }));
       setOffers(jobs);
-      for (const b of mine) setStage(b.id, b.status === 'pending' ? 'offer' : 'accepted');
+      for (const b of mine) setStage(b.id, b.status === 'pending' ? 'offer' : b.status === 'completed' ? 'submitted' : 'accepted');
     });
   }, []);
 

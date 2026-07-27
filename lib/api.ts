@@ -314,6 +314,26 @@ export function requestRevisionApi(id: string, details: string) {
   return authedPost<{ revision: { id: string } }>(`/v1/bookings/${id}/revisions`, { details });
 }
 
+export interface RevisionRequest {
+  id: string;
+  status: 'open' | 'delivered';
+  details: string;
+  created_at: string;
+}
+
+export async function fetchRevisionsApi(id: string): Promise<RevisionRequest[] | null> {
+  const result = await request<{ revisions: RevisionRequest[] }>(`/v1/bookings/${id}/revisions`);
+  return result?.revisions ?? null;
+}
+
+export function deliverRevisionApi(id: string, revId: string) {
+  return authedPost<{ delivered: boolean }>(`/v1/bookings/${id}/revisions/${revId}/deliver`);
+}
+
+export function purchaseRevisionApi(id: string) {
+  return authedPost<{ purchased: boolean; charged_usd: number }>(`/v1/bookings/${id}/revisions/purchase`);
+}
+
 /** Frictionless safety end — no fees, no penalties, server records for admin review. */
 export function endSessionSafetyApi(id: string) {
   return authedPost<{ ended: boolean }>(`/v1/bookings/${id}/safety/end-session`);

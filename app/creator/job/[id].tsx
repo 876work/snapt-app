@@ -92,6 +92,44 @@ export default function CreatorJob() {
     ]);
   };
 
+  // Open revision round (API mode): shown in the submitted stage; re-uses
+  // the same pick → upload deliverable → mark delivered pattern.
+  const [openRevision, setOpenRevision] = React.useState<{ id: string; details: string } | null>(null);
+  React.useEffect(() => {
+    if (stage !== 'submitted') return;
+    import('../../../lib/api').then(({ apiConfigured, fetchRevisionsApi }) => {
+      if (!apiConfigured) return;
+      fetchRevisionsApi(String(id)).then((revs) => {
+        const open = revs?.find((r) => r.status === 'open');
+        setOpenRevision(open ? { id: open.id, details: open.details } : null);
+      });
+    });
+  }, [stage]);
+
+  const deliverRevision = () =>
+    withApi(async (api) => {
+      if (!openRevision) return false;
+      if (picked.length === 0) {
+        setActionError('Pick the updated files first.');
+        return false;
+      }
+      for (const file of picked) {
+        const ok = await api.uploadMediaApi(job.id, 'deliverable', file);
+        if (!ok) {
+          setActionError('Upload failed — try again.');
+          return false;
+        }
+      }
+      const r = await api.deliverRevisionApi(job.id, openRevision.id);
+      if (r && 'error' in r) {
+        setActionError(r.error);
+        return false;
+      }
+      setOpenRevision(null);
+      setPicked([]);
+      return true;
+    });
+
   const submitFootage = () =>
     withApi(async (api) => {
       // In-person: raw footage upload + session completion (payout trigger).
@@ -283,7 +321,23 @@ export default function CreatorJob() {
           </>
         )}
 
-        {stage === 'submitted' && (
+        {stage === 'submitted' && openRevision && (
+          <>
+            <Text style={styles.checkinLead}>
+              Revision requested — the client asked for changes:
+            </Text>
+            <View style={styles.card}>
+              <Text style={{ fontSize: 13, color: colors.ink, lineHeight: 19 }}>{openRevision.details}</Text>
+            </View>
+            <Pressable onPress={pickFootage} style={styles.dropzone}>
+              <Text style={styles.dropTitle}>
+                {picked.length > 0 ? `${picked.length} updated file${picked.length > 1 ? 's' : ''} ready` : 'Add the updated files'}
+              </Text>
+              <Text style={styles.dropSub}>Same delivery flow — upload, then mark the revision delivered</Text>
+            </Pressable>
+          </>
+        )}
+        {stage === 'submitted' && !openRevision && (
           <View style={styles.successCard}>
             <View style={styles.successIcon}>
               <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
@@ -324,7 +378,10 @@ export default function CreatorJob() {
         {stage === 'upload' && (
           <Button title="Submit footage" onPress={submitFootage} />
         )}
-        {stage === 'submitted' && (
+        {stage === 'submitted' && openRevision && (
+          <Button title="Deliver revision" onPress={deliverRevision} />
+        )}
+        {stage === 'submitted' && !openRevision && (
           <Button title="Back to jobs" variant="ghost" onPress={() => router.back()} />
         )}
       </View>
