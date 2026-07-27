@@ -1,0 +1,220 @@
+import React from 'react';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import Svg, { Circle, Path } from 'react-native-svg';
+import { ScreenHeader } from '../../components/ui/ScreenHeader';
+import { Button } from '../../components/ui/Button';
+import { creatorById, useBookings } from '../../lib/store';
+import { colors, spacing } from '../../lib/theme';
+
+const SAMPLE_TINTS = ['#F2C14E', '#6FD3E0', '#F2A0B5', '#8ED7A6'];
+
+const BREAKDOWN = [
+  { label: 'Quality', val: 4.9 },
+  { label: 'Punctuality', val: 4.8 },
+  { label: 'Friendliness', val: 5.0 },
+];
+
+const REVIEWS = [
+  { name: 'Keisha B.', stars: 5, text: 'Made the whole family feel at ease — the golden-hour shots were unreal.', date: '2 weeks ago' },
+  { name: 'Andre P.', stars: 5, text: 'On time, professional, and the edit turnaround was faster than promised.', date: 'last month' },
+];
+
+export default function CreatorPreview() {
+  const router = useRouter();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { setDraft } = useBookings();
+  const creator = creatorById(String(id));
+
+  if (!creator) return null;
+
+  return (
+    <View style={styles.root}>
+      <ScreenHeader title="Creator profile" />
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        {/* Header card */}
+        <View style={styles.headCard}>
+          <View style={[styles.photo, { backgroundColor: creator.tint }]}>
+            <Image source={creator.photo} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.name}>{creator.name}</Text>
+              {creator.verified && (
+                <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                  <Path d="M12 3l2.2 1.6 2.7-.2 1 2.5 2.3 1.4-.6 2.6.6 2.6-2.3 1.4-1 2.5-2.7-.2L12 21l-2.2-1.6-2.7.2-1-2.5L3.8 15.7l.6-2.6-.6-2.6 2.3-1.4 1-2.5 2.7.2L12 3z" fill={colors.yellow} />
+                  <Path d="M9 12l2 2 4-4" stroke="#fff" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
+                </Svg>
+              )}
+            </View>
+            {creator.verified && (
+              <View style={styles.verifiedPill}>
+                <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
+                  <Path d="M12 3l7 2.5v5.6c0 4.4-3 7.8-7 9.4-4-1.6-7-5-7-9.4V5.5L12 3z" fill={colors.success} />
+                  <Path d="M9.2 12l2 2 3.6-3.6" stroke="#fff" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
+                </Svg>
+                <Text style={styles.verifiedLabel}>Verified Creator</Text>
+              </View>
+            )}
+            <Text style={styles.spec}>{creator.specialties.join(' · ')}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 7 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <Svg width={12} height={12} viewBox="0 0 24 24" fill={colors.yellow}>
+                  <Path d="M12 2l2.9 6.3 6.9.6-5.2 4.6 1.6 6.8L12 17.3 5.8 20.9l1.6-6.8L2.2 8.9l6.9-.6z" />
+                </Svg>
+                <Text style={styles.rating}>
+                  {creator.rating.toFixed(1)} <Text style={styles.reviews}>({creator.sessions})</Text>
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <Svg width={11} height={11} viewBox="0 0 24 24" fill="none">
+                  <Path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z" stroke="#8A8377" strokeWidth={1.8} strokeLinejoin="round" />
+                  <Circle cx="12" cy="10" r="2.3" stroke="#8A8377" strokeWidth={1.8} />
+                </Svg>
+                <Text style={styles.dist}>{creator.distanceKm.toFixed(1)} km</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Past work */}
+        <Text style={styles.sectionLabel}>Past work</Text>
+        <View style={styles.sampleGrid}>
+          {SAMPLE_TINTS.map((tint, i) => (
+            <View key={i} style={[styles.sample, { backgroundColor: tint }]} />
+          ))}
+        </View>
+
+        {/* Rating breakdown */}
+        <Text style={styles.sectionLabel}>Rating breakdown</Text>
+        <View style={styles.breakCard}>
+          {BREAKDOWN.map((b) => (
+            <View key={b.label} style={styles.breakRow}>
+              <Text style={styles.breakLabel}>{b.label}</Text>
+              <View style={styles.breakTrack}>
+                <View style={[styles.breakBar, { width: `${(b.val / 5) * 100}%` }]} />
+              </View>
+              <Text style={styles.breakVal}>{b.val.toFixed(1)}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Recent reviews */}
+        <Text style={styles.sectionLabel}>Recent reviews</Text>
+        <View style={{ gap: 10 }}>
+          {REVIEWS.map((r) => (
+            <View key={r.name} style={styles.reviewCard}>
+              <View style={styles.reviewHead}>
+                <Text style={styles.reviewName}>{r.name}</Text>
+                <Text style={styles.reviewStars}>{'★'.repeat(r.stars)}</Text>
+              </View>
+              <Text style={styles.reviewText}>{r.text}</Text>
+              <Text style={styles.reviewDate}>{r.date}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={{ height: 24 }} />
+      </ScrollView>
+      <View style={styles.footer}>
+        <Button
+          title={`Choose ${creator.name}`}
+          arrow
+          onPress={() => {
+            setDraft({ creatorId: creator.id });
+            router.back();
+          }}
+          style={{ flex: 1 }}
+        />
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.offWhite },
+  body: { paddingHorizontal: spacing.screenX, paddingTop: 8 },
+  headCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 15,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  photo: { width: 70, height: 70, borderRadius: 18, overflow: 'hidden' },
+  name: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3, color: colors.ink },
+  verifiedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    alignSelf: 'flex-start',
+    backgroundColor: '#EAF8F0',
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    marginTop: 6,
+  },
+  verifiedLabel: { fontSize: 9.5, fontWeight: '800', color: '#12784A', letterSpacing: 0.2 },
+  spec: { fontSize: 10.5, color: colors.greyWarm, marginTop: 5 },
+  rating: { fontSize: 11, fontWeight: '800', color: colors.ink },
+  reviews: { color: colors.greyWarm, fontWeight: '600' },
+  dist: { fontSize: 10, color: colors.greyWarm, fontWeight: '600' },
+  sectionLabel: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: colors.yellowDark,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginTop: 20,
+    marginBottom: 9,
+    marginHorizontal: 2,
+  },
+  sampleGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
+  sample: { width: '48%', flexGrow: 1, height: 92, borderRadius: 13 },
+  breakCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 15,
+    gap: 11,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  breakRow: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  breakLabel: { width: 82, fontSize: 10.5, fontWeight: '700', color: '#5C574E' },
+  breakTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#F1EEE7', overflow: 'hidden' },
+  breakBar: { height: '100%', borderRadius: 3, backgroundColor: colors.yellow },
+  breakVal: { fontSize: 10.5, fontWeight: '800', width: 24, textAlign: 'right', color: colors.ink },
+  reviewCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    paddingVertical: 13,
+    paddingHorizontal: 15,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  reviewHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  reviewName: { fontSize: 12, fontWeight: '800', color: colors.ink },
+  reviewStars: { fontSize: 11, color: colors.yellow, letterSpacing: 1 },
+  reviewText: { fontSize: 10.5, color: '#5C574E', lineHeight: 16, marginTop: 6 },
+  reviewDate: { fontSize: 9, color: '#9A948B', marginTop: 6 },
+  footer: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 30,
+    backgroundColor: colors.offWhite,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+  },
+});
