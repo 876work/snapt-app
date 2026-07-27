@@ -40,9 +40,10 @@ export default function UploadFootage() {
               <Path d="M12 15.5v.01" stroke={colors.error} strokeWidth={2.4} strokeLinecap="round" />
             </Svg>
             <View style={{ flex: 1 }}>
-              <Text style={styles.limitTitle}>You've reached the {MAX_FILES} file limit for this package</Text>
+              <Text style={styles.limitTitle}>You've reached the {MAX_FILES}-file limit per order</Text>
               <Text style={styles.limitSub}>
-                Need more? Add extra files at checkout with the Extra files add-on.
+                {MAX_FILES} files is the maximum for a single order. Have more? Place a second
+                order for the rest once this one's in.
               </Text>
             </View>
           </View>

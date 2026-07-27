@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
-import { configNumber, getConfig, packagePriceUsd, remotePriceUsd } from '../config.js';
+import { configNumber, getConfig, packagePriceUsd, remoteAddonPrices, remotePriceUsd } from '../config.js';
 import { recordBookingCharge } from '../payments.js';
 import { stripeConfigured } from '../env.js';
 import { expireStaleOffer, offerWindowMs, reassignBooking } from '../offers.js';
@@ -21,6 +21,8 @@ interface CreateBookingBody {
   duration_hours?: number;
   /** Remote-edit orders: tier key in remote_pricing_table (e.g. photos_6_10, standard, large). */
   remote_tier?: string;
+  /** Remote add-ons: flat rush fee; extra revision rounds beyond the free one. */
+  addons?: { rush?: boolean; extra_revisions?: number };
   area?: string;
   meeting_point?: string;
   date?: string; // YYYY-MM-DD
@@ -70,6 +72,8 @@ export function registerBookingRoutes(app: FastifyInstance) {
     // duration); remote from remote_pricing_table (service type × tier).
     let sessionPrice: number;
     let durationHours: number | null = null;
+    let addonsUsd = 0;
+    let addonsDetail: Record<string, number> = {};
     if (type === 'remote') {
       if (!body.remote_tier) {
         return reply.code(400).send({ error: 'remote_tier is required for remote orders' });
@@ -81,6 +85,17 @@ export function registerBookingRoutes(app: FastifyInstance) {
           .send({ error: `No ${mediaKind} remote package for tier ${body.remote_tier}` });
       }
       sessionPrice = price;
+
+      // Add-ons priced from config (remote_addons), never client-trusted.
+      const extraRevisions = Number(body.addons?.extra_revisions ?? 0);
+      if (!Number.isInteger(extraRevisions) || extraRevisions < 0 || extraRevisions > 5) {
+        return reply.code(400).send({ error: 'extra_revisions must be a whole number (0–5)' });
+      }
+      const addonPrices = await remoteAddonPrices();
+      const rushUsd = body.addons?.rush ? addonPrices.rush : 0;
+      const revisionsUsd = extraRevisions * addonPrices.extra_revision;
+      addonsUsd = rushUsd + revisionsUsd;
+      addonsDetail = { rush_usd: rushUsd, extra_revisions: extraRevisions, extra_revisions_usd: revisionsUsd };
     } else {
       durationHours = Number(body.duration_hours);
       const price = await packagePriceUsd(mediaKind, durationHours);
@@ -137,8 +152,9 @@ export function registerBookingRoutes(app: FastifyInstance) {
     const config = await getConfig();
     const clientFeeRate = (config['client_service_fee_rate'] as number) ?? 0.08;
     const xcdPerUsd = (config['xcd_per_usd'] as number) ?? 2.7;
-    const serviceFee = Math.round(sessionPrice * clientFeeRate * 100) / 100;
-    const total = Math.round((sessionPrice + serviceFee) * 100) / 100;
+    const subtotal = Math.round((sessionPrice + addonsUsd) * 100) / 100;
+    const serviceFee = Math.round(subtotal * clientFeeRate * 100) / 100;
+    const total = Math.round((subtotal + serviceFee) * 100) / 100;
 
     const { data: booking, error } = await supabaseAdmin
       .from('bookings')
@@ -159,6 +175,9 @@ export function registerBookingRoutes(app: FastifyInstance) {
           duration_hours: durationHours,
           remote_tier: body.remote_tier ?? null,
           session_price_usd: sessionPrice,
+          addons: addonsDetail,
+          addons_usd: addonsUsd,
+          subtotal_usd: subtotal,
           client_service_fee_rate: clientFeeRate,
           client_service_fee_usd: serviceFee,
           total_usd: total,

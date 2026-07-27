@@ -41,6 +41,13 @@ export async function packagePriceUsd(
   return table[mediaKind]?.[String(durationHours)];
 }
 
+/** CONFIRMED remote add-on prices: flat rush fee + per-round extra revision. */
+export async function remoteAddonPrices(): Promise<{ rush: number; extra_revision: number }> {
+  const config = await getConfig();
+  const table = (config['remote_addons'] as { rush?: number; extra_revision?: number }) ?? {};
+  return { rush: table.rush ?? 20, extra_revision: table.extra_revision ?? 15 };
+}
+
 /** CONFIRMED remote-edit pricing: service type × tier key. */
 export async function remotePriceUsd(
   mediaKind: string,

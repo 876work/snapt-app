@@ -107,7 +107,7 @@ interface ServerBooking {
   duration_hours: number | null;
   media_kind: Booking['mediaKind'];
   price_usd: number;
-  pricing_snapshot?: { session_price_usd?: number };
+  pricing_snapshot?: { session_price_usd?: number; subtotal_usd?: number };
   status: string;
   reschedule_count: number;
   offer_expires_at?: string | null;
@@ -240,11 +240,13 @@ export function cashOutApi() {
 export async function createRemoteOrderApi(
   mediaKind: Booking['mediaKind'],
   tier: string,
+  addons?: { rush?: boolean; extraRevisions?: number },
 ): Promise<{ booking: Booking } | { error: string } | null> {
   const result = await authedPost<{ booking: ServerBooking }>(`/v1/bookings`, {
     type: 'remote',
     media_kind: mediaKind,
     remote_tier: tier,
+    addons: { rush: addons?.rush ?? false, extra_revisions: addons?.extraRevisions ?? 0 },
   });
   if (!result) return null;
   if ('error' in result) return result;
@@ -259,7 +261,9 @@ export async function createRemoteOrderApi(
       scheduledAt: b.scheduled_at ?? new Date().toISOString(),
       durationHours: b.duration_hours ?? 1,
       mediaKind: b.media_kind,
-      priceUsd: b.pricing_snapshot?.session_price_usd ?? b.price_usd,
+      // Pre-fee amount including add-ons, so total-paid displays (×1.08)
+      // stay accurate for add-on orders.
+      priceUsd: b.pricing_snapshot?.subtotal_usd ?? b.pricing_snapshot?.session_price_usd ?? b.price_usd,
       status: mapServerStatus(b.status),
       rescheduleCount: 0,
     },

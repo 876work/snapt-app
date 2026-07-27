@@ -10,9 +10,11 @@ import { CLIENT_SERVICE_FEE_RATE, formatMoney } from '../../lib/constants/busine
 import { colors } from '../../lib/theme';
 
 const ADDONS = [
-  { id: 'rush', title: 'Rush delivery', sub: 'Finished edit within 48 hours', priceUsd: 30 },
-  { id: 'extra-files', title: 'Extra files', sub: '+10 files beyond the package limit', priceUsd: 20 },
-  { id: 'revision', title: 'Extra revision round', sub: '1 free round included', priceUsd: 15 },
+  // Confirmed flat rates (Don, 2026-07-27), mirrored in the remote_addons
+  // config row — the server charges from config, these only render. The
+  // extra-files add-on is gone: 15 files is a hard ceiling per order.
+  { id: 'rush', title: 'Rush turnaround', sub: 'Finished edit within 48 hours — flat rate, any package', priceUsd: 20 },
+  { id: 'revision', title: 'Extra revision round', sub: '1 free round included; per additional round', priceUsd: 15 },
 ];
 
 export default function RemoteOrderSummary() {
@@ -48,7 +50,10 @@ export default function RemoteOrderSummary() {
     if (apiConfigured) {
       // Server prices from remote_pricing_table (§8). Add-ons stay
       // client-side until the add-on catalog moves to config.
-      const result = await createRemoteOrderApi(mediaKind, pkg.tier);
+      const result = await createRemoteOrderApi(mediaKind, pkg.tier, {
+        rush: addons.includes('rush'),
+        extraRevisions: addons.includes('revision') ? 1 : 0,
+      });
       if (result && 'booking' in result) {
         addServerBooking(result.booking);
         reset();
