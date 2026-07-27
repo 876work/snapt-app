@@ -280,6 +280,7 @@ pre{white-space:pre-wrap;font-size:11px;color:#555;margin:6px 0 0}
 <h2>Creator applications</h2><div id="apps"></div>
 <h2>Legal & policy documents</h2><div id="pol"></div>
 <h2>Pending payouts (manual fulfillment)</h2><div id="payouts"></div>
+<h2>Moderation queue (severity first)</h2><div id="mod"></div>
 </main><script>
 const $=id=>document.getElementById(id);
 const H=()=>({'Authorization':'Bearer '+(localStorage.jwt||''),'x-admin-token':localStorage.tok||'','Content-Type':'application/json'});
@@ -290,7 +291,7 @@ async function load(){
  if(st.bookings){$('stats').innerHTML=[['Pending',st.bookings.pending],['Confirmed',st.bookings.confirmed],['Completed',st.bookings.completed],['Disputed',st.bookings.disputed],['GMV $',st.money.charged_usd],['Refunded $',st.money.refunded_usd],['Creators',st.creators.approved],['Open disputes',st.open_disputes],['Active strikes',st.active_strikes]].map(x=>'<div class="card" style="flex:1;min-width:90px;text-align:center"><div style="font-size:20px;font-weight:800">'+x[1]+'</div><div style="font-size:11px;color:#777">'+x[0]+'</div></div>').join('')}
  const cfg=await j('/v1/admin/config');
  $('cfg').innerHTML=(cfg.config||[]).map(c=>'<div class="card"><b>'+c.key+'</b> '+(c.confirmed?'':'<span class="tag">UNCONFIRMED</span>')+'<pre>'+c.description+'</pre><input style="width:70%" id="v-'+c.key+'" value=\''+JSON.stringify(c.value).replace(/'/g,"&#39;")+'\'/> <button onclick="saveCfg(\''+c.key+'\')">Save</button></div>').join('');
- loadPolicies();loadPayouts();
+ loadPolicies();loadPayouts();loadMod();
  const un=await j('/v1/admin/unassigned');
  $('unassigned').innerHTML=(un.bookings||[]).map(b=>'<div class="card"><span class="tag">'+(b.occasion||b.type)+'</span>'+(b.area||'')+' · '+(b.scheduled_at?new Date(b.scheduled_at).toLocaleString():'remote')+'<br/><input placeholder="creator uuid" id="a-'+b.id+'" style="width:60%"/> <button onclick="assign(\''+b.id+'\')">Assign</button></div>').join('')||'<div class="card">Nothing waiting for dispatch.</div>';
  const a=await j('/v1/admin/alerts');
@@ -300,6 +301,11 @@ async function load(){
  const p=await j('/v1/admin/applications');
  $('apps').innerHTML=(p.applications||[]).map(x=>'<div class="card"><b>'+x.profiles.full_name+'</b> · '+x.profiles.email+'<pre>'+(x.specialties||[]).join(', ')+' · '+(x.base_area||'')+'</pre><button onclick="approve(\\''+x.user_id+'\\')">Approve (bg check passed)</button></div>').join('')||'<div class="card">No pending applications.</div>';
 }
+async function loadMod(){const m=await j('/v1/admin/moderation');
+ $('mod').innerHTML=((m.reports||[]).map(r=>'<div class="card '+(r.severity==='critical'?'sos':'')+'"><span class="tag">'+r.severity.toUpperCase()+'</span><span class="tag">'+r.category+'</span>reporter '+r.reporter_id.slice(0,8)+' → target '+(r.target_user_id||'n/a').slice(0,8)+(r.law_enforcement_referral?' <span class="tag">LE REFERRAL</span>':'')+'<pre>'+(r.details||'')+'</pre><button onclick="modAct(\''+r.id+'\',\'actioned\')">Action taken</button><button class="ghost" onclick="modAct(\''+r.id+'\',\'dismissed\')">Dismiss</button> <select id="sv-'+r.id+'"><option>critical</option><option>high</option><option>medium</option><option>low</option></select><button class="ghost" onclick="modTier(\''+r.id+'\')">Set tier</button></div>').join(''))+((m.portfolio_pending||[]).map(p=>'<div class="card"><span class="tag">PORTFOLIO</span>'+p.creator_id.slice(0,8)+'<pre>'+(p.caption||'')+'</pre><button onclick="pf(\''+p.id+'\',\'approved\')">Approve</button><button class="ghost" onclick="pf(\''+p.id+'\',\'rejected\')">Reject</button></div>').join(''))||'<div class="card">Moderation queue clear.</div>'}
+async function modAct(id,a){await j('/v1/admin/reports/'+id,{method:'POST',body:JSON.stringify({action:a})});loadMod()}
+async function modTier(id){await j('/v1/admin/reports/'+id,{method:'POST',body:JSON.stringify({severity:$('sv-'+id).value})});loadMod()}
+async function pf(id,d){await j('/v1/admin/portfolio/'+id,{method:'POST',body:JSON.stringify({decision:d})});loadMod()}
 async function loadPayouts(){const p=await j('/v1/admin/payout-requests');$('payouts').innerHTML=(p.requests||[]).map(r=>'<div class="card"><b>'+(r.name||r.creator_id)+'</b> · $'+r.total.toFixed(2)+'<pre>'+(r.payout_details||'⚠ NO PAYOUT DETAILS ON FILE — contact creator')+'</pre><button onclick="fulfill(\''+r.creator_id+'\')">Mark paid out</button></div>').join('')||'<div class="card">No pending payout requests.</div>'}
 async function fulfill(cid){await j('/v1/admin/payout-requests/fulfill',{method:'POST',body:JSON.stringify({creator_id:cid})});loadPayouts()}
 async function loadPolicies(){const p=await j('/v1/admin/policies');const latest={};(p.policies||[]).forEach(x=>{if(!latest[x.doc_type])latest[x.doc_type]=x});$('pol').innerHTML=Object.values(latest).map(x=>'<div class="card"><b>'+x.doc_type+'</b> v'+x.version+' <span class="tag">'+x.status.toUpperCase()+'</span>'+(x.requires_reconsent?'<span class="tag">RE-CONSENT</span>':'')+(x.published_at?' published '+new Date(x.published_at).toLocaleDateString():'')+'<br/><textarea id="pc-'+x.doc_type+'" rows="3" style="width:98%" placeholder="New version content…"></textarea><br/><label style="font-size:11px"><input type="checkbox" id="pr-'+x.doc_type+'"/> material change (forces re-consent)</label><br/><button onclick="draftPolicy(\''+x.doc_type+'\')">Save as draft v'+(x.version+1)+'</button>'+(x.status==='draft'?'<button class="ghost" onclick="publishPolicy(\''+x.id+'\')">Publish v'+x.version+'</button>':'')+'</div>').join('')}

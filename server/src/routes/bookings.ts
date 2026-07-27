@@ -66,6 +66,10 @@ export function registerBookingRoutes(app: FastifyInstance) {
     const body = request.body ?? {};
     const type = body.type ?? 'in_person';
 
+    const { data: me } = await supabaseAdmin.from('profiles').select('suspended_at').eq('id', user.id).maybeSingle();
+    if (me?.suspended_at) {
+      return reply.code(403).send({ error: 'Your account is suspended — contact hello@snaptcarib.app' });
+    }
     const mediaKind = body.media_kind;
     if (!mediaKind || !['photo', 'video', 'both'].includes(mediaKind)) {
       return reply.code(400).send({ error: 'media_kind must be photo, video, or both' });
