@@ -12,12 +12,12 @@ import { colors } from '../../lib/theme';
 // server: cash needs none (pickup mechanics = pending product decision);
 // penny_pinch field pending confirmation of what the wallet requires.
 const METHODS: { id: string; name: string; eta: string; fields: { key: string; label: string }[] }[] = [
-  { id: 'cash', name: 'Cash pickup', eta: 'Partner location', fields: [] },
-  { id: 'penny_pinch', name: 'Penny Pinch', eta: 'Within hours', fields: [{ key: 'email', label: 'Penny Pinch email' }] },
+  { id: 'cash', name: 'Cash pickup', eta: 'Same day', fields: [] },
+  { id: 'penny_pinch', name: 'Penny Pinch', eta: 'Instant', fields: [{ key: 'email', label: 'Penny Pinch email' }] },
   { id: 'cibc', name: 'CIBC', eta: '1–2 business days', fields: [{ key: 'holder_name', label: 'Account holder name' }, { key: 'account_number', label: 'Account number' }] },
   { id: 'republic_ec', name: 'Republic Bank (EC)', eta: '1–2 business days', fields: [{ key: 'holder_name', label: 'Account holder name' }, { key: 'account_number', label: 'Account number' }] },
   { id: 'bank_slu', name: 'Bank of Saint Lucia', eta: '1–2 business days', fields: [{ key: 'holder_name', label: 'Account holder name' }, { key: 'account_number', label: 'Account number' }] },
-  { id: 'paypal', name: 'PayPal', eta: 'Within hours', fields: [{ key: 'email', label: 'PayPal email' }] },
+  { id: 'paypal', name: 'PayPal', eta: 'Within 24 hours', fields: [{ key: 'email', label: 'PayPal email' }] },
 ];
 
 function methodSub(id: string, saved?: Record<string, string>): string {
