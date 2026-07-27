@@ -75,7 +75,42 @@ export async function eligibleCreators(occasion: string, area?: string): Promise
   // from matching entirely; tier-2 creators are deprioritized (sorted last)
   // for the active window.
   const penalties = await matchingPenalties(creators.map((c) => c.user_id));
-  const enforced = creators.filter((c) => penalties.get(c.user_id) !== 'excluded');
+  // §14 hard gate: creators who haven't accepted the latest published
+  // requires_reconsent version of the Creator Agreement / Background Check
+  // Disclosure are EXCLUDED from matching until they re-accept (real
+  // applicants consent to v1 at application, so only material re-publishes
+  // trigger this).
+  const { data: consentDocs } = await supabaseAdmin
+    .from('policy_documents')
+    .select('id, doc_type, version')
+    .in('doc_type', ['creator-agreement', 'background-check'])
+    .eq('status', 'published')
+    .eq('requires_reconsent', true)
+    .order('version', { ascending: false });
+  const latestDocIds: string[] = [];
+  const seenTypes = new Set<string>();
+  for (const d of consentDocs ?? []) {
+    if (!seenTypes.has(d.doc_type)) {
+      seenTypes.add(d.doc_type);
+      latestDocIds.push(d.id);
+    }
+  }
+  let consented = new Set(creators.map((c) => c.user_id));
+  if (latestDocIds.length > 0 && creators.length > 0) {
+    const { data: consents } = await supabaseAdmin
+      .from('consent_records')
+      .select('user_id, policy_document_id')
+      .in('user_id', creators.map((c) => c.user_id))
+      .in('policy_document_id', latestDocIds);
+    const byUser = new Map<string, number>();
+    for (const c of consents ?? []) byUser.set(c.user_id, (byUser.get(c.user_id) ?? 0) + 1);
+    consented = new Set(
+      creators.filter((c) => (byUser.get(c.user_id) ?? 0) === latestDocIds.length).map((c) => c.user_id),
+    );
+  }
+  const enforced = creators.filter(
+    (c) => penalties.get(c.user_id) !== 'excluded' && consented.has(c.user_id),
+  );
   enforced.sort((a, b) => {
     const pa = penalties.get(a.user_id) === 'deprioritized' ? 1 : 0;
     const pb = penalties.get(b.user_id) === 'deprioritized' ? 1 : 0;

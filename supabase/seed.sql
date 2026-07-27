@@ -1464,8 +1464,213 @@ Add to backend requirements doc: notification trigger service — a central disp
 that listens for these state-change events and fires the correct push/in-app/email
 (Resend) combination, rather than notification logic being scattered across individual
 features as they''re built. No SMS channel exists in this product.', 'published', false),
-  ('terms', 1, 'Terms of Service', '[DRAFT — source document not yet delivered; pending attorney review. Do not publish.]', 'draft', false),
-  ('privacy', 1, 'Privacy Policy', '[DRAFT — source document not yet delivered; pending attorney review. Do not publish.]', 'draft', false);
+  ('terms', 1, 'Terms of Service', 'Snapt — Terms of Service
+Effective date: [Insert date] Contact: hello@snaptcarib.app
+DRAFT — REQUIRES LEGAL REVIEW. This document has not been reviewed by an
+attorney. It must be reviewed against Saint Lucian law before any version of it is
+published to real users.
+
+Welcome to Snapt. These Terms of Service ("Terms") govern your access to and use of the
+Snapt mobile application and related services (together, the "Platform"), operated by
+[Snapt legal entity name] ("Snapt," "we," "us"). By creating an account or using the Platform,
+you agree to these Terms.
+These Terms work alongside, and incorporate by reference, Snapt''s other published
+policies: the Privacy Policy, Cancellation & Refund Policy, Trust & Safety Policy, Content &
+Usage Policy, Payment & Payout Policy, Data Retention Policy, Minor Safety & Age Policy,
+Dispute Resolution Policy, and — for creators — the Creator Agreement and Background
+Check & Vetting Disclosure. Where a specific policy addresses a topic in more detail, that
+policy controls on that topic.
+
+1. What Snapt is
+Snapt is a marketplace that connects clients seeking photography/videography services
+with independent creators who provide those services, either in person or remotely (editing
+footage the client already has). Snapt is not itself a photography or editing service
+provider. Creators are independent contractors, not Snapt employees, as set out in the
+Creator Agreement.
+
+2. Eligibility
+You must be at least 18 years old to create an account or use the Platform. By using Snapt,
+you confirm you meet this requirement and that all information you provide is accurate.
+
+3. Your account
+3.1. You''re responsible for keeping your login credentials secure and for all activity under
+your account.
+3.2. You must provide accurate information and keep it up to date, including your name,
+contact details, and payment information.
+3.3. One person, one account. You may not create multiple accounts to evade a suspension
+or enforcement action.
+3.4. Snapt offers a single app with a client mode and a creator mode. Becoming a creator
+requires a separate application and vetting process described in the Creator Agreement.
+
+4. Bookings, pricing, and payment
+4.1. All prices on Snapt are standardized platform prices, shown in full (including the client
+service fee) before you confirm a booking. Full pricing and fee terms are in the Payment &
+Payout Policy.
+4.2. Payment is collected at the time of booking through our payment processor. By
+booking, you authorize this charge.
+4.3. Cancellations, rescheduling, and no-shows are governed by the Cancellation & Refund
+Policy — read it before booking, since fees may apply depending on timing.
+
+5. Conduct
+5.1. You agree to use the Platform lawfully and in line with the Trust & Safety Policy and
+Content & Usage Policy, including standards on harassment, safety, and what content may
+be created or uploaded through Snapt.
+5.2. You agree not to: circumvent the Platform to transact with a creator or client off-app;
+misrepresent your identity; upload or request content that violates the Content & Usage
+Policy; interfere with the Platform''s operation; or attempt to access another user''s account
+or data.
+5.3. Sessions involving anyone under 18 are subject to the Minor Safety & Age Policy
+without exception.
+
+6. Content and intellectual property
+6.1. Ownership of content created or edited through Snapt is governed by the Content &
+Usage Policy. In short: delivered final content belongs to the client; raw footage is retained
+on the Platform and never delivered to clients.
+6.2. The Snapt name, logo, and app design are Snapt''s intellectual property. You may not
+use them without permission, except as reasonably necessary to use the Platform as
+intended.
+
+7. Disputes between users
+Disagreements between a client and a creator about a booking are handled under the
+Dispute Resolution Policy. Snapt is not a party to the underlying service arrangement
+between client and creator, but provides this process to help resolve disputes fairly.
+
+8. Disclaimers
+8.1. Snapt facilitates bookings between independent creators and clients. We do not
+guarantee the quality, safety, legality, or outcome of any session or delivered content,
+beyond the specific commitments made in our published policies (such as the revision and
+dispute processes).
+8.2. The Platform is provided "as is." We work to keep it available and accurate but do not
+guarantee uninterrupted or error-free service.
+
+8.3. [Attorney to draft appropriate limitation-of-liability language consistent with Saint
+Lucian consumer protection law — a blanket disclaimer of all liability is unlikely to be
+enforceable or appropriate and is not included here as a placeholder for that reason.]
+
+9. Suspension and termination
+9.1. You may stop using the Platform or delete your account at any time (Profile → Delete
+Account), subject to completing or properly cancelling any open bookings.
+9.2. We may suspend or terminate your account for violating these Terms or any
+incorporated policy, particularly the Trust & Safety Policy, Minor Safety & Age Policy, or
+Content & Usage Policy. Creator-specific consequences (strikes, suspension) are detailed in
+the Creator Agreement.
+
+10. Changes to these Terms
+We may update these Terms from time to time. Material changes will be communicated in
+the app, and — where legally required or where the change affects an active consent (such
+as the Creator Agreement) — may require your re-acceptance before you can continue
+certain activity on the Platform.
+
+11. Governing law
+These Terms are governed by the laws of Saint Lucia. [Attorney to confirm dispute
+forum/arbitration clause and interaction with the Dispute Resolution Policy''s internal
+process.]
+
+12. Contact
+Questions about these Terms: hello@snaptcarib.app', 'published', false),
+  ('privacy', 1, 'Privacy Policy', 'Snapt — Privacy Policy
+Effective date: [Insert date] Contact: hello@snaptcarib.app
+DRAFT — REQUIRES LEGAL REVIEW. This document has not been reviewed by an
+attorney and must be checked against applicable Saint Lucian data protection
+requirements before publication.
+
+This Privacy Policy explains what personal data Snapt collects, why, how it''s used and
+shared, and the choices you have. It should be read alongside the Data Retention Policy
+(how long we keep data) and, for creators, the Background Check & Vetting Disclosure
+(vetting-specific data).
+
+1. What we collect
+Account information: name, email, phone number, password (stored encrypted),
+country/region, currency preference.
+Booking information: service details, dates/times, meeting point location, payment
+records, messages exchanged through in-app chat, session check-in and safety-code data.
+Creator-specific information (creators only): identity documents, background check
+results, specialties, availability, service area, banking/payout details.
+Content: photos and video you upload or that a creator captures for you, and the delivered
+edited content.
+Device and usage information: device type, app version, crash logs, general usage
+analytics, and — where you enable it — push notification tokens and approximate location
+(for service-area matching and live session features).
+Emergency contact information (optional): if you choose to add one, the name and email
+address of a person you can share session details with.
+
+We do not collect more than we need for the purpose described, and payment card details
+are never stored by Snapt directly — see Section 4.
+
+2. How we use your data
+To create and manage your account, and to operate the marketplace (matching,
+booking, payment, delivery)
+To verify creator identity and eligibility (background checks, per the Background
+Check & Vetting Disclosure)
+To process payments and payouts
+To send you notifications about your bookings, account, and — where you''ve opted in
+— promotions (see your in-app Notification Settings)
+To investigate safety reports, disputes, and policy violations
+To improve the Platform (aggregated/anonymized analytics)
+
+To comply with legal obligations, including financial record-keeping
+We do not sell your personal data.
+
+3. Who we share it with
+The other party to a booking — a client and creator see the information necessary to
+complete the session (name, relevant profile details, meeting point, chat messages).
+Raw footage is visible only to the assigned creator/editor, never to the client, per the
+Content & Usage Policy.
+Service providers who help us operate: Supabase (database/auth), Cloudflare (file
+storage), Stripe (payments), Firebase (push notifications), Resend (email), and our
+background check provider (creator identity/vetting only). These providers process
+data on our behalf under their own data protection commitments.
+Emergency contacts, only when you actively use "Share my session," and only the
+specific session details, not your full account data.
+Legal and safety exceptions: we may disclose data where required by law, to protect
+someone''s safety, or to investigate a Trust & Safety violation.
+We do not share your data with advertisers, and Snapt does not run third-party ad
+networks in the app.
+
+4. Payments
+We use Stripe to process payments. Snapt does not store your full card number — only a
+payment token and limited metadata (card brand, last 4 digits) needed to display your
+saved payment methods.
+
+5. Data retention
+How long we keep each category of data is set out in the Data Retention Policy. In short: we
+keep data only as long as needed for the purpose collected, legal record-keeping
+requirements, or active disputes, then delete or anonymize it.
+
+6. Your rights and choices
+Access and correction: you can view and update most of your information directly in
+Profile → Edit Profile.
+Notification preferences: control what you''re notified about in Profile → Notification
+Settings (certain account/security/safety notifications cannot be turned off).
+Account deletion: Profile → Delete Account. See the Data Retention Policy for what
+happens to your data afterward.
+Data requests: you may ask what data we hold about you, request a copy, or request
+deletion beyond what standard account deletion covers, by emailing
+hello@snaptcarib.app. [Attorney to confirm specific rights available under Saint
+Lucian law and any applicable regional frameworks as Snapt expands.]
+
+7. Children
+Snapt accounts are not available to anyone under 18. Where minors appear as subjects of a
+session (e.g., a family shoot), that''s governed by the Minor Safety & Age Policy, not by
+minors holding their own account or data relationship with Snapt.
+
+8. International data
+Snapt''s infrastructure providers may process data outside Saint Lucia. Where this happens,
+we require providers to maintain appropriate safeguards. [Attorney to confirm specific
+transfer mechanism language required.]
+
+9. Security
+We use reasonable technical and organizational measures to protect your data, including
+encryption of sensitive data at rest (such as identity documents) and access controls
+restricting who at Snapt can view sensitive records. No system is completely secure, and we
+encourage you to use a strong, unique password.
+
+10. Changes to this policy
+We may update this Privacy Policy from time to time. Material changes will be
+communicated in the app.
+
+11. Contact
+Questions or requests about your data: hello@snaptcarib.app', 'published', false);
 update policy_documents set published_at = now() where status = 'published';
 
 -- ---------------------------------------------------------------------------
@@ -1539,3 +1744,12 @@ values
    '{"provider": "email", "providers": ["email"]}', '{"full_name": "Don (Admin)"}', now(), now(),
    '', '', '', '', '', '', '', '');
 insert into admin_users (user_id, role) values ('00000000-0000-4000-8000-00000000000a', 'admin');
+
+-- Demo creators consent to v1 of the active-consent docs (real applicants
+-- do this at application time — without these rows the re-consent matching
+-- gate would exclude all local demo creators).
+insert into consent_records (user_id, policy_document_id, doc_type, version)
+select cp.user_id, pd.id, pd.doc_type, pd.version
+from creator_profiles cp
+cross join policy_documents pd
+where pd.doc_type in ('creator-agreement', 'background-check') and pd.version = 1;
