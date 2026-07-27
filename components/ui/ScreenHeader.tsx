@@ -4,7 +4,15 @@ import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { colors, spacing } from '../../lib/theme';
 
-export function ScreenHeader({ title, onBack }: { title: string; onBack?: () => void }) {
+export function ScreenHeader({
+  title,
+  onBack,
+  right,
+}: {
+  title: string;
+  onBack?: () => void;
+  right?: React.ReactNode;
+}) {
   const router = useRouter();
   return (
     <View style={styles.row}>
@@ -25,6 +33,7 @@ export function ScreenHeader({ title, onBack }: { title: string; onBack?: () => 
       <Text style={styles.title} numberOfLines={2}>
         {title}
       </Text>
+      {right}
     </View>
   );
 }
