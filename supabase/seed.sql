@@ -492,12 +492,64 @@ Never share, publish, sell, or reuse client footage or deliverables outside the 
 without consent (see the Creator Agreement, Section 8).
 
 6. Moderation
-Content uploaded or delivered through Snapt may be reviewed by our moderation team,
-including proactively and in response to reports. We may remove content, cancel orders,
-suspend accounts, or take other action under the Trust & Safety Policy where this policy is
-violated. Where we cancel an order due to a client''s violation of this policy, no refund is
-owed. Where a creator''s deliverable violates this policy, the client is refunded and the
-creator receives no payout for that order.
+Content uploaded, delivered, or published through Snapt may be reviewed by our
+moderation team, both proactively and in response to reports. Reviews are categorized by
+severity, which determines how quickly and how strongly we act.
+6.1. Severity tiers
+
+Severity
+
+Examples
+
+Response
+
+Critical
+
+Sexual content involving a minor,
+exploitation of a minor, credible
+imminent violence
+
+Immediate account suspension, no queue wait.
+Referred to law enforcement per the Trust &
+Safety Policy and Minor Safety & Age Policy.
+
+High
+
+Sexual content, harassment, nonconsensual imagery, hate content
+
+Content removed immediately where applicable;
+account suspended pending review.
+
+Medium Licensing/rights issues, other
+Section 3 violations not involving
+safety
+Low
+
+Ambiguous or unclear reports
+
+Content held or removed; a warning is issued.
+Suspension only on repeated violations.
+
+Reviewed with no automatic action; handled at
+moderator discretion.
+
+A report''s category (e.g., child safety, sexual/violent/hate content, other content policy,
+general) determines its starting severity tier; a moderator may adjust the tier on review
+based on the specifics of the report.
+6.2. Proactive review of public content
+
+Raw footage and private deliverables are never public and are not subject to proactive
+review beyond the access controls described in Section 2. Creator portfolio content and any
+content shared for Snapt marketing, since these are the only content types made public, are
+subject to light proactive review: a new creator''s first portfolio submissions require
+moderator approval before appearing publicly; subsequent submissions publish
+automatically unless reported.
+6.3. Consequences
+
+Where we cancel an order due to a client''s violation of this policy, no refund is owed. Where
+a creator''s deliverable violates this policy, the client is refunded and the creator receives no
+payout for that order. Account-level consequences (suspension, removal) follow the Trust &
+Safety Policy and, for creators, the Creator Agreement.
 
 7. Reporting content
 Report content concerns through "Report a Problem" in the app or at

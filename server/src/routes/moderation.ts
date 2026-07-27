@@ -118,6 +118,35 @@ export function registerModerationRoutes(app: FastifyInstance) {
     return reply.code(201).send({ item: data, published: status === 'auto' });
   });
 
+  // Unsuspend: lifts both the profile flag and creator vetting status,
+  // required reason, audited — so reversing a bad critical/high suspension
+  // never needs direct DB access.
+  app.post<{ Params: { userId: string }; Body: { reason?: string } }>(
+    '/v1/admin/users/:userId/unsuspend',
+    async (request, reply) => {
+      const adminId = await requireAdmin(request, reply);
+      if (!adminId) return;
+      const reason = request.body?.reason?.trim();
+      if (!reason) return reply.code(400).send({ error: 'reason is required' });
+      await supabaseAdmin.from('profiles').update({ suspended_at: null }).eq('id', request.params.userId);
+      const { data: cp } = await supabaseAdmin
+        .from('creator_profiles')
+        .select('vetting_status')
+        .eq('user_id', request.params.userId)
+        .maybeSingle();
+      if (cp?.vetting_status === 'suspended') {
+        await supabaseAdmin
+          .from('creator_profiles')
+          .update({ vetting_status: 'approved' })
+          .eq('user_id', request.params.userId);
+      }
+      await audit(adminId, 'user_unsuspended', request.params.userId, { reason });
+      await notify(request.params.userId, 'dispute_resolved', 'Your account is reinstated',
+        'The suspension on your account has been lifted after review. Welcome back.');
+      return { unsuspended: true };
+    },
+  );
+
   // Admin moderation queue: severity-sorted reports + pending portfolio.
   app.get('/v1/admin/moderation', async (request, reply) => {
     const adminId = await requireAdmin(request, reply);
