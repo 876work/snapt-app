@@ -47,6 +47,7 @@ const TRIGGERS: Record<string, TriggerSpec> = {
   dispute_resolved: { category: 'account', push: true, email: true }, // §6
   strike_issued: { category: 'account', push: true, email: true }, // §6: with reason stated
   suspension_applied: { category: 'account', push: true, email: true }, // §6
+  reconsent_required: { category: 'account', push: true, email: true }, // §14 material change
 };
 
 export async function notify(

@@ -334,6 +334,19 @@ export function purchaseRevisionApi(id: string) {
   return authedPost<{ purchased: boolean; charged_usd: number }>(`/v1/bookings/${id}/revisions/purchase`);
 }
 
+export async function fetchReconsentNeeded(): Promise<
+  { doc_type: string; version: number; title: string }[] | null
+> {
+  const result = await request<{ needed: { doc_type: string; version: number; title: string }[] }>(
+    `/v1/creator/reconsent-needed`,
+  );
+  return result?.needed ?? null;
+}
+
+export function reconsentApi(docType: string) {
+  return authedPost<{ consented: boolean }>(`/v1/creator/reconsent`, { doc_type: docType });
+}
+
 /** Frictionless safety end — no fees, no penalties, server records for admin review. */
 export function endSessionSafetyApi(id: string) {
   return authedPost<{ ended: boolean }>(`/v1/bookings/${id}/safety/end-session`);

@@ -68,6 +68,23 @@ export default function CreatorHome() {
   // Expired offers disappear as the clock hits zero.
   const liveOffers = openOffers.filter((o) => !o.expiresAt || Date.parse(o.expiresAt) > now);
 
+  // §14 forced re-consent: material changes to the Creator Agreement /
+  // Background Check Disclosure must be re-accepted, not silently applied.
+  const [reconsent, setReconsent] = React.useState<{ doc_type: string; title: string } | null>(null);
+  React.useEffect(() => {
+    if (!apiConfigured) return;
+    import('../../lib/api').then(({ fetchReconsentNeeded }) =>
+      fetchReconsentNeeded().then((n) => setReconsent(n?.[0] ?? null)),
+    );
+  }, []);
+  const acceptReconsent = async () => {
+    if (!reconsent) return;
+    const { reconsentApi, fetchReconsentNeeded } = await import('../../lib/api');
+    await reconsentApi(reconsent.doc_type);
+    const n = await fetchReconsentNeeded();
+    setReconsent(n?.[0] ?? null);
+  };
+
   const decline = async (id: string) => {
     if (apiConfigured) {
       const { declineBookingApi } = await import('../../lib/api');
@@ -113,6 +130,20 @@ export default function CreatorHome() {
       </View>
 
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        {reconsent && (
+          <View style={{ backgroundColor: '#FFF4D6', borderRadius: 14, padding: 14, marginBottom: 12 }}>
+            <Text style={{ fontSize: 13.5, fontWeight: '800', color: colors.ink }}>
+              {reconsent.title} has been updated
+            </Text>
+            <Text style={{ fontSize: 12, color: '#8A7530', marginTop: 4, lineHeight: 17 }}>
+              A material change needs your acceptance before you take new bookings. Review it in
+              Profile → Legal, then accept here.
+            </Text>
+            <Pressable onPress={acceptReconsent} style={{ backgroundColor: colors.ink, borderRadius: 10, height: 40, alignItems: 'center', justifyContent: 'center', marginTop: 10 }}>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>I've reviewed — accept</Text>
+            </Pressable>
+          </View>
+        )}
         {/* Earnings strip */}
         <Pressable onPress={() => router.push('/creator/earnings')} style={styles.earnCard}>
           <View style={{ flex: 1 }}>

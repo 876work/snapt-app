@@ -207,6 +207,7 @@ pre{white-space:pre-wrap;font-size:11px;color:#555;margin:6px 0 0}
 <h2>Alerts (SOS first)</h2><div id="alerts"></div>
 <h2>Open disputes</h2><div id="disputes"></div>
 <h2>Creator applications</h2><div id="apps"></div>
+<h2>Legal & policy documents</h2><div id="pol"></div>
 </main><script>
 const $=id=>document.getElementById(id);
 const H=()=>({'Authorization':'Bearer '+(localStorage.jwt||''),'x-admin-token':localStorage.tok||'','Content-Type':'application/json'});
@@ -217,6 +218,7 @@ async function load(){
  if(st.bookings){$('stats').innerHTML=[['Pending',st.bookings.pending],['Confirmed',st.bookings.confirmed],['Completed',st.bookings.completed],['Disputed',st.bookings.disputed],['GMV $',st.money.charged_usd],['Refunded $',st.money.refunded_usd],['Creators',st.creators.approved],['Open disputes',st.open_disputes],['Active strikes',st.active_strikes]].map(x=>'<div class="card" style="flex:1;min-width:90px;text-align:center"><div style="font-size:20px;font-weight:800">'+x[1]+'</div><div style="font-size:11px;color:#777">'+x[0]+'</div></div>').join('')}
  const cfg=await j('/v1/admin/config');
  $('cfg').innerHTML=(cfg.config||[]).map(c=>'<div class="card"><b>'+c.key+'</b> '+(c.confirmed?'':'<span class="tag">UNCONFIRMED</span>')+'<pre>'+c.description+'</pre><input style="width:70%" id="v-'+c.key+'" value=\''+JSON.stringify(c.value).replace(/'/g,"&#39;")+'\'/> <button onclick="saveCfg(\''+c.key+'\')">Save</button></div>').join('');
+ loadPolicies();
  const un=await j('/v1/admin/unassigned');
  $('unassigned').innerHTML=(un.bookings||[]).map(b=>'<div class="card"><span class="tag">'+(b.occasion||b.type)+'</span>'+(b.area||'')+' · '+(b.scheduled_at?new Date(b.scheduled_at).toLocaleString():'remote')+'<br/><input placeholder="creator uuid" id="a-'+b.id+'" style="width:60%"/> <button onclick="assign(\''+b.id+'\')">Assign</button></div>').join('')||'<div class="card">Nothing waiting for dispatch.</div>';
  const a=await j('/v1/admin/alerts');
@@ -226,6 +228,9 @@ async function load(){
  const p=await j('/v1/admin/applications');
  $('apps').innerHTML=(p.applications||[]).map(x=>'<div class="card"><b>'+x.profiles.full_name+'</b> · '+x.profiles.email+'<pre>'+(x.specialties||[]).join(', ')+' · '+(x.base_area||'')+'</pre><button onclick="approve(\\''+x.user_id+'\\')">Approve (bg check passed)</button></div>').join('')||'<div class="card">No pending applications.</div>';
 }
+async function loadPolicies(){const p=await j('/v1/admin/policies');const latest={};(p.policies||[]).forEach(x=>{if(!latest[x.doc_type])latest[x.doc_type]=x});$('pol').innerHTML=Object.values(latest).map(x=>'<div class="card"><b>'+x.doc_type+'</b> v'+x.version+' <span class="tag">'+x.status.toUpperCase()+'</span>'+(x.requires_reconsent?'<span class="tag">RE-CONSENT</span>':'')+(x.published_at?' published '+new Date(x.published_at).toLocaleDateString():'')+'<br/><textarea id="pc-'+x.doc_type+'" rows="3" style="width:98%" placeholder="New version content…"></textarea><br/><label style="font-size:11px"><input type="checkbox" id="pr-'+x.doc_type+'"/> material change (forces re-consent)</label><br/><button onclick="draftPolicy(\''+x.doc_type+'\')">Save as draft v'+(x.version+1)+'</button>'+(x.status==='draft'?'<button class="ghost" onclick="publishPolicy(\''+x.id+'\')">Publish v'+x.version+'</button>':'')+'</div>').join('')}
+async function draftPolicy(slug){const c=$('pc-'+slug).value;if(!c)return alert('Content required');await j('/v1/admin/policies/'+slug,{method:'POST',body:JSON.stringify({content:c,requires_reconsent:$('pr-'+slug).checked})});loadPolicies()}
+async function publishPolicy(id){await j('/v1/admin/policies/'+id+'/publish',{method:'POST'});loadPolicies()}
 async function saveCfg(k){try{const v=JSON.parse($('v-'+k).value);await j('/v1/admin/config/'+k,{method:'PUT',body:JSON.stringify({value:v})});load()}catch(e){alert('Invalid JSON')}}
 async function assign(id){await j('/v1/admin/bookings/'+id+'/assign',{method:'POST',body:JSON.stringify({creator_id:$('a-'+id).value.trim()})});load()}
 async function resolveAlert(id){await j('/v1/admin/alerts/'+id+'/resolve',{method:'POST'});load()}
