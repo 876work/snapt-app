@@ -5,6 +5,8 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { creatorById, useBookings } from '../../lib/store';
+import { chatEnabled, fetchMessages, sendMessage, subscribeToMessages } from '../../lib/chat';
+import { supabase } from '../../lib/supabase';
 import { NO_SHOW_GRACE_MINUTES } from '../../lib/constants/business';
 import { colors } from '../../lib/theme';
 
@@ -57,6 +59,45 @@ export default function SessionDay() {
 
   const copy = STAGE_COPY[stage];
   const code = '4827';
+
+  // Real chat when Supabase is configured; null = mock scripted message.
+  const [chatMessages, setChatMessages] = React.useState<
+    { id: string; body: string; mine: boolean }[] | null
+  >(null);
+  const [chatDraft, setChatDraft] = React.useState('');
+  React.useEffect(() => {
+    if (!chatEnabled || !bookingId) return;
+    let uid: string | null = null;
+    let unsub = () => {};
+    supabase?.auth.getUser().then(({ data }) => {
+      uid = data.user?.id ?? null;
+      fetchMessages(bookingId).then((msgs) =>
+        setChatMessages(msgs.map((m) => ({ id: m.id, body: m.body, mine: m.sender_id === uid }))),
+      );
+      unsub = subscribeToMessages(bookingId, (m) =>
+        setChatMessages((prev) => [
+          ...(prev ?? []),
+          { id: m.id, body: m.body, mine: m.sender_id === uid },
+        ]),
+      );
+    });
+    return () => unsub();
+  }, [bookingId]);
+
+  const sendChat = async () => {
+    const body = chatDraft.trim();
+    if (!body) return;
+    setChatDraft('');
+    if (chatEnabled && bookingId) {
+      await sendMessage(bookingId, body);
+      // Realtime echo appends it; no optimistic row needed at this scale.
+    } else {
+      setChatMessages((prev) => [
+        ...(prev ?? []),
+        { id: `local-${Date.now()}`, body, mine: true },
+      ]);
+    }
+  };
 
   React.useEffect(() => {
     if (!graceRunning || graceLeft <= 0) return;
@@ -384,30 +425,54 @@ export default function SessionDay() {
                 </Svg>
               </Pressable>
             </View>
-            <View style={styles.chatBody}>
-              <View style={styles.chatMsgRow}>
-                {creator && (
-                  <View style={styles.chatMsgAvatar}>
-                    <CreatorAvatar name={creator.name} photo={creator.photo} />
+            <ScrollView style={styles.chatBody}>
+              {/* Real chat (Supabase Realtime) when configured; scripted
+                  message in mock mode. */}
+              {chatMessages === null ? (
+                <View style={styles.chatMsgRow}>
+                  {creator && (
+                    <View style={styles.chatMsgAvatar}>
+                      <CreatorAvatar name={creator.name} photo={creator.photo} />
+                    </View>
+                  )}
+                  <View style={styles.chatBubble}>
+                    <Text style={styles.chatBubbleText}>On my way! Running right on time — see you soon.</Text>
                   </View>
-                )}
-                <View style={styles.chatBubble}>
-                  <Text style={styles.chatBubbleText}>On my way! Running right on time — see you soon.</Text>
                 </View>
-              </View>
-            </View>
+              ) : (
+                chatMessages.map((m) => (
+                  <View
+                    key={m.id}
+                    style={[styles.chatMsgRow, m.mine && { justifyContent: 'flex-end' }]}
+                  >
+                    {!m.mine && creator && (
+                      <View style={styles.chatMsgAvatar}>
+                        <CreatorAvatar name={creator.name} photo={creator.photo} />
+                      </View>
+                    )}
+                    <View style={[styles.chatBubble, m.mine && { backgroundColor: colors.yellowSoft }]}>
+                      <Text style={styles.chatBubbleText}>{m.body}</Text>
+                    </View>
+                  </View>
+                ))
+              )}
+            </ScrollView>
             <View style={styles.chatInputWrap}>
               <View style={styles.chatInputRow}>
                 <TextInput
                   placeholder={`Message ${firstName}…`}
                   placeholderTextColor="#9A9A9A"
                   style={styles.chatInput}
+                  value={chatDraft}
+                  onChangeText={setChatDraft}
+                  onSubmitEditing={sendChat}
+                  returnKeyType="send"
                 />
-                <View style={styles.chatSend}>
+                <Pressable onPress={sendChat} style={styles.chatSend}>
                   <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
                     <Path d="M4 12L20 4l-6 16-3-7-7-1z" stroke={colors.ink} strokeWidth={1.8} strokeLinejoin="round" />
                   </Svg>
-                </View>
+                </Pressable>
               </View>
             </View>
           </View>

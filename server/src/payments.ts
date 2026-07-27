@@ -101,6 +101,13 @@ export async function recordFee(
  */
 export async function createPayoutForBooking(booking: BookingRow): Promise<void> {
   if (!booking.creator_id) return;
+  // Idempotent: one payout per booking (complete + deliver may both fire).
+  const { data: existing } = await supabaseAdmin
+    .from('creator_payouts')
+    .select('id')
+    .eq('booking_id', booking.id)
+    .maybeSingle();
+  if (existing) return;
   const config = await getConfig();
   const standardRate = (config['creator_platform_fee_rate'] as number) ?? 0.32;
   const holdDays = (config['payout_hold_days'] as number) ?? 7;

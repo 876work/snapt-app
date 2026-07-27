@@ -6,6 +6,9 @@ import { registerPaymentRoutes } from './routes/payments.js';
 import { registerCreatorRoutes } from './routes/creators.js';
 import { registerBookingRoutes } from './routes/bookings.js';
 import { registerBookingActionRoutes } from './routes/booking-actions.js';
+import { registerSessionRoutes } from './routes/sessions.js';
+import { registerMediaRoutes } from './routes/media.js';
+import { registerEarningsRoutes } from './routes/earnings.js';
 
 const app = Fastify({ logger: true });
 
@@ -39,6 +42,9 @@ registerPaymentRoutes(app);
 registerCreatorRoutes(app);
 registerBookingRoutes(app);
 registerBookingActionRoutes(app);
+registerSessionRoutes(app);
+registerMediaRoutes(app);
+registerEarningsRoutes(app);
 
 app.listen({ port: env.port, host: env.host }).catch((err) => {
   app.log.error(err);

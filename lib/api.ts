@@ -168,6 +168,66 @@ export function reportNoShowApi(id: string, attemptedContact?: boolean) {
   });
 }
 
+// --- Phase 3: creator side, session lifecycle, earnings.
+
+import type { CreatorStatus } from './store';
+
+/** Creator application status from the server (authoritative since Phase 1). */
+export async function fetchCreatorStatus(): Promise<CreatorStatus | null> {
+  const result = await request<{ vetting_status: string }>(`/v1/creator/me`);
+  if (!result) return null;
+  return result.vetting_status === 'approved' ? 'approved' : 'review';
+}
+
+export function applyAsCreator(specialties: string[], baseArea?: string | null) {
+  return authedPost<{ status: string }>(`/v1/creator/apply`, {
+    specialties,
+    base_area: baseArea ?? undefined,
+    consents: { creator_agreement: true, background_check: true },
+  });
+}
+
+export interface ServerBookingListItem extends ServerBooking {
+  client_id: string;
+}
+
+export async function fetchMyBookings(): Promise<ServerBookingListItem[] | null> {
+  const result = await request<{ bookings: ServerBookingListItem[] }>(`/v1/bookings`);
+  return result?.bookings ?? null;
+}
+
+export function checkInApi(id: string) {
+  return authedPost<{ session: Record<string, unknown> }>(`/v1/bookings/${id}/session/check-in`);
+}
+
+export function verifySafetyCodeApi(id: string, code: string) {
+  return authedPost<{ verified: boolean }>(`/v1/bookings/${id}/session/verify-code`, { code });
+}
+
+export function completeSessionApi(id: string) {
+  return authedPost<{ completed: boolean; payout: string }>(`/v1/bookings/${id}/complete`);
+}
+
+export interface EarningsPayout {
+  id: string;
+  booking_id: string;
+  amount_usd: number;
+  status: 'held' | 'available' | 'paid_out' | string;
+  hold_until: string | null;
+  created_at: string;
+}
+
+export async function fetchEarnings(): Promise<{
+  payouts: EarningsPayout[];
+  totals: { pending: number; available: number; paid_out: number };
+} | null> {
+  return request(`/v1/creator/earnings`);
+}
+
+export function cashOutApi() {
+  return authedPost<{ paid_out_usd: number; count: number }>(`/v1/creator/cash-out`);
+}
+
 /**
  * Create the booking server-side (price computed there — §8). Returns the
  * booking mapped to the app's shape, or an error message for the UI.

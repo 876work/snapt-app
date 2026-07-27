@@ -26,7 +26,41 @@ const STATE_STYLE: Record<string, { bg: string; color: string; label: string }> 
 export default function CreatorEarnings() {
   const router = useRouter();
   const currency = useAuth((s) => s.currency);
-  const available = 128;
+
+  // Real payout states in API mode (held → Pending, available, paid_out);
+  // mock rows otherwise. Held funds flip to available server-side once the
+  // 7-day hold elapses.
+  const [real, setReal] = React.useState<{
+    rows: typeof PAYOUTS;
+    totals: { pending: number; available: number; paid_out: number };
+  } | null>(null);
+  React.useEffect(() => {
+    import('../../lib/api').then(({ apiConfigured, fetchEarnings }) => {
+      if (!apiConfigured) return;
+      fetchEarnings().then((data) => {
+        if (!data) return;
+        setReal({
+          totals: data.totals,
+          rows: data.payouts.map((p) => ({
+            id: p.id,
+            title: `Booking ${p.booking_id.slice(0, 8)}`,
+            state: p.status === 'held' ? 'pending' : p.status === 'paid_out' ? 'paid' : 'available',
+            date:
+              p.status === 'held' && p.hold_until
+                ? `Clears ${new Date(p.hold_until).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+                : new Date(p.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+            calc: 'After platform fee',
+            amount: Number(p.amount_usd),
+          })),
+        });
+      });
+    });
+  }, []);
+
+  const rows = real?.rows ?? PAYOUTS;
+  const pending = real?.totals.pending ?? 112;
+  const available = real?.totals.available ?? 128;
+  const paidOut = real?.totals.paid_out ?? 428.8;
 
   return (
     <View style={styles.root}>
@@ -37,7 +71,7 @@ export default function CreatorEarnings() {
           <View style={{ flexDirection: 'row', alignItems: 'stretch', justifyContent: 'space-between', gap: 6 }}>
             <View style={{ flex: 1 }}>
               <Text style={styles.balLabel}>Pending</Text>
-              <Text style={[styles.balValue, { color: '#FFCE4D' }]}>{formatMoney(112, currency)}</Text>
+              <Text style={[styles.balValue, { color: '#FFCE4D' }]}>{formatMoney(pending, currency)}</Text>
             </View>
             <View style={styles.balDiv} />
             <View style={{ flex: 1, paddingLeft: 12 }}>
@@ -48,7 +82,7 @@ export default function CreatorEarnings() {
             <View style={{ flex: 1, paddingLeft: 12 }}>
               <Text style={styles.balLabel}>Paid out</Text>
               <Text style={[styles.balValue, { color: 'rgba(255,255,255,0.82)' }]}>
-                {formatMoney(428.8, currency)}
+                {formatMoney(paidOut, currency)}
               </Text>
             </View>
           </View>
@@ -96,10 +130,10 @@ export default function CreatorEarnings() {
         {/* Recent payouts */}
         <Text style={styles.sectionTitle}>Recent payouts</Text>
         <View style={styles.list}>
-          {PAYOUTS.map((p, i) => {
+          {rows.map((p, i) => {
             const st = STATE_STYLE[p.state];
             return (
-              <View key={p.id} style={[styles.payoutRow, i < PAYOUTS.length - 1 && styles.rowBorder]}>
+              <View key={p.id} style={[styles.payoutRow, i < rows.length - 1 && styles.rowBorder]}>
                 <View style={styles.payoutAvatar} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>

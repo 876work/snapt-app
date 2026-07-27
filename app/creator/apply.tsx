@@ -103,7 +103,17 @@ export default function CreatorApplication() {
         <Button
           title="Submit application"
           disabled={!canSubmit}
-          onPress={() => {
+          onPress={async () => {
+            // API mode: server records the application + both §14 consents
+            // against the current policy doc versions.
+            const { apiConfigured, applyAsCreator } = await import('../../lib/api');
+            if (apiConfigured) {
+              const result = await applyAsCreator(sel);
+              if (result && 'error' in result) {
+                // 409 = already applied — status fetch will reflect it.
+                if (!result.error.includes('already')) return;
+              }
+            }
             setSpecialties(sel);
             setCreatorStatus('review');
             router.back();

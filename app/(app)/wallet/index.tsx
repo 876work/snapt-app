@@ -23,6 +23,40 @@ const TXNS = [
 
 export default function Wallet() {
   const { currency, setCurrency } = useAuth();
+  // Real charge/refund ledger in API mode; mock rows otherwise. Payment
+  // methods stay illustrative until real Stripe payment methods (Phase 7).
+  const [txns, setTxns] = React.useState(TXNS);
+  React.useEffect(() => {
+    import('../../../lib/api').then(({ apiConfigured }) => {
+      if (!apiConfigured) return;
+      import('../../../lib/supabase').then(async ({ supabase }) => {
+        if (!supabase) return;
+        const { data: auth } = await supabase.auth.getSession();
+        const token = auth.session?.access_token;
+        if (!token) return;
+        const res = await fetch(
+          `${process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '')}/v1/wallet/transactions`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        ).catch(() => null);
+        if (!res?.ok) return;
+        const json = (await res.json()) as {
+          transactions: { id: string; type: string; amount_usd: number; created_at: string }[];
+        };
+        setTxns(
+          json.transactions.map((t) => ({
+            id: t.id,
+            kind: t.type === 'refund' ? 'credit' : 'event',
+            title: t.type === 'refund' ? 'Refund — cancelled booking' : 'Booking payment',
+            date: new Date(t.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+            method: t.type === 'refund' ? 'To your card' : 'Card on file',
+            amount: t.type === 'refund' ? Number(t.amount_usd) : -Number(t.amount_usd),
+            tint: t.type === 'refund' ? '#EAFBFD' : '#EAF8F0',
+            stroke: t.type === 'refund' ? '#3FA9BC' : '#1B9A57',
+          })),
+        );
+      });
+    });
+  }, []);
   const [methods, setMethods] = React.useState<CardMethod[]>([
     { id: 'c1', brand: 'VISA', brandBg: '#1A3B8F', label: 'Visa ending 4412', sub: 'Expires 08/28', isDefault: true },
     { id: 'c2', brand: 'MC', brandBg: '#2B2B2B', label: 'Mastercard ending 8823', sub: 'Expires 03/27', isDefault: false },
@@ -35,7 +69,7 @@ export default function Wallet() {
   const [ncName, setNcName] = React.useState('');
 
   const manageCard = methods.find((m) => m.id === manageId);
-  const recentSpend = TXNS.filter((t) => t.amount < 0).reduce((s, t) => s - t.amount, 0);
+  const recentSpend = txns.filter((t) => t.amount < 0).reduce((s, t) => s - t.amount, 0);
 
   const addCard = () => {
     const last4 = ncNumber.replace(/\D/g, '').slice(-4) || '0000';
@@ -130,8 +164,8 @@ export default function Wallet() {
         {/* Transactions */}
         <Text style={styles.sectionTitle}>Transactions</Text>
         <View style={styles.list}>
-          {TXNS.map((t, i) => (
-            <View key={t.id} style={[styles.methodRow, i < TXNS.length - 1 && styles.rowBorder]}>
+          {txns.map((t, i) => (
+            <View key={t.id} style={[styles.methodRow, i < txns.length - 1 && styles.rowBorder]}>
               <View style={[styles.txnIcon, { backgroundColor: t.tint }]}>
                 {t.kind === 'edit' && (
                   <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">

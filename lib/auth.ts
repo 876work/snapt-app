@@ -60,6 +60,14 @@ export function initAuth(): void {
     if (session?.user) {
       const meta = (session.user.user_metadata ?? {}) as { full_name?: string };
       state.signIn(meta.full_name ?? '', session.user.email ?? '');
+      // Creator status is server-authoritative (vetting moved server-side in
+      // Phase 1) — hydrate it so the creator app unlocks for real creators.
+      import('./api').then(({ apiConfigured, fetchCreatorStatus }) => {
+        if (!apiConfigured) return;
+        fetchCreatorStatus().then((status) => {
+          if (status) useAuth.getState().setCreatorStatus(status);
+        });
+      });
     } else if (state.signedIn) {
       state.signOut();
     }

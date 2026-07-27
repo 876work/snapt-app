@@ -18,8 +18,23 @@ export default function NoShowCreator() {
   const { bookings, reportNoShow } = useBookings();
   const booking = bookings.find((b) => b.id === id);
   const [contacted, setContacted] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   if (!booking) return null;
+
+  const fileReport = async () => {
+    if (apiConfigured) {
+      // Server requires a real chat message from the creator on this
+      // booking — the checkbox alone is rejected.
+      const result = await reportNoShowApi(booking.id, true);
+      if (result && 'error' in result) {
+        setError(result.error);
+        return;
+      }
+    }
+    reportNoShow(booking.id);
+    router.dismissTo('/bookings');
+  };
 
   return (
     <View style={styles.root}>
@@ -41,17 +56,8 @@ export default function NoShowCreator() {
         </Card>
         {contacted ? (
           <View style={{ marginTop: 26 }}>
-            <SlideToConfirm
-              label="Slide to report no-show"
-              danger
-              onConfirm={async () => {
-                // attempted_contact is required server-side before a
-                // creator-filed report is accepted (§8).
-                if (apiConfigured) await reportNoShowApi(booking.id, true);
-                reportNoShow(booking.id);
-                router.dismissTo('/bookings');
-              }}
-            />
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+            <SlideToConfirm label="Slide to report no-show" danger onConfirm={fileReport} />
           </View>
         ) : (
           <Text style={styles.hint}>Check the box above to unlock the report.</Text>
@@ -79,4 +85,5 @@ const styles = StyleSheet.create({
   checkmark: { fontSize: 14, fontWeight: '800', color: colors.ink },
   checkLabel: { flex: 1, fontSize: 13, lineHeight: 18.5, color: colors.ink, fontWeight: '500' },
   hint: { fontSize: 12, color: colors.grey, textAlign: 'center', marginTop: 12 },
+  error: { fontSize: 13, color: colors.error, fontWeight: '600', marginBottom: 12 },
 });

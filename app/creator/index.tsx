@@ -3,16 +3,49 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { useAuth } from '../../lib/store';
-import { useCreator } from '../../lib/store/creator';
-import { formatMoney } from '../../lib/constants/business';
+import { JobOffer, useCreator } from '../../lib/store/creator';
+import { apiConfigured, fetchMyBookings } from '../../lib/api';
+import { CREATOR_PLATFORM_FEE_RATE, formatMoney } from '../../lib/constants/business';
 import { colors } from '../../lib/theme';
 
 export default function CreatorHome() {
   const router = useRouter();
   const currency = useAuth((s) => s.currency);
   const name = useAuth((s) => s.name);
-  const { available, toggleAvailable, offers, jobStages, declineOffer } = useCreator();
+  const { available, toggleAvailable, offers, jobStages, declineOffer, setOffers, setStage } =
+    useCreator();
   const openOffers = offers.filter((o) => !jobStages[o.id] || jobStages[o.id] === 'offer');
+
+  // API mode: real assigned bookings replace the mock offer list. The
+  // design's offer/accept model has no server counterpart yet (bookings are
+  // auto-assigned instantly) — assigned jobs land pre-accepted.
+  React.useEffect(() => {
+    if (!apiConfigured) return;
+    fetchMyBookings().then((bookings) => {
+      if (!bookings) return;
+      const jobs: JobOffer[] = bookings
+        .filter((b) => b.status === 'confirmed')
+        .map((b) => ({
+          id: b.id,
+          title: `${b.occasion} session`,
+          occasion: b.occasion,
+          payUsd:
+            Math.round(
+              (b.pricing_snapshot?.session_price_usd ?? b.price_usd) *
+                (1 - CREATOR_PLATFORM_FEE_RATE) *
+                100,
+            ) / 100,
+          when: b.scheduled_at
+            ? `${new Date(b.scheduled_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${new Date(b.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} · ${b.duration_hours} hrs`
+            : 'Remote · deliver in-app',
+          loc: b.area ?? 'Remote edit',
+          distanceKm: 0,
+          type: b.type === 'in_person' ? 'in-person' : 'remote',
+        }));
+      setOffers(jobs);
+      for (const j of jobs) setStage(j.id, 'accepted');
+    });
+  }, []);
 
   return (
     <View style={styles.root}>

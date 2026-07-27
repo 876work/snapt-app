@@ -18,6 +18,10 @@ export default function CreatorSchedule() {
   const currency = useAuth((s) => s.currency);
   const { offers, jobStages } = useCreator();
   const accepted = offers.filter((o) => jobStages[o.id] && jobStages[o.id] !== 'offer');
+  // API mode: real assigned bookings arrive via the creator home fetch
+  // (useCreator offers); the fixed demo rows are mock-mode only.
+  const { apiConfigured } = require('../../lib/api') as typeof import('../../lib/api');
+  const fixedRows = apiConfigured ? [] : FIXED;
 
   return (
     <View style={styles.root}>
@@ -55,7 +59,7 @@ export default function CreatorSchedule() {
             </Pressable>
           </View>
         ))}
-        {FIXED.map((s) => (
+        {fixedRows.map((s) => (
           <View key={s.id}>
             <Text style={styles.dayLabel}>{s.day}</Text>
             <View style={styles.card}>

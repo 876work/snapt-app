@@ -39,6 +39,8 @@ interface CreatorState {
   declineOffer: (id: string) => void;
   setStage: (id: string, s: JobStage) => void;
   setSpecialties: (s: Occasion[]) => void;
+  /** API mode: replace the mock offer list with real assigned bookings. */
+  setOffers: (offers: JobOffer[]) => void;
 }
 
 export const useCreator = create<CreatorState>((set) => ({
@@ -50,4 +52,5 @@ export const useCreator = create<CreatorState>((set) => ({
   declineOffer: (id) => set((s) => ({ offers: s.offers.filter((o) => o.id !== id) })),
   setStage: (id, stage) => set((s) => ({ jobStages: { ...s.jobStages, [id]: stage } })),
   setSpecialties: (specialties) => set({ specialties }),
+  setOffers: (offers) => set({ offers }),
 }));

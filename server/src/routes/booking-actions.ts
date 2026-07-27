@@ -260,10 +260,23 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
         };
       }
 
-      // Client no-show: attempted-contact step is mandatory before filing.
+      // Client no-show: attempted contact is mandatory before filing — and
+      // it must be REAL: at least one chat message from the creator on this
+      // booking (the checkbox alone proves nothing).
       if (request.body?.attempted_contact !== true) {
         return reply.code(400).send({
           error: 'Confirm you attempted to contact the client before filing (§8)',
+        });
+      }
+      const { count: contactCount } = await supabaseAdmin
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('booking_id', booking.id)
+        .eq('sender_id', user.id);
+      if (!contactCount) {
+        return reply.code(400).send({
+          error: 'Message the client in chat first — attempted contact requires a real message, not just the checkbox',
+          action: 'open_chat',
         });
       }
       // Client stays fully charged (charge already ledgered at booking);

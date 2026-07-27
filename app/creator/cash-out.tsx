@@ -19,8 +19,27 @@ export default function CashOut() {
   const currency = useAuth((s) => s.currency);
   const [method, setMethod] = React.useState('cibc');
   const [done, setDone] = React.useState(false);
-  const available = 128;
+  // Real available balance in API mode; mock figure otherwise. Payout
+  // methods stay illustrative until Stripe Connect onboarding (Phase 7).
+  const [available, setAvailable] = React.useState(128);
+  React.useEffect(() => {
+    import('../../lib/api').then(({ apiConfigured, fetchEarnings }) => {
+      if (!apiConfigured) return;
+      fetchEarnings().then((data) => {
+        if (data) setAvailable(data.totals.available);
+      });
+    });
+  }, []);
   const selected = METHODS.find((m) => m.id === method)!;
+
+  const confirmCashOut = async () => {
+    const { apiConfigured, cashOutApi } = await import('../../lib/api');
+    if (apiConfigured) {
+      const result = await cashOutApi();
+      if (result && 'error' in result) return; // nothing available / not onboarded
+    }
+    setDone(true);
+  };
 
   if (done) {
     return (
@@ -78,7 +97,7 @@ export default function CashOut() {
       <View style={styles.footer}>
         <SlideToConfirm
           label={`Slide to cash out ${formatMoney(available, currency)}`}
-          onConfirm={() => setDone(true)}
+          onConfirm={confirmCashOut}
         />
       </View>
     </View>
