@@ -26,8 +26,8 @@ export default function CreatorHome() {
       const mine = bookings.filter((b) => b.status === 'pending' || b.status === 'confirmed');
       const jobs: JobOffer[] = mine.map((b) => ({
         id: b.id,
-        title: `${b.occasion} session`,
-        occasion: b.occasion,
+        title: b.occasion ? `${b.occasion} session` : 'Remote edit order',
+        occasion: b.occasion ?? 'Portraits',
         payUsd:
           Math.round(
             (b.pricing_snapshot?.session_price_usd ?? b.price_usd) *

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
-import { configNumber, getConfig, packagePriceUsd } from '../config.js';
+import { configNumber, getConfig, packagePriceUsd, remotePriceUsd } from '../config.js';
 import { recordBookingCharge } from '../payments.js';
 import { stripeConfigured } from '../env.js';
 import { expireStaleOffer, offerWindowMs, reassignBooking } from '../offers.js';
@@ -19,6 +19,8 @@ interface CreateBookingBody {
   occasion?: string;
   media_kind?: 'photo' | 'video' | 'both';
   duration_hours?: number;
+  /** Remote-edit orders: tier key in remote_pricing_table (e.g. photos_6_10, standard, large). */
+  remote_tier?: string;
   area?: string;
   meeting_point?: string;
   date?: string; // YYYY-MM-DD
@@ -54,21 +56,40 @@ export function registerBookingRoutes(app: FastifyInstance) {
     const body = request.body ?? {};
     const type = body.type ?? 'in_person';
 
-    if (!body.occasion || !OCCASIONS.includes(body.occasion)) {
-      return reply.code(400).send({ error: `occasion must be one of ${OCCASIONS.join(', ')}` });
-    }
-    // Price is keyed by service type × duration (confirmed 15-point table)
-    // — both dimensions are required, not just duration.
     const mediaKind = body.media_kind;
     if (!mediaKind || !['photo', 'video', 'both'].includes(mediaKind)) {
       return reply.code(400).send({ error: 'media_kind must be photo, video, or both' });
     }
-    const durationHours = Number(body.duration_hours);
-    const sessionPrice = await packagePriceUsd(mediaKind, durationHours);
-    if (sessionPrice === undefined) {
-      return reply
-        .code(400)
-        .send({ error: `No ${mediaKind} package for ${body.duration_hours} hours` });
+    // Occasion is an in-person matching input (§12); the remote journey has
+    // no occasion step, so it's only required for in-person bookings.
+    if (type === 'in_person' && (!body.occasion || !OCCASIONS.includes(body.occasion))) {
+      return reply.code(400).send({ error: `occasion must be one of ${OCCASIONS.join(', ')}` });
+    }
+
+    // Server-side pricing (§8): in-person from pricing_table (service type ×
+    // duration); remote from remote_pricing_table (service type × tier).
+    let sessionPrice: number;
+    let durationHours: number | null = null;
+    if (type === 'remote') {
+      if (!body.remote_tier) {
+        return reply.code(400).send({ error: 'remote_tier is required for remote orders' });
+      }
+      const price = await remotePriceUsd(mediaKind, body.remote_tier);
+      if (price === undefined) {
+        return reply
+          .code(400)
+          .send({ error: `No ${mediaKind} remote package for tier ${body.remote_tier}` });
+      }
+      sessionPrice = price;
+    } else {
+      durationHours = Number(body.duration_hours);
+      const price = await packagePriceUsd(mediaKind, durationHours);
+      if (price === undefined) {
+        return reply
+          .code(400)
+          .send({ error: `No ${mediaKind} package for ${body.duration_hours} hours` });
+      }
+      sessionPrice = price;
     }
 
     let scheduledAtIso: string | null = null;
@@ -89,9 +110,11 @@ export function registerBookingRoutes(app: FastifyInstance) {
       scheduledAtIso = scheduled.toISOString();
 
       // Specialty is a hard filter (§12); availability is re-checked at
-      // creation so a stale client can't book a gone slot.
-      const creators = await eligibleCreators(body.occasion, body.area);
-      const slots = await dayAvailability(body.occasion, body.date, durationHours, body.area);
+      // creation so a stale client can't book a gone slot. (occasion and
+      // duration were validated above for the in-person path.)
+      const occasion = body.occasion as string;
+      const creators = await eligibleCreators(occasion, body.area);
+      const slots = await dayAvailability(occasion, body.date, durationHours as number, body.area);
       const slot = slots.find((s) => s.time === body.time);
       if (!slot) return reply.code(409).send({ error: 'That time is no longer available' });
 
@@ -123,7 +146,7 @@ export function registerBookingRoutes(app: FastifyInstance) {
         client_id: user.id,
         creator_id: assignedCreatorId,
         type,
-        occasion: body.occasion,
+        occasion: body.occasion ?? null,
         media_kind: mediaKind,
         duration_hours: durationHours,
         area: body.area ?? null,
@@ -134,6 +157,7 @@ export function registerBookingRoutes(app: FastifyInstance) {
         pricing_snapshot: {
           media_kind: mediaKind,
           duration_hours: durationHours,
+          remote_tier: body.remote_tier ?? null,
           session_price_usd: sessionPrice,
           client_service_fee_rate: clientFeeRate,
           client_service_fee_usd: serviceFee,

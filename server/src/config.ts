@@ -40,3 +40,13 @@ export async function packagePriceUsd(
   const table = await pricingTable();
   return table[mediaKind]?.[String(durationHours)];
 }
+
+/** CONFIRMED remote-edit pricing: service type × tier key. */
+export async function remotePriceUsd(
+  mediaKind: string,
+  tier: string,
+): Promise<number | undefined> {
+  const config = await getConfig();
+  const table = (config['remote_pricing_table'] as PricingTable) ?? {};
+  return table[mediaKind]?.[tier];
+}

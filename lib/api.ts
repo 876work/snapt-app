@@ -99,7 +99,7 @@ export async function fetchEligibleCreators(occasion: string, area?: string | nu
 interface ServerBooking {
   id: string;
   type: 'in_person' | 'remote';
-  occasion: Booking['occasion'];
+  occasion: Booking['occasion'] | null;
   creator_id: string | null;
   area: string | null;
   meeting_point: string | null;
@@ -233,6 +233,39 @@ export function cashOutApi() {
   return authedPost<{ paid_out_usd: number; count: number }>(`/v1/creator/cash-out`);
 }
 
+/**
+ * Remote-edit order: priced server-side from remote_pricing_table (service
+ * type × tier) — never from the client's displayed number.
+ */
+export async function createRemoteOrderApi(
+  mediaKind: Booking['mediaKind'],
+  tier: string,
+): Promise<{ booking: Booking } | { error: string } | null> {
+  const result = await authedPost<{ booking: ServerBooking }>(`/v1/bookings`, {
+    type: 'remote',
+    media_kind: mediaKind,
+    remote_tier: tier,
+  });
+  if (!result) return null;
+  if ('error' in result) return result;
+  const b = result.booking;
+  return {
+    booking: {
+      id: b.id,
+      type: 'remote',
+      occasion: b.occasion ?? 'Portraits', // remote orders have no occasion step
+      creatorId: null,
+      area: null,
+      scheduledAt: b.scheduled_at ?? new Date().toISOString(),
+      durationHours: b.duration_hours ?? 1,
+      mediaKind: b.media_kind,
+      priceUsd: b.pricing_snapshot?.session_price_usd ?? b.price_usd,
+      status: mapServerStatus(b.status),
+      rescheduleCount: 0,
+    },
+  };
+}
+
 // --- Offer window (accept/decline) + media pipeline.
 
 export function acceptBookingApi(id: string) {
@@ -343,7 +376,7 @@ export async function createBookingApi(
       booking: {
         id: b.id,
         type: b.type === 'in_person' ? 'in-person' : 'remote',
-        occasion: b.occasion,
+        occasion: b.occasion ?? draft.occasion ?? 'Portraits',
         // Server's assignment wins (it may auto-assign); eligible creators
         // are registered in the catalog so this id resolves for display.
         creatorId: b.creator_id ?? draft.creatorId,

@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { SlideToConfirm } from '../../components/ui/SlideToConfirm';
-import { EDIT_PACKAGES, EDIT_STYLES, useUpload } from '../../lib/store/upload';
+import { EDIT_STYLES, REMOTE_PACKAGES, useUpload } from '../../lib/store/upload';
 import { useAuth, useBookings } from '../../lib/store';
 import { CLIENT_SERVICE_FEE_RATE, formatMoney } from '../../lib/constants/business';
 import { colors } from '../../lib/theme';
@@ -18,8 +18,9 @@ const ADDONS = [
 export default function RemoteOrderSummary() {
   const router = useRouter();
   const currency = useAuth((s) => s.currency);
-  const { files, mediaKind, styleId, reset } = useUpload();
-  const { setDraft, resetDraft, confirmDraft } = useBookings();
+  const { files, mediaKind, styleId, tier, reset } = useUpload();
+  const { setDraft, resetDraft, confirmDraft, addServerBooking } = useBookings();
+  const [orderError, setOrderError] = React.useState<string | null>(null);
 
   const [addons, setAddons] = React.useState<string[]>([]);
   const [payOpen, setPayOpen] = React.useState(false);
@@ -29,7 +30,8 @@ export default function RemoteOrderSummary() {
   const [cardCvc, setCardCvc] = React.useState('');
   const [saveCard, setSaveCard] = React.useState(true);
 
-  const pkg = EDIT_PACKAGES[mediaKind];
+  const pkg =
+    REMOTE_PACKAGES[mediaKind].find((p) => p.tier === tier) ?? REMOTE_PACKAGES[mediaKind][0];
   const style = EDIT_STYLES.find((s) => s.id === styleId) ?? EDIT_STYLES[0];
   const addonsTotal = ADDONS.filter((a) => addons.includes(a.id)).reduce((s, a) => s + a.priceUsd, 0);
   const serviceFee = (pkg.priceUsd + addonsTotal) * CLIENT_SERVICE_FEE_RATE;
@@ -41,7 +43,26 @@ export default function RemoteOrderSummary() {
     /^\d{2}\s*\/?\s*\d{2}$/.test(cardExp.trim()) &&
     cardCvc.replace(/\D/g, '').length >= 3;
 
-  const placeOrder = () => {
+  const placeOrder = async () => {
+    const { apiConfigured, createRemoteOrderApi } = await import('../../lib/api');
+    if (apiConfigured) {
+      // Server prices from remote_pricing_table (§8). Add-ons stay
+      // client-side until the add-on catalog moves to config.
+      const result = await createRemoteOrderApi(mediaKind, pkg.tier);
+      if (result && 'booking' in result) {
+        addServerBooking(result.booking);
+        reset();
+        setPayOpen(false);
+        router.dismissAll();
+        router.replace(`/bookings/${result.booking.id}`);
+        return;
+      }
+      if (result && 'error' in result) {
+        setOrderError(result.error);
+        return;
+      }
+      // null = API unreachable — fall through to mock.
+    }
     resetDraft('remote');
     setDraft({ type: 'remote', mediaKind });
     const booking = confirmDraft(pkg.priceUsd + addonsTotal);
@@ -222,7 +243,14 @@ export default function RemoteOrderSummary() {
                 <Text style={styles.payingValue}>{formatMoney(total, currency)}</Text>
               </View>
               {cardValid ? (
-                <SlideToConfirm label="Slide to pay & order" onConfirm={placeOrder} />
+                <>
+                  {orderError ? (
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: colors.error, marginBottom: 10 }}>
+                      {orderError}
+                    </Text>
+                  ) : null}
+                  <SlideToConfirm label="Slide to pay & order" onConfirm={placeOrder} />
+                </>
               ) : (
                 <View style={styles.payDisabled}>
                   <Text style={styles.payDisabledLabel}>Enter card details to pay</Text>

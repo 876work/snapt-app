@@ -3,7 +3,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
-import { EDIT_PACKAGES, EDIT_STYLES, useUpload } from '../../lib/store/upload';
+import { EDIT_STYLES, REMOTE_PACKAGES, useUpload } from '../../lib/store/upload';
 import { useAuth } from '../../lib/store';
 import { formatMoney } from '../../lib/constants/business';
 import { colors } from '../../lib/theme';
@@ -19,9 +19,9 @@ const THUMBS = [
 export default function ChooseYourEdit() {
   const router = useRouter();
   const currency = useAuth((s) => s.currency);
-  const { mediaKind, setMediaKind, styleId, setStyleId } = useUpload();
+  const { mediaKind, setMediaKind, styleId, setStyleId, tier, setTier, files } = useUpload();
   const selStyle = EDIT_STYLES.find((s) => s.id === styleId) ?? EDIT_STYLES[0];
-  const pkg = EDIT_PACKAGES[mediaKind];
+  const packages = REMOTE_PACKAGES[mediaKind];
 
   const segs: { v: MediaKind; label: string }[] = [
     { v: 'photo', label: 'Photos' },
@@ -44,6 +44,35 @@ export default function ChooseYourEdit() {
               <Text style={[styles.segLabel, mediaKind === s.v && styles.segLabelActive]}>{s.label}</Text>
             </Pressable>
           ))}
+        </View>
+
+        <Text style={styles.sectionTitle}>Pick a package</Text>
+        <View style={{ gap: 10, marginBottom: 4 }}>
+          {packages.map((p) => {
+            const active = tier === p.tier;
+            const suggested = mediaKind === 'photo' && active && files.length > 0;
+            return (
+              <Pressable
+                key={p.tier}
+                onPress={() => setTier(p.tier)}
+                style={[styles.tierRow, active && styles.tierRowActive]}
+              >
+                <View style={[styles.tierRadio, active && styles.tierRadioActive]} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={styles.tierName}>{p.name}</Text>
+                    {suggested && (
+                      <View style={styles.tierSuggest}>
+                        <Text style={styles.tierSuggestLabel}>MATCHES YOUR {files.length} FILES</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.tierDesc}>{p.desc}</Text>
+                </View>
+                <Text style={styles.tierPrice}>{formatMoney(p.priceUsd, currency)}</Text>
+              </Pressable>
+            );
+          })}
         </View>
 
         <Text style={styles.sectionTitle}>Pick a style</Text>
@@ -98,8 +127,10 @@ export default function ChooseYourEdit() {
       </ScrollView>
       <View style={styles.footer}>
         <View>
-          <Text style={styles.fromLabel}>from</Text>
-          <Text style={styles.fromValue}>{formatMoney(pkg.priceUsd, currency)}</Text>
+          <Text style={styles.fromLabel}>package</Text>
+          <Text style={styles.fromValue}>
+            {formatMoney(packages.find((p) => p.tier === tier)?.priceUsd ?? packages[0].priceUsd, currency)}
+          </Text>
         </View>
         <Pressable onPress={() => router.push('/upload/pricing')} style={styles.cta}>
           <Text style={styles.ctaLabel}>Review order</Text>
@@ -129,6 +160,24 @@ const styles = StyleSheet.create({
   segLabel: { fontSize: 13, fontWeight: '600', color: colors.grey },
   segLabelActive: { color: colors.ink, fontWeight: '800' },
   sectionTitle: { fontSize: 15, fontWeight: '800', letterSpacing: -0.2, color: colors.ink, marginTop: 24, marginBottom: 12 },
+  tierRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 13,
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: 16,
+    padding: 15,
+  },
+  tierRowActive: { borderColor: colors.yellow, backgroundColor: colors.yellowSoft },
+  tierRadio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.greyLight },
+  tierRadioActive: { borderWidth: 6, borderColor: colors.yellow },
+  tierName: { fontSize: 14.5, fontWeight: '700', color: colors.ink },
+  tierDesc: { fontSize: 12, color: colors.grey, marginTop: 3 },
+  tierPrice: { fontSize: 15, fontWeight: '800', color: colors.ink },
+  tierSuggest: { backgroundColor: colors.yellowTint, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  tierSuggestLabel: { fontSize: 8, fontWeight: '800', color: colors.goldText, letterSpacing: 0.3 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   styleCard: {
     width: '47%',

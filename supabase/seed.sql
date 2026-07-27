@@ -38,7 +38,12 @@ insert into app_config (key, value, description, confirmed) values
     '{"photo": {"1": 60, "1.5": 90, "2": 120, "3": 180, "4": 240},
       "video": {"1": 90, "1.5": 135, "2": 180, "3": 270, "4": 360},
       "both":  {"1": 130, "1.5": 195, "2": 260, "3": 390, "4": 520}}',
-    'CONFIRMED launch pricing (Don, 2026-07-27): session price USD by service type × duration hours', true);
+    'CONFIRMED launch pricing (Don, 2026-07-27): session price USD by service type × duration hours', true),
+  ('remote_pricing_table',
+    '{"photo": {"photos_1_5": 25, "photos_6_10": 45, "photos_11_15": 65},
+      "video": {"short": 70, "standard": 120, "extended": 180},
+      "both":  {"small": 85, "medium": 150, "large": 220}}',
+    'CONFIRMED remote-edit pricing (Don, 2026-07-27): order price USD by service type × tier', true);
 
 -- Placeholder drafts for the 13 policy docs (slugs match lib/mock/legal.ts).
 -- Status stays 'draft': §14 requires explicit publish after attorney review.

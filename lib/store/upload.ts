@@ -26,25 +26,60 @@ export const EDIT_STYLES: EditStyle[] = [
   { id: 'cinematic', name: 'Cinematic film look', desc: 'Moody, filmic grade with soft blacks — best for storytelling video edits.', tint: '#F2A0B5', video: true },
 ];
 
+// NOTE: this 15-file cap predates the confirmed remote pricing tiers (it
+// shipped in the prototype alongside a flat package + "extra files" add-on).
+// It happens to equal the top photo tier (11–15) but was set independently.
 export const MAX_FILES = 15;
 export const MAX_TOTAL_GB = 1.5;
 
-// Remote-edit package base prices (USD) by media kind.
-export const EDIT_PACKAGES: Record<MediaKind, { name: string; priceUsd: number }> = {
-  photo: { name: 'Photo edit package', priceUsd: 95 },
-  video: { name: 'Video edit package', priceUsd: 160 },
-  both: { name: 'Photo + video package', priceUsd: 220 },
+export interface RemotePackage {
+  /** Key in the remote_pricing_table app_config row. */
+  tier: string;
+  name: string;
+  desc: string;
+  priceUsd: number;
+}
+
+// CONFIRMED remote-edit pricing (Don, 2026-07-27). Mirrors the
+// remote_pricing_table config row — the server is the charging authority;
+// these values only render prices in the UI.
+export const REMOTE_PACKAGES: Record<MediaKind, RemotePackage[]> = {
+  photo: [
+    { tier: 'photos_1_5', name: '1–5 photos', desc: 'Up to 5 edited, retouched photos', priceUsd: 25 },
+    { tier: 'photos_6_10', name: '6–10 photos', desc: 'Up to 10 edited, retouched photos', priceUsd: 45 },
+    { tier: 'photos_11_15', name: '11–15 photos', desc: 'Up to 15 edited, retouched photos', priceUsd: 65 },
+  ],
+  video: [
+    { tier: 'short', name: 'Short reel', desc: '1 reel, up to 1 minute', priceUsd: 70 },
+    { tier: 'standard', name: 'Standard reel', desc: '1 reel, up to 3 minutes', priceUsd: 120 },
+    { tier: 'extended', name: 'Extended edit', desc: 'Multiple reels or a full video', priceUsd: 180 },
+  ],
+  both: [
+    { tier: 'small', name: 'Small combo', desc: 'Small photo batch + short reel', priceUsd: 85 },
+    { tier: 'medium', name: 'Medium combo', desc: 'Medium batch + standard reel', priceUsd: 150 },
+    { tier: 'large', name: 'Large combo', desc: 'Large batch + extended reel', priceUsd: 220 },
+  ],
 };
+
+/** Suggested photo tier from how many files the client queued. */
+export function suggestedPhotoTier(fileCount: number): string {
+  if (fileCount <= 5) return 'photos_1_5';
+  if (fileCount <= 10) return 'photos_6_10';
+  return 'photos_11_15';
+}
 
 interface UploadState {
   files: UploadFile[];
   note: string;
   mediaKind: MediaKind;
   styleId: string;
+  /** Selected remote package tier (key in REMOTE_PACKAGES[mediaKind]). */
+  tier: string;
   addFile: () => void;
   setNote: (n: string) => void;
   setMediaKind: (k: MediaKind) => void;
   setStyleId: (id: string) => void;
+  setTier: (t: string) => void;
   reset: () => void;
 }
 
@@ -61,6 +96,7 @@ export const useUpload = create<UploadState>((set, get) => ({
   note: '',
   mediaKind: 'photo',
   styleId: 'warm',
+  tier: 'photos_1_5',
   addFile: () => {
     const { files } = get();
     if (files.length >= MAX_FILES) return;
@@ -68,13 +104,24 @@ export const useUpload = create<UploadState>((set, get) => ({
     set({ files: [...files, { ...next, id: `f${Date.now()}` }] });
   },
   setNote: (note) => set({ note }),
-  setMediaKind: (mediaKind) => set({ mediaKind }),
+  setMediaKind: (mediaKind) =>
+    set((s) => ({
+      mediaKind,
+      // Switching service type resets the tier: suggested-by-count for
+      // photos, first tier otherwise (always overridable).
+      tier:
+        mediaKind === 'photo'
+          ? suggestedPhotoTier(s.files.length)
+          : REMOTE_PACKAGES[mediaKind][0].tier,
+    })),
   setStyleId: (styleId) => set({ styleId }),
+  setTier: (tier) => set({ tier }),
   reset: () =>
     set({
       files: DEMO_POOL.slice(0, 3).map((f, i) => ({ ...f, id: `f${i}` })),
       note: '',
       mediaKind: 'photo',
       styleId: 'warm',
+      tier: 'photos_1_5',
     }),
 }));
