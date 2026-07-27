@@ -154,6 +154,58 @@ export function registerAdminRoutes(app: FastifyInstance) {
     },
   );
 
+  // Manual payout fulfillment queue (no Stripe Connect): requested
+  // cash-outs listed with the creator's payout details; admin marks paid
+  // after sending money externally — audited with who and when.
+  app.get('/v1/admin/payout-requests', async (request, reply) => {
+    const adminId = await requireAdmin(request, reply);
+    if (!adminId) return;
+    const { data } = await supabaseAdmin
+      .from('creator_payouts')
+      .select('id, creator_id, amount_usd, created_at')
+      .eq('status', 'requested');
+    const byCreator = new Map<string, { creator_id: string; total: number; ids: string[] }>();
+    for (const p of data ?? []) {
+      const e = byCreator.get(p.creator_id) ?? { creator_id: p.creator_id, total: 0, ids: [] as string[] };
+      e.total = Math.round((e.total + Number(p.amount_usd)) * 100) / 100;
+      e.ids.push(p.id);
+      byCreator.set(p.creator_id, e);
+    }
+    const requests: Record<string, unknown>[] = [];
+    for (const e of byCreator.values()) {
+      const { data: prof } = await supabaseAdmin.from('profiles').select('full_name, email').eq('id', e.creator_id).single();
+      const { data: cp } = await supabaseAdmin.from('creator_profiles').select('payout_details').eq('user_id', e.creator_id).single();
+      requests.push({ ...e, name: prof?.full_name, email: prof?.email, payout_details: cp?.payout_details ?? null });
+    }
+    return { requests };
+  });
+  app.post<{ Body: { creator_id?: string } }>('/v1/admin/payout-requests/fulfill', async (request, reply) => {
+    const adminId = await requireAdmin(request, reply);
+    if (!adminId) return;
+    const creatorId = request.body?.creator_id;
+    if (!creatorId) return reply.code(400).send({ error: 'creator_id required' });
+    const { data: rows } = await supabaseAdmin
+      .from('creator_payouts')
+      .select('id, amount_usd')
+      .eq('creator_id', creatorId)
+      .eq('status', 'requested');
+    if (!rows?.length) return reply.code(409).send({ error: 'No requested payouts for this creator' });
+    const total = Math.round(rows.reduce((s, r) => s + Number(r.amount_usd), 0) * 100) / 100;
+    await supabaseAdmin
+      .from('creator_payouts')
+      .update({ status: 'paid_out', paid_out_at: new Date().toISOString() })
+      .in('id', rows.map((r) => r.id));
+    await supabaseAdmin
+      .from('admin_alerts')
+      .update({ resolved_at: new Date().toISOString() })
+      .eq('alert_type', 'payout_requested')
+      .is('resolved_at', null)
+      .filter('detail->>creator_id', 'eq', creatorId);
+    await audit(adminId, 'payout_fulfilled', creatorId, { amount_usd: total, payout_ids: rows.map((r) => r.id) });
+    await notify(creatorId, 'payout_paid', 'Payout sent', `$${total.toFixed(2)} has been sent to your payout method.`);
+    return { fulfilled: true, amount_usd: total };
+  });
+
   // Admin login: normal Supabase password auth; membership checked on use.
   app.post<{ Body: { email?: string; password?: string } }>('/v1/admin/login', async (request, reply) => {
     const { email, password } = request.body ?? {};
@@ -208,6 +260,7 @@ pre{white-space:pre-wrap;font-size:11px;color:#555;margin:6px 0 0}
 <h2>Open disputes</h2><div id="disputes"></div>
 <h2>Creator applications</h2><div id="apps"></div>
 <h2>Legal & policy documents</h2><div id="pol"></div>
+<h2>Pending payouts (manual fulfillment)</h2><div id="payouts"></div>
 </main><script>
 const $=id=>document.getElementById(id);
 const H=()=>({'Authorization':'Bearer '+(localStorage.jwt||''),'x-admin-token':localStorage.tok||'','Content-Type':'application/json'});
@@ -218,7 +271,7 @@ async function load(){
  if(st.bookings){$('stats').innerHTML=[['Pending',st.bookings.pending],['Confirmed',st.bookings.confirmed],['Completed',st.bookings.completed],['Disputed',st.bookings.disputed],['GMV $',st.money.charged_usd],['Refunded $',st.money.refunded_usd],['Creators',st.creators.approved],['Open disputes',st.open_disputes],['Active strikes',st.active_strikes]].map(x=>'<div class="card" style="flex:1;min-width:90px;text-align:center"><div style="font-size:20px;font-weight:800">'+x[1]+'</div><div style="font-size:11px;color:#777">'+x[0]+'</div></div>').join('')}
  const cfg=await j('/v1/admin/config');
  $('cfg').innerHTML=(cfg.config||[]).map(c=>'<div class="card"><b>'+c.key+'</b> '+(c.confirmed?'':'<span class="tag">UNCONFIRMED</span>')+'<pre>'+c.description+'</pre><input style="width:70%" id="v-'+c.key+'" value=\''+JSON.stringify(c.value).replace(/'/g,"&#39;")+'\'/> <button onclick="saveCfg(\''+c.key+'\')">Save</button></div>').join('');
- loadPolicies();
+ loadPolicies();loadPayouts();
  const un=await j('/v1/admin/unassigned');
  $('unassigned').innerHTML=(un.bookings||[]).map(b=>'<div class="card"><span class="tag">'+(b.occasion||b.type)+'</span>'+(b.area||'')+' · '+(b.scheduled_at?new Date(b.scheduled_at).toLocaleString():'remote')+'<br/><input placeholder="creator uuid" id="a-'+b.id+'" style="width:60%"/> <button onclick="assign(\''+b.id+'\')">Assign</button></div>').join('')||'<div class="card">Nothing waiting for dispatch.</div>';
  const a=await j('/v1/admin/alerts');
@@ -228,6 +281,8 @@ async function load(){
  const p=await j('/v1/admin/applications');
  $('apps').innerHTML=(p.applications||[]).map(x=>'<div class="card"><b>'+x.profiles.full_name+'</b> · '+x.profiles.email+'<pre>'+(x.specialties||[]).join(', ')+' · '+(x.base_area||'')+'</pre><button onclick="approve(\\''+x.user_id+'\\')">Approve (bg check passed)</button></div>').join('')||'<div class="card">No pending applications.</div>';
 }
+async function loadPayouts(){const p=await j('/v1/admin/payout-requests');$('payouts').innerHTML=(p.requests||[]).map(r=>'<div class="card"><b>'+(r.name||r.creator_id)+'</b> · $'+r.total.toFixed(2)+'<pre>'+(r.payout_details||'⚠ NO PAYOUT DETAILS ON FILE — contact creator')+'</pre><button onclick="fulfill(\''+r.creator_id+'\')">Mark paid out</button></div>').join('')||'<div class="card">No pending payout requests.</div>'}
+async function fulfill(cid){await j('/v1/admin/payout-requests/fulfill',{method:'POST',body:JSON.stringify({creator_id:cid})});loadPayouts()}
 async function loadPolicies(){const p=await j('/v1/admin/policies');const latest={};(p.policies||[]).forEach(x=>{if(!latest[x.doc_type])latest[x.doc_type]=x});$('pol').innerHTML=Object.values(latest).map(x=>'<div class="card"><b>'+x.doc_type+'</b> v'+x.version+' <span class="tag">'+x.status.toUpperCase()+'</span>'+(x.requires_reconsent?'<span class="tag">RE-CONSENT</span>':'')+(x.published_at?' published '+new Date(x.published_at).toLocaleDateString():'')+'<br/><textarea id="pc-'+x.doc_type+'" rows="3" style="width:98%" placeholder="New version content…"></textarea><br/><label style="font-size:11px"><input type="checkbox" id="pr-'+x.doc_type+'"/> material change (forces re-consent)</label><br/><button onclick="draftPolicy(\''+x.doc_type+'\')">Save as draft v'+(x.version+1)+'</button>'+(x.status==='draft'?'<button class="ghost" onclick="publishPolicy(\''+x.id+'\')">Publish v'+x.version+'</button>':'')+'</div>').join('')}
 async function draftPolicy(slug){const c=$('pc-'+slug).value;if(!c)return alert('Content required');await j('/v1/admin/policies/'+slug,{method:'POST',body:JSON.stringify({content:c,requires_reconsent:$('pr-'+slug).checked})});loadPolicies()}
 async function publishPolicy(id){await j('/v1/admin/policies/'+id+'/publish',{method:'POST'});loadPolicies()}

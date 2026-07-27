@@ -214,13 +214,11 @@ export function registerBookingRoutes(app: FastifyInstance) {
       .single();
     if (error) return reply.code(500).send({ error: error.message });
 
-    // Charge at booking (simulated pre-Phase 7 Stripe keys). The booking
-    // stays PENDING until the assigned creator accepts within the offer
-    // window — 'confirmed' now means a creator actually said yes.
-    if (!stripeConfigured) {
-      await recordBookingCharge(booking);
-      await notify(user.id, 'payment_charged', 'Payment received', `Your payment of $${total.toFixed(2)} for this booking went through — receipt in your wallet.`);
-    }
+    // Charge at booking — real test-mode Stripe when keys are set,
+    // simulated ledger otherwise. The booking stays PENDING until the
+    // assigned creator accepts within the offer window.
+    await recordBookingCharge(booking);
+    await notify(user.id, 'payment_charged', 'Payment received', `Your payment of $${total.toFixed(2)} for this booking went through — receipt in your wallet.`);
     if (assignedCreatorId) {
       const expires = new Date(Date.now() + (await offerWindowMs())).toISOString();
       await supabaseAdmin

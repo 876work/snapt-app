@@ -38,33 +38,8 @@ export function registerPaymentRoutes(app: FastifyInstance) {
     return { client_secret: intent.client_secret };
   });
 
-  // Creator payout onboarding: create/reuse a Connect Express account and
-  // return an onboarding link.
-  app.post('/v1/connect/onboarding-link', async (request, reply) => {
-    const user = requireUser(request);
-    const stripe = requireStripe();
-
-    const { data: creator } = await supabaseAdmin
-      .from('creator_profiles')
-      .select('user_id, vetting_status')
-      .eq('user_id', user.id)
-      .single();
-    if (!creator) return reply.code(403).send({ error: 'Not a creator' });
-
-    // Connect account id storage lands with the payout engine (Phase 2);
-    // for Phase 0 we create a fresh Express account each call in test mode.
-    const account = await stripe.accounts.create({
-      type: 'express',
-      metadata: { user_id: user.id },
-    });
-    const link = await stripe.accountLinks.create({
-      account: account.id,
-      type: 'account_onboarding',
-      refresh_url: 'snapt://creator/onboarding/refresh',
-      return_url: 'snapt://creator/onboarding/complete',
-    });
-    return { url: link.url, account_id: account.id };
-  });
+  // NOTE: Stripe Connect is NOT used (Don, 2026-07-28) — creator payouts
+  // are fulfilled manually by admins from the payout-request queue.
 
   // Stripe webhook skeleton. Signature verification requires the raw body,
   // registered via content-type parser in index.ts.

@@ -44,8 +44,11 @@ export default function CreatorEarnings() {
           rows: data.payouts.map((p) => ({
             id: p.id,
             title: `Booking ${p.booking_id.slice(0, 8)}`,
-            state: p.status === 'held' ? 'pending' : p.status === 'paid_out' ? 'paid' : 'available',
+            state: ['held', 'requested'].includes(p.status) ? 'pending' : p.status === 'paid_out' ? 'paid' : 'available',
             date:
+              p.status === 'requested'
+                ? 'Payout requested — being processed'
+                :
               p.status === 'held' && p.hold_until
                 ? `Clears ${new Date(p.hold_until).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
                 : new Date(p.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),

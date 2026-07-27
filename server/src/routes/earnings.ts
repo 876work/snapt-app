@@ -1,8 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
-import { requireStripe } from '../stripe.js';
-import { stripeConfigured } from '../env.js';
 import { notify } from '../notify.js';
 
 // Creator earnings: Pending (held, inside the 7-day dispute window) →
@@ -31,7 +29,11 @@ export function registerEarningsRoutes(app: FastifyInstance) {
       ) / 100;
     return {
       payouts: rows,
-      totals: { pending: sum('held'), available: sum('available'), paid_out: sum('paid_out') },
+      totals: {
+        pending: Math.round((sum('held') + sum('requested')) * 100) / 100,
+        available: sum('available'),
+        paid_out: sum('paid_out'),
+      },
     };
   });
 
@@ -64,34 +66,19 @@ export function registerEarningsRoutes(app: FastifyInstance) {
 
     const total = Math.round(rows.reduce((s, r) => s + Number(r.amount_usd), 0) * 100) / 100;
 
-    let transferId: string | null = null;
-    if (stripeConfigured) {
-      const { data: creator } = await supabaseAdmin
-        .from('creator_profiles')
-        .select('stripe_connect_account_id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-      if (!creator?.stripe_connect_account_id) {
-        return reply.code(409).send({ error: 'Complete Stripe onboarding first' });
-      }
-      const transfer = await requireStripe().transfers.create({
-        amount: Math.round(total * 100),
-        currency: 'usd',
-        destination: creator.stripe_connect_account_id,
-        metadata: { creator_id: user.id },
-      });
-      transferId = transfer.id;
-    }
-
+    // NO Stripe Connect (Don, 2026-07-28): cash-out creates a payout
+    // REQUEST; an admin fulfils it manually (bank transfer etc.) from the
+    // portal queue and marks it paid — the creator sees Pending until then.
     await supabaseAdmin
       .from('creator_payouts')
-      .update({
-        status: 'paid_out',
-        paid_out_at: new Date().toISOString(),
-        stripe_transfer_id: transferId,
-      })
+      .update({ status: 'requested' })
       .in('id', rows.map((r) => r.id));
-    await notify(user.id, 'payout_paid', 'Cash-out complete', `$${total.toFixed(2)} is on its way to your payout method.`);
-    return { paid_out_usd: total, count: rows.length, stripe_transfer_id: transferId };
+    await supabaseAdmin.from('admin_alerts').insert({
+      alert_type: 'payout_requested',
+      detail: { creator_id: user.id, amount_usd: total, payout_ids: rows.map((r) => r.id) },
+    });
+    await notify(user.id, 'payout_pending', 'Cash-out requested',
+      `Your $${total.toFixed(2)} payout request is with our team — you'll be notified the moment it's sent.`);
+    return { requested_usd: total, count: rows.length };
   });
 }
