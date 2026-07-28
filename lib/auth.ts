@@ -50,6 +50,32 @@ export async function resendSignupCode(email: string): Promise<AuthResult> {
   return { error: null };
 }
 
+// --- Password reset (GoTrue recovery OTP). Requires the hosted "Reset
+// Password" email template to include {{ .Token }}, same as signup.
+
+export async function requestPasswordReset(email: string): Promise<AuthResult> {
+  if (!supabase) return { error: null };
+  const { error } = await supabase.auth.resetPasswordForEmail(email);
+  if (error) return { error: error.message };
+  return { error: null };
+}
+
+/** Verifying the recovery code establishes a session for the account. */
+export async function verifyResetCode(email: string, code: string): Promise<AuthResult> {
+  if (!supabase) return { error: null };
+  const { error } = await supabase.auth.verifyOtp({ email, token: code, type: 'recovery' });
+  if (error) return { error: error.message };
+  return { error: null };
+}
+
+/** Set the new password on the recovery session. User ends up signed in. */
+export async function completePasswordReset(newPassword: string): Promise<AuthResult> {
+  if (!supabase) return { error: null };
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) return { error: error.message };
+  return { error: null };
+}
+
 export async function signInWithEmail(email: string, password: string): Promise<AuthResult> {
   if (!supabase) {
     useAuth.getState().signIn(email.split('@')[0], email);

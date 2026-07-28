@@ -4,6 +4,7 @@ import { audit, requireAdmin } from '../admin-auth.js';
 import { reassignBooking, offerWindowMs } from '../offers.js';
 import { notify } from '../notify.js';
 import { decryptField } from '../crypto.js';
+import { sendEmail } from '../email.js';
 
 // Admin Portal (handoff §15) — Phase 5 foundation. Sits on the SAME backend
 // and data model as the apps (§15 mandate), served as a responsive single
@@ -271,6 +272,22 @@ export function registerAdminRoutes(app: FastifyInstance) {
   });
 
   // Admin login: normal Supabase password auth; membership checked on use.
+  // Ops check: verify outbound email (Resend) is actually configured and
+  // sending. Returns the Resend message id, or simulated:true when no key.
+  app.post<{ Body: { to?: string } }>('/v1/admin/test-email', async (request, reply) => {
+    const adminId = await requireAdmin(request, reply);
+    if (!adminId) return;
+    const to = request.body?.to?.trim();
+    if (!to || !to.includes('@')) return reply.code(400).send({ error: 'to (email) is required' });
+    const result = await sendEmail(
+      to,
+      'Snapt outbound email test',
+      '<p>This is a test of Snapt server email delivery. If you can read this, Resend is live.</p>',
+    );
+    await audit(adminId, 'test_email', to, { ...result });
+    return result;
+  });
+
   app.post<{ Body: { email?: string; password?: string } }>('/v1/admin/login', async (request, reply) => {
     const { email, password } = request.body ?? {};
     if (!email || !password) return reply.code(400).send({ error: 'email and password required' });

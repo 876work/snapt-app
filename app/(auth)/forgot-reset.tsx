@@ -4,13 +4,35 @@ import { useRouter } from 'expo-router';
 import { Button } from '../../components/ui/Button';
 import { TextField } from '../../components/ui/TextField';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
+import { completePasswordReset, realAuth } from '../../lib/auth';
 import { colors } from '../../lib/theme';
 
 export default function ForgotReset() {
   const router = useRouter();
   const [pw, setPw] = React.useState('');
   const [pw2, setPw2] = React.useState('');
-  const ok = pw.length >= 8 && pw === pw2;
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const ok = pw.length >= 8 && pw === pw2 && !busy;
+
+  const reset = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    const result = await completePasswordReset(pw);
+    setBusy(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    // Real mode: the recovery session is now a normal signed-in session.
+    if (realAuth) {
+      router.replace('/(app)/home');
+      return;
+    }
+    router.dismissTo('/(auth)/login');
+  };
+
   return (
     <View style={styles.root}>
       <ScreenHeader title="Choose a new password" />
@@ -26,12 +48,8 @@ export default function ForgotReset() {
         {pw2.length > 0 && pw !== pw2 && (
           <Text style={styles.err}>Passwords don't match yet.</Text>
         )}
-        <Button
-          title="Reset password"
-          arrow
-          disabled={!ok}
-          onPress={() => router.dismissTo('/(auth)/login')}
-        />
+        {error ? <Text style={styles.err}>{error}</Text> : null}
+        <Button title={busy ? 'Saving…' : 'Reset password'} arrow disabled={!ok} onPress={reset} />
       </View>
     </View>
   );

@@ -1,15 +1,36 @@
+import { create } from 'zustand';
 import { supabase } from './supabase';
 import { Booking, Creator, Occasion } from './mock/data';
 import { BookingDraft } from './store';
 
 // Phase 1 API client. When EXPO_PUBLIC_API_URL is set, the booking flow uses
 // the real server (availability engine, server-side pricing, §12 matching).
-// Every function returns null on failure so screens fall back to mock
-// behavior instead of breaking the flow.
+// Helpers still return null on failure, but with an API configured a failure
+// also raises the global unreachable flag — the root layout blocks the UI
+// with an error state so mock fallback data is never silently mistaken for
+// real data. Mock mode is ONLY for local dev with no EXPO_PUBLIC_API_URL.
 
 const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
 
 export const apiConfigured = Boolean(apiUrl);
+
+interface ApiStatus {
+  unreachable: boolean;
+  setUnreachable: (v: boolean) => void;
+}
+
+export const useApiStatus = create<ApiStatus>((set) => ({
+  unreachable: false,
+  setUnreachable: (v) => set({ unreachable: v }),
+}));
+
+function reportApiFailure(): void {
+  if (apiConfigured) useApiStatus.getState().setUnreachable(true);
+}
+
+function reportApiReachable(): void {
+  if (useApiStatus.getState().unreachable) useApiStatus.getState().setUnreachable(false);
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T | null> {
   if (!apiUrl) return null;
@@ -21,9 +42,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T | null> {
       if (token) headers.Authorization = `Bearer ${token}`;
     }
     const res = await fetch(`${apiUrl}${path}`, { ...init, headers });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
+    if (!res.ok) {
+      reportApiFailure();
+      return null;
+    }
+    const json = (await res.json()) as T;
+    reportApiReachable();
+    return json;
   } catch {
+    reportApiFailure();
     return null;
   }
 }
@@ -132,9 +159,14 @@ async function authedPost<T>(path: string, body?: unknown): Promise<T | { error:
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const json = (await res.json()) as T & { error?: string };
+    // A parsed response — even an error — means the server is reachable;
+    // screens surface these inline. Only network/parse failures below raise
+    // the global unreachable state.
+    reportApiReachable();
     if (!res.ok) return { error: json.error ?? 'Something went wrong — try again.' };
     return json;
   } catch {
+    reportApiFailure();
     return null;
   }
 }
