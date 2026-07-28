@@ -13,9 +13,11 @@
       "backgroundColor": "#FAFAFA"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "app.snaptcarib.snapt"
     },
     "android": {
+      "package": "app.snaptcarib.snapt",
       "adaptiveIcon": {
         "backgroundColor": "#FFB800",
         "foregroundImage": "./assets/icon.png"
