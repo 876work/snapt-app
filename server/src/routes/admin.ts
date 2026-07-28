@@ -174,7 +174,15 @@ export function registerAdminRoutes(app: FastifyInstance) {
     }
     const requests: Record<string, unknown>[] = [];
     for (const e of byCreator.values()) {
-      const { data: prof } = await supabaseAdmin.from('profiles').select('full_name, email').eq('id', e.creator_id).single();
+      const { data: prof } = await supabaseAdmin.from('profiles').select('full_name, email, phone').eq('id', e.creator_id).single();
+      const { data: alert } = await supabaseAdmin
+        .from('admin_alerts')
+        .select('detail')
+        .eq('alert_type', 'payout_requested')
+        .is('resolved_at', null)
+        .filter('detail->>creator_id', 'eq', e.creator_id)
+        .limit(1)
+        .maybeSingle();
       const { data: cp } = await supabaseAdmin.from('creator_profiles').select('payout_methods').eq('user_id', e.creator_id).single();
       const pm = (cp?.payout_methods ?? {}) as { selected?: string; methods?: Record<string, Record<string, string>> };
       const sel = pm.selected;
@@ -194,10 +202,47 @@ export function registerAdminRoutes(app: FastifyInstance) {
         : sel && shown
           ? `${sel}: ${Object.entries(shown).map(([k, v]) => k + '=' + v).join(', ')}`
           : null;
-      requests.push({ ...e, name: prof?.full_name, email: prof?.email, payout_details: label });
+      requests.push({
+        ...e,
+        name: prof?.full_name,
+        email: prof?.email,
+        // Cash pickup is arranged by PHONE (WhatsApp/call) — manual by
+        // design; the number is the admin's contact path.
+        phone: prof?.phone ?? null,
+        method: sel ?? null,
+        admin_note: (alert?.detail as { admin_note?: string } | null)?.admin_note ?? null,
+        payout_details: label,
+      });
     }
     return { requests };
   });
+  // Free-text note on a payout request ("Arranged Thurs 2pm, ID confirmed")
+  // — stored on the request alert, audited like everything else.
+  app.post<{ Body: { creator_id?: string; note?: string } }>(
+    '/v1/admin/payout-requests/note',
+    async (request, reply) => {
+      const adminId = await requireAdmin(request, reply);
+      if (!adminId) return;
+      const { creator_id, note } = request.body ?? {};
+      if (!creator_id || !note?.trim()) return reply.code(400).send({ error: 'creator_id and note required' });
+      const { data: alert } = await supabaseAdmin
+        .from('admin_alerts')
+        .select('id, detail')
+        .eq('alert_type', 'payout_requested')
+        .is('resolved_at', null)
+        .filter('detail->>creator_id', 'eq', creator_id)
+        .limit(1)
+        .maybeSingle();
+      if (!alert) return reply.code(404).send({ error: 'No open payout request for this creator' });
+      await supabaseAdmin
+        .from('admin_alerts')
+        .update({ detail: { ...(alert.detail as object), admin_note: note.trim() } })
+        .eq('id', alert.id);
+      await audit(adminId, 'payout_note', creator_id, { note: note.trim() });
+      return { noted: true };
+    },
+  );
+
   app.post<{ Body: { creator_id?: string } }>('/v1/admin/payout-requests/fulfill', async (request, reply) => {
     const adminId = await requireAdmin(request, reply);
     if (!adminId) return;
@@ -307,7 +352,8 @@ async function unsuspend(uid){const reason=prompt('Reason for lifting suspension
 async function modAct(id,a){await j('/v1/admin/reports/'+id,{method:'POST',body:JSON.stringify({action:a})});loadMod()}
 async function modTier(id){await j('/v1/admin/reports/'+id,{method:'POST',body:JSON.stringify({severity:$('sv-'+id).value})});loadMod()}
 async function pf(id,d){await j('/v1/admin/portfolio/'+id,{method:'POST',body:JSON.stringify({decision:d})});loadMod()}
-async function loadPayouts(){const p=await j('/v1/admin/payout-requests');$('payouts').innerHTML=(p.requests||[]).map(r=>'<div class="card"><b>'+(r.name||r.creator_id)+'</b> · $'+r.total.toFixed(2)+'<pre>'+(r.payout_details||'⚠ NO PAYOUT DETAILS ON FILE — contact creator')+'</pre><button onclick="fulfill(\''+r.creator_id+'\')">Mark paid out</button></div>').join('')||'<div class="card">No pending payout requests.</div>'}
+async function loadPayouts(){const p=await j('/v1/admin/payout-requests');$('payouts').innerHTML=(p.requests||[]).map(r=>'<div class="card"><b>'+(r.name||r.creator_id)+'</b> · $'+r.total.toFixed(2)+(r.method==='cash'?' <span class="tag">CASH PICKUP</span>':'')+'<div style="font-size:15px;font-weight:800;margin:6px 0">📞 '+(r.phone||'⚠ no phone on file')+'</div><pre>'+(r.payout_details||'⚠ NO PAYOUT DETAILS ON FILE — contact creator')+'</pre>'+(r.admin_note?'<pre>📝 '+r.admin_note+'</pre>':'')+'<input id="pn-'+r.creator_id+'" placeholder="Note (e.g. Arranged Thurs 2pm, ID confirmed)" style="width:70%"/> <button class="ghost" onclick="pNote(\''+r.creator_id+'\')">Save note</button><br/><button onclick="fulfill(\''+r.creator_id+'\')">Mark paid out</button></div>').join('')||'<div class="card">No pending payout requests.</div>'}
+async function pNote(cid){const n=$('pn-'+cid).value;if(!n)return;await j('/v1/admin/payout-requests/note',{method:'POST',body:JSON.stringify({creator_id:cid,note:n})});loadPayouts()}
 async function fulfill(cid){await j('/v1/admin/payout-requests/fulfill',{method:'POST',body:JSON.stringify({creator_id:cid})});loadPayouts()}
 async function loadPolicies(){const p=await j('/v1/admin/policies');const latest={};(p.policies||[]).forEach(x=>{if(!latest[x.doc_type])latest[x.doc_type]=x});$('pol').innerHTML=Object.values(latest).map(x=>'<div class="card"><b>'+x.doc_type+'</b> v'+x.version+' <span class="tag">'+x.status.toUpperCase()+'</span>'+(x.requires_reconsent?'<span class="tag">RE-CONSENT</span>':'')+(x.published_at?' published '+new Date(x.published_at).toLocaleDateString():'')+'<br/><textarea id="pc-'+x.doc_type+'" rows="3" style="width:98%" placeholder="New version content…"></textarea><br/><label style="font-size:11px"><input type="checkbox" id="pr-'+x.doc_type+'"/> material change (forces re-consent)</label><br/><button onclick="draftPolicy(\''+x.doc_type+'\')">Save as draft v'+(x.version+1)+'</button>'+(x.status==='draft'?'<button class="ghost" onclick="publishPolicy(\''+x.id+'\')">Publish v'+x.version+'</button>':'')+'</div>').join('')}
 async function draftPolicy(slug){const c=$('pc-'+slug).value;if(!c)return alert('Content required');await j('/v1/admin/policies/'+slug,{method:'POST',body:JSON.stringify({content:c,requires_reconsent:$('pr-'+slug).checked})});loadPolicies()}
