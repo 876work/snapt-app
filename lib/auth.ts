@@ -14,18 +14,39 @@ export async function signUpWithEmail(
   name: string,
   email: string,
   password: string,
-): Promise<AuthResult> {
+): Promise<AuthResult & { needsConfirmation?: boolean }> {
   if (!supabase) {
     // Mock mode: the verify + currency screens complete sign-in as before.
     return { error: null };
   }
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: { data: { full_name: name } },
   });
   if (error) return { error: error.message };
   // Profile row is created by the on_auth_user_created trigger.
+  // With email confirmations enabled (production) there is no session yet —
+  // the user must enter the emailed code before they are signed in.
+  return { error: null, needsConfirmation: !data.session };
+}
+
+/**
+ * Confirm signup with the 6-digit code GoTrue emailed. On success a session
+ * is established and onAuthStateChange signs the store in. Requires the
+ * hosted "Confirm signup" email template to include {{ .Token }}.
+ */
+export async function verifySignupCode(email: string, code: string): Promise<AuthResult> {
+  if (!supabase) return { error: null };
+  const { error } = await supabase.auth.verifyOtp({ email, token: code, type: 'signup' });
+  if (error) return { error: error.message };
+  return { error: null };
+}
+
+export async function resendSignupCode(email: string): Promise<AuthResult> {
+  if (!supabase) return { error: null };
+  const { error } = await supabase.auth.resend({ type: 'signup', email });
+  if (error) return { error: error.message };
   return { error: null };
 }
 

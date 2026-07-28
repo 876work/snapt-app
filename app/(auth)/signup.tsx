@@ -5,7 +5,7 @@ import { Button } from '../../components/ui/Button';
 import { TextField } from '../../components/ui/TextField';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { Divider } from '../../components/ui/Misc';
-import { signUpWithEmail } from '../../lib/auth';
+import { realAuth, signUpWithEmail } from '../../lib/auth';
 import { colors } from '../../lib/theme';
 
 export default function Signup() {
@@ -25,6 +25,12 @@ export default function Signup() {
     setBusy(false);
     if (result.error) {
       setError(result.error);
+      return;
+    }
+    // Real mode with confirmations off (local dev) already has a session —
+    // skip the code screen. Mock mode keeps the designed walkthrough.
+    if (realAuth && !result.needsConfirmation) {
+      router.push({ pathname: '/(auth)/onboarding-currency', params: { name, email } });
       return;
     }
     router.push({ pathname: '/(auth)/verify', params: { name, email } });

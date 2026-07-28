@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { Button } from '../../components/ui/Button';
 import { useAuth } from '../../lib/store';
+import { realAuth } from '../../lib/auth';
 import { colors } from '../../lib/theme';
 
 // Permission priming — shown once before the native OS push dialog fires.
@@ -15,7 +16,10 @@ export default function PushPrime() {
   const signIn = useAuth((s) => s.signIn);
 
   const finish = () => {
-    signIn(String(name) || 'You', String(email));
+    // Real mode: the Supabase session (established at signup or code verify)
+    // drives the store via onAuthStateChange — a mock signIn here would fake
+    // a signed-in UI with no session behind it.
+    if (!realAuth) signIn(String(name) || 'You', String(email));
     router.replace('/(app)/home');
   };
 
