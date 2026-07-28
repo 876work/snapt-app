@@ -154,6 +154,19 @@ export default function Profile() {
               }
             />
           )}
+          {creatorStatus === 'approved' && (
+            <ListRow
+              label="Portfolio"
+              onPress={() => router.push('/creator/portfolio')}
+              icon={
+                <Svg width={21} height={21} viewBox="0 0 24 24" fill="none">
+                  <Rect x="3.5" y="5" width="17" height="14" rx="2.5" stroke={colors.grey} strokeWidth={1.8} />
+                  <Path d="M3.5 15.5l4.5-4 4 3.5 3-2.5 5.5 4.5" stroke={colors.grey} strokeWidth={1.8} strokeLinejoin="round" />
+                  <Circle cx="9.5" cy="9" r="1.4" fill={colors.grey} />
+                </Svg>
+              }
+            />
+          )}
           <ListRow
             label="Emergency contacts"
             onPress={() => router.push('/profile/emergency')}

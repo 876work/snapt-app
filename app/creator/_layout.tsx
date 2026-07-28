@@ -83,6 +83,7 @@ export default function CreatorLayout() {
       <Tabs.Screen name="cash-out" options={{ href: null }} />
       <Tabs.Screen name="ratings" options={{ href: null }} />
       <Tabs.Screen name="specialties" options={{ href: null }} />
+      <Tabs.Screen name="portfolio" options={{ href: null }} />
       <Tabs.Screen name="apply" options={{ href: null }} />
       <Tabs.Screen name="job/[id]" options={{ href: null }} />
     </Tabs>

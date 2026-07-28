@@ -4,10 +4,11 @@ import { supabaseAdmin } from './supabase.js';
 // (S3-compatible, presigned URLs) — activated when R2_* env vars exist.
 // Locally, Supabase Storage private buckets provide the same signed-URL
 // shape so the pipeline is exercisable end-to-end before Phase 7.
-// Buckets/prefixes: 'raw-footage' (creator/editor side only) and
-// 'deliverables' (client-visible after delivery).
+// Buckets/prefixes: 'raw-footage' (creator/editor side only),
+// 'deliverables' (client-visible after delivery), and 'portfolio'
+// (creator portfolio images, public only after moderation approval).
 
-export type MediaBucket = 'raw-footage' | 'deliverables';
+export type MediaBucket = 'raw-footage' | 'deliverables' | 'portfolio';
 
 export interface UploadTarget {
   /** Where the client should PUT/POST the file. */

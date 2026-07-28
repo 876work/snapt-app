@@ -4,14 +4,30 @@ import { useRouter } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
 import { useAuth } from '../../../lib/store';
+import { realAuth, saveProfile } from '../../../lib/auth';
 import { colors, spacing } from '../../../lib/theme';
 
 export default function EditProfile() {
   const router = useRouter();
-  const { name, email, phone, setProfile } = useAuth();
+  const { name, email, phone } = useAuth();
   const [n, setN] = React.useState(name);
   const [e, setE] = React.useState(email);
   const [p, setP] = React.useState(phone);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    const result = await saveProfile({ name: n, email: e, phone: p });
+    setSaving(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    router.back();
+  };
 
   return (
     <View style={styles.root}>
@@ -40,8 +56,14 @@ export default function EditProfile() {
           placeholderTextColor="#9A9A9A"
           keyboardType="email-address"
           autoCapitalize="none"
-          style={styles.input}
+          editable={!realAuth}
+          style={[styles.input, realAuth && styles.inputDisabled]}
         />
+        {realAuth && (
+          <Text style={styles.lockedNote}>
+            Your email is your sign-in — contact hello@snaptcarib.app to change it.
+          </Text>
+        )}
         <Text style={[styles.fieldLabel, { marginTop: 18 }]}>PHONE</Text>
         <TextInput
           value={p}
@@ -52,19 +74,13 @@ export default function EditProfile() {
           style={styles.input}
         />
         <Text style={styles.note}>
-          Changes save automatically. Your email and phone are used for account access and booking
-          updates.
+          Your phone number is how we reach you for payout arrangements and booking updates.
         </Text>
+        {error && <Text style={styles.error}>{error}</Text>}
       </ScrollView>
       <View style={styles.footer}>
-        <Pressable
-          onPress={() => {
-            setProfile({ name: n, email: e, phone: p });
-            router.back();
-          }}
-          style={styles.cta}
-        >
-          <Text style={styles.ctaLabel}>Save changes</Text>
+        <Pressable onPress={save} disabled={saving} style={[styles.cta, saving && { opacity: 0.6 }]}>
+          <Text style={styles.ctaLabel}>{saving ? 'Saving…' : 'Save changes'}</Text>
         </Pressable>
       </View>
     </View>
@@ -108,7 +124,10 @@ const styles = StyleSheet.create({
     color: colors.ink,
     backgroundColor: '#fff',
   },
+  inputDisabled: { backgroundColor: '#F4F2ED', color: '#9A948B' },
+  lockedNote: { fontSize: 11, color: '#9A948B', marginTop: 6, paddingHorizontal: 2 },
   note: { fontSize: 11.5, color: '#9A948B', lineHeight: 17, marginTop: 14, paddingHorizontal: 2 },
+  error: { fontSize: 12.5, fontWeight: '600', color: '#B4442E', marginTop: 12, paddingHorizontal: 2 },
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,

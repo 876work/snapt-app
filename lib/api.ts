@@ -396,6 +396,69 @@ export function authedShareSession(id: string) {
   return authedPost<{ shared: boolean; recipients: number }>(`/v1/bookings/${id}/share-session`);
 }
 
+// --- Creator portfolio (moderated — Policy 04 §6.2): first N submissions
+// need moderator approval, later ones auto-publish.
+
+export interface PortfolioItem {
+  id: string;
+  caption: string | null;
+  status: 'pending' | 'approved' | 'rejected' | 'auto';
+  created_at: string;
+  url: string | null;
+}
+
+export async function fetchMyPortfolio(): Promise<PortfolioItem[] | null> {
+  const result = await request<{ items: PortfolioItem[] }>(`/v1/creator/portfolio`);
+  return result?.items ?? null;
+}
+
+/** Presign, PUT the image bytes, and register the portfolio item. */
+export async function submitPortfolioItemApi(
+  file: { uri: string; name: string; mimeType?: string },
+  caption?: string,
+): Promise<{ published: boolean } | { error: string } | null> {
+  const target = await authedPost<{ upload_url: string; storage_path: string }>(
+    `/v1/creator/portfolio/upload-url`,
+    { filename: file.name, content_type: file.mimeType ?? 'image/jpeg' },
+  );
+  if (!target) return null;
+  if ('error' in target) return target;
+  try {
+    const blob = await (await fetch(file.uri)).blob();
+    const put = await fetch(target.upload_url, {
+      method: 'PUT',
+      headers: { 'Content-Type': file.mimeType ?? 'image/jpeg' },
+      body: blob,
+    });
+    if (!put.ok) return { error: 'Upload failed — try again.' };
+  } catch {
+    return { error: 'Upload failed — try again.' };
+  }
+  return authedPost<{ published: boolean }>(`/v1/creator/portfolio`, {
+    caption: caption?.trim() || undefined,
+    storage_path: target.storage_path,
+  });
+}
+
+/**
+ * Content/moderation report (Policy 04). The category choice drives the
+ * server's auto-assigned severity and its consequence automation — the
+ * screen labels must map 1:1 to the server's four tiers.
+ */
+export function submitContentReport(
+  category: 'child_safety' | 'sexual_violent_hate' | 'content_policy' | 'general',
+  details: string,
+  bookingId?: string | null,
+  targetUserId?: string | null,
+) {
+  return authedPost<{ report_id: string; severity: string }>(`/v1/reports`, {
+    category,
+    details,
+    booking_id: bookingId ?? undefined,
+    target_user_id: targetUserId ?? undefined,
+  });
+}
+
 /** Presign, PUT the file bytes, and register the media row. */
 export async function uploadMediaApi(
   bookingId: string,
