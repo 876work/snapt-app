@@ -5,6 +5,7 @@ import { audit, requireAdmin } from '../admin-auth.js';
 import { notify } from '../notify.js';
 import { sendEmail } from '../email.js';
 import { configNumber } from '../config.js';
+import { createDownloadUrl, createUploadTarget } from '../storage.js';
 
 // Tiered moderation (Policy 04 §6 per Don's confirmed table, 2026-07-29):
 //   child_safety        → critical: instant suspension, real-time escalation,
@@ -99,9 +100,57 @@ export function registerModerationRoutes(app: FastifyInstance) {
     },
   );
 
+  // Presigned upload target for a portfolio image. Creators only — the
+  // private 'portfolio' bucket mirrors the booking-media pipeline.
+  app.post<{ Body: { filename?: string; content_type?: string } }>(
+    '/v1/creator/portfolio/upload-url',
+    async (request, reply) => {
+      const user = requireUser(request);
+      const { filename, content_type } = request.body ?? {};
+      if (!filename) return reply.code(400).send({ error: 'filename is required' });
+      const { data: cp } = await supabaseAdmin
+        .from('creator_profiles')
+        .select('user_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (!cp) return reply.code(403).send({ error: 'Creator profile required' });
+      const safeName = filename.replace(/[^\w.\-]/g, '_');
+      const path = `${user.id}/${Date.now()}-${safeName}`;
+      return createUploadTarget('portfolio', path, content_type ?? 'application/octet-stream');
+    },
+  );
+
+  // A creator's own portfolio, every status, with signed image URLs.
+  app.get('/v1/creator/portfolio', async (request) => {
+    const user = requireUser(request);
+    const { data } = await supabaseAdmin
+      .from('portfolio_items')
+      .select('id, caption, storage_path, status, created_at')
+      .eq('creator_id', user.id)
+      .order('created_at', { ascending: false });
+    const items = await Promise.all(
+      (data ?? []).map(async (item) => ({
+        id: item.id,
+        caption: item.caption,
+        status: item.status,
+        created_at: item.created_at,
+        url: item.storage_path
+          ? await createDownloadUrl('portfolio', item.storage_path).catch(() => null)
+          : null,
+      })),
+    );
+    return { items };
+  });
+
   // Portfolio submissions: first N need approval, then auto-publish.
   app.post<{ Body: { caption?: string; storage_path?: string } }>('/v1/creator/portfolio', async (request, reply) => {
     const user = requireUser(request);
+    const { data: cp } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('user_id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (!cp) return reply.code(403).send({ error: 'Creator profile required' });
     const threshold = await configNumber('portfolio_preapproval_count', 3);
     const { count } = await supabaseAdmin
       .from('portfolio_items')
@@ -140,7 +189,36 @@ export function registerModerationRoutes(app: FastifyInstance) {
           .update({ vetting_status: 'approved' })
           .eq('user_id', request.params.userId);
       }
-      await audit(adminId, 'user_unsuspended', request.params.userId, { reason });
+      // Visibility-only false-report signal: lifting a suspension caused by
+      // critical/high reports counts against each reporter, once per report
+      // (false_counted_at guards repeat suspend/unsuspend cycles). No
+      // automated consequence — this surfaces in the portal queue for a
+      // human to notice.
+      const { data: overturned } = await supabaseAdmin
+        .from('content_reports')
+        .select('id, reporter_id')
+        .eq('target_user_id', request.params.userId)
+        .in('severity', ['critical', 'high'])
+        .is('false_counted_at', null);
+      for (const report of overturned ?? []) {
+        const { data: reporter } = await supabaseAdmin
+          .from('profiles')
+          .select('false_report_count')
+          .eq('id', report.reporter_id)
+          .maybeSingle();
+        await supabaseAdmin
+          .from('profiles')
+          .update({ false_report_count: (reporter?.false_report_count ?? 0) + 1 })
+          .eq('id', report.reporter_id);
+        await supabaseAdmin
+          .from('content_reports')
+          .update({ false_counted_at: new Date().toISOString() })
+          .eq('id', report.id);
+      }
+      await audit(adminId, 'user_unsuspended', request.params.userId, {
+        reason,
+        overturned_reports: (overturned ?? []).length,
+      });
       await notify(request.params.userId, 'dispute_resolved', 'Your account is reinstated',
         'The suspension on your account has been lifted after review. Welcome back.');
       return { unsuspended: true };
@@ -155,6 +233,22 @@ export function registerModerationRoutes(app: FastifyInstance) {
       .from('content_reports')
       .select('*')
       .eq('status', 'open');
+    // Reviewing admins see the reporter's overturned-report history inline —
+    // the false-report signal is per-reporter, shown wherever their reports
+    // appear.
+    const reporterIds = [...new Set((reports ?? []).map((r) => r.reporter_id))];
+    const counts = new Map<string, number>();
+    if (reporterIds.length) {
+      const { data: reporters } = await supabaseAdmin
+        .from('profiles')
+        .select('id, false_report_count')
+        .in('id', reporterIds);
+      for (const p of reporters ?? []) counts.set(p.id, p.false_report_count ?? 0);
+    }
+    const enriched = (reports ?? []).map((r) => ({
+      ...r,
+      reporter_false_report_count: counts.get(r.reporter_id) ?? 0,
+    }));
     const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
     const { data: portfolio } = await supabaseAdmin
       .from('portfolio_items')
@@ -162,7 +256,7 @@ export function registerModerationRoutes(app: FastifyInstance) {
       .eq('status', 'pending')
       .order('created_at', { ascending: true });
     return {
-      reports: (reports ?? []).sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9)),
+      reports: enriched.sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9)),
       portfolio_pending: portfolio ?? [],
     };
   });
