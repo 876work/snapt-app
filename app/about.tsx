@@ -14,7 +14,7 @@ export default function About() {
         <View style={{ alignItems: 'center' }}>
           <View style={styles.iconWrap}>
             <Image
-              source={require('../assets/design/snapt-icon.webp')}
+              source={require('../assets/design/snapt-mark.webp')}
               style={{ width: 46, height: 46 }}
               resizeMode="contain"
             />
