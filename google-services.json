@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "534549471327",
+    "project_id": "snapt-app",
+    "storage_bucket": "snapt-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:534549471327:android:e61f2c170ad22d29f13bea",
+        "android_client_info": {
+          "package_name": "app.snaptcarib.snapt"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDXm2qoosfCIhMh9G7AZEeBsmHRkbLq2xs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
