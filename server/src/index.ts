@@ -17,7 +17,9 @@ import { registerPolicyRoutes } from './routes/policies.js';
 import { registerModerationRoutes } from './routes/moderation.js';
 import { startScheduler } from './scheduler.js';
 
-const app = Fastify({ logger: true });
+// trustProxy: Render terminates TLS at its proxy — without this every
+// request.ip is the proxy's address and per-IP throttling is meaningless.
+const app = Fastify({ logger: true, trustProxy: true });
 
 // Stripe webhooks need the raw body for signature verification; keep JSON
 // parsing for everything else.
