@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
@@ -8,7 +9,7 @@ import { OccasionIcon } from '../../components/ui/Icons';
 import { OCCASIONS, Occasion } from '../../lib/mock/data';
 import { useAuth } from '../../lib/store';
 import { useCreator } from '../../lib/store/creator';
-import { colors } from '../../lib/theme';
+import { colors, insetBottom } from '../../lib/theme';
 
 function Check({ on }: { on: boolean }) {
   return (
@@ -181,7 +182,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     backgroundColor: colors.offWhite,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',

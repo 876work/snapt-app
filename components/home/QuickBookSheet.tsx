@@ -1,19 +1,12 @@
 import React from 'react';
-import {
-  Image,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { OCCASIONS, Occasion, AREAS, Area } from '../../lib/mock/data';
 import { creatorById, useBookings } from '../../lib/store';
 import { CreatorAvatar } from '../ui/CreatorAvatar';
-import { colors } from '../../lib/theme';
+import { colors, insetBottom } from '../../lib/theme';
 import { OccasionIcon } from '../ui/Icons';
 import { Divider, InfoBanner } from '../ui/Misc';
 
@@ -237,7 +230,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     paddingHorizontal: 20,
     paddingTop: 18,
-    paddingBottom: 34,
+    paddingBottom: Math.max(insetBottom + 12, 34),
     maxHeight: '86%',
   },
   grabber: {

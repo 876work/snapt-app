@@ -1,12 +1,13 @@
 import React from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { Button } from '../../components/ui/Button';
 import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { creatorById, useBookings } from '../../lib/store';
-import { colors, spacing } from '../../lib/theme';
+import { colors, spacing, insetBottom } from '../../lib/theme';
 
 const SAMPLE_TINTS = ['#F2C14E', '#6FD3E0', '#F2A0B5', '#8ED7A6'];
 
@@ -221,7 +222,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     backgroundColor: colors.offWhite,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',

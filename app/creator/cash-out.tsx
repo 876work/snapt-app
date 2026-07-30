@@ -1,12 +1,13 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { SlideToConfirm } from '../../components/ui/SlideToConfirm';
 import { useAuth } from '../../lib/store';
 import { formatMoney } from '../../lib/constants/business';
-import { colors } from '../../lib/theme';
+import { colors, insetBottom } from '../../lib/theme';
 
 // The six real payout methods (Don, 2026-07-28). Field sets mirror the
 // server: cash needs none (pickup mechanics = pending product decision);
@@ -206,7 +207,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     backgroundColor: colors.offWhite,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',

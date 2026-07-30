@@ -1,5 +1,6 @@
 import React from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
@@ -15,7 +16,7 @@ import {
   CLIENT_SERVICE_FEE_RATE,
   formatMoney,
 } from '../../lib/constants/business';
-import { colors, spacing } from '../../lib/theme';
+import { colors, spacing, insetBottom } from '../../lib/theme';
 
 interface Addon {
   id: string;
@@ -472,7 +473,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     backgroundColor: colors.offWhite,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',
@@ -485,7 +486,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 26,
     paddingTop: 10,
     paddingHorizontal: 22,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     maxHeight: '90%',
   },
   grabber: { width: 40, height: 5, borderRadius: 3, backgroundColor: '#D8D8D8', alignSelf: 'center', marginBottom: 10 },

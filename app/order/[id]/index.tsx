@@ -1,12 +1,13 @@
 import React from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { CreatorAvatar } from '../../../components/ui/CreatorAvatar';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
 import { creatorById, useBookings } from '../../../lib/store';
 import { FREE_REVISIONS_PER_ORDER } from '../../../lib/constants/business';
-import { colors } from '../../../lib/theme';
+import { colors, insetBottom } from '../../../lib/theme';
 
 // Edit-status tracker: Received → In progress → Ready (demo-advanced).
 type Step = 0 | 1 | 2;
@@ -397,7 +398,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     backgroundColor: colors.offWhite,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',

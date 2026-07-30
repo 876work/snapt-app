@@ -1,5 +1,6 @@
 import React from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
@@ -7,7 +8,7 @@ import { SlideToConfirm } from '../../components/ui/SlideToConfirm';
 import { EDIT_STYLES, REMOTE_PACKAGES, useUpload } from '../../lib/store/upload';
 import { useAuth, useBookings } from '../../lib/store';
 import { CLIENT_SERVICE_FEE_RATE, formatMoney } from '../../lib/constants/business';
-import { colors } from '../../lib/theme';
+import { colors, insetBottom } from '../../lib/theme';
 
 const ADDONS = [
   // Confirmed flat rates (Don, 2026-07-27), mirrored in the remote_addons
@@ -348,7 +349,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     backgroundColor: colors.offWhite,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',
@@ -370,7 +371,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 26,
     paddingTop: 10,
     paddingHorizontal: 22,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     maxHeight: '90%',
   },
   grabber: { width: 40, height: 5, borderRadius: 3, backgroundColor: '#D8D8D8', alignSelf: 'center', marginBottom: 10 },

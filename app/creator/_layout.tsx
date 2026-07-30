@@ -1,8 +1,9 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '../../lib/text';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
-import { colors } from '../../lib/theme';
+import { colors, insetBottom } from '../../lib/theme';
 
 function JobsIcon({ color }: { color: string }) {
   return (
@@ -95,7 +96,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 14,
     right: 14,
-    bottom: 26,
+    bottom: Math.max(insetBottom + 8, 26),
     backgroundColor: colors.ink,
     borderRadius: 28,
     padding: 7,

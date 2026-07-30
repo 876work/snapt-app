@@ -1,10 +1,11 @@
 import React from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { MAX_FILES, MAX_TOTAL_GB, useUpload } from '../../lib/store/upload';
-import { colors } from '../../lib/theme';
+import { colors, insetBottom } from '../../lib/theme';
 
 export default function UploadFootage() {
   const router = useRouter();
@@ -205,7 +206,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     backgroundColor: colors.offWhite,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',

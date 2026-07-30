@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { Button } from '../../components/ui/Button';
@@ -7,7 +8,7 @@ import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { DURATIONS, MediaKind, packagePrice } from '../../lib/mock/data';
 import { useAuth, useBookings } from '../../lib/store';
 import { formatMoney, OCCASION_DEFAULT_DURATION_HOURS } from '../../lib/constants/business';
-import { colors, spacing } from '../../lib/theme';
+import { colors, spacing, insetBottom } from '../../lib/theme';
 
 const PKG_DESC: Record<MediaKind, string> = {
   photo: 'Edited, color-graded photos delivered in the app.',
@@ -144,7 +145,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     backgroundColor: colors.offWhite,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',

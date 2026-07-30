@@ -1,12 +1,13 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../../../lib/text';
 import { useRouter } from 'expo-router';
 import { Card } from '../../../components/ui/Misc';
 import { OccasionIcon } from '../../../components/ui/Icons';
 import { creatorById, useAuth, useBookings } from '../../../lib/store';
 import { formatMoney } from '../../../lib/constants/business';
 import { BookingStatus } from '../../../lib/mock/data';
-import { colors, spacing } from '../../../lib/theme';
+import { colors, spacing, insetTop } from '../../../lib/theme';
 
 const STATUS_STYLE: Record<BookingStatus, { label: string; color: string; bg: string }> = {
   pending: { label: 'Pending', color: colors.goldText, bg: colors.yellowTint },
@@ -60,7 +61,7 @@ export default function Bookings() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.offWhite },
-  body: { paddingHorizontal: spacing.screenX, paddingTop: 70 },
+  body: { paddingHorizontal: spacing.screenX, paddingTop: insetTop + 23 },
   title: { fontSize: 24, fontWeight: '800', letterSpacing: -0.6, color: colors.ink, marginBottom: 18 },
   card: { flexDirection: 'row', alignItems: 'center', gap: 13 },
   cardTitle: { fontSize: 14.5, fontWeight: '800', color: colors.ink },

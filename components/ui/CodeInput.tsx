@@ -1,7 +1,12 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Text } from '../../lib/text';
 import { colors } from '../../lib/theme';
 
+// Cells flex to the available row width (capped at the design's 58pt) so
+// 6-digit codes fit every device — fixed 58pt cells overflowed the screen
+// once real GoTrue codes (6 digits) replaced the 4-digit mock. The hidden
+// input stays the raw RN TextInput: it renders no glyphs and needs a ref.
 export function CodeInput({
   length = 4,
   value,
@@ -34,9 +39,10 @@ export function CodeInput({
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', gap: 12, justifyContent: 'center' },
+  row: { flexDirection: 'row', gap: 10, justifyContent: 'center' },
   cell: {
-    width: 58,
+    flex: 1,
+    maxWidth: 58,
     height: 64,
     borderRadius: 14,
     borderWidth: 1.5,

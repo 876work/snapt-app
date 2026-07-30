@@ -1,12 +1,13 @@
 import React from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { SlideToConfirm } from '../../../components/ui/SlideToConfirm';
 import { LEGAL_DOCS } from '../../../lib/mock/legal';
 import { useAuth } from '../../../lib/store';
 import { signOutEverywhere } from '../../../lib/auth';
-import { colors, spacing } from '../../../lib/theme';
+import { colors, spacing, insetTop, insetBottom } from '../../../lib/theme';
 
 const chevron = (
   <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
@@ -309,7 +310,7 @@ function ListRow({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.offWhite },
   header: {
-    paddingTop: 66,
+    paddingTop: insetTop + 19,
     paddingHorizontal: 22,
     paddingBottom: 8,
     flexDirection: 'row',
@@ -463,7 +464,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 26,
     paddingTop: 10,
     paddingHorizontal: 22,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
   },
   grabber: { width: 40, height: 5, borderRadius: 3, backgroundColor: '#D8D8D8', alignSelf: 'center', marginBottom: 18 },
   deleteIcon: {

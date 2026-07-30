@@ -1,9 +1,10 @@
 import React from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../../../lib/text';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { useAuth } from '../../../lib/store';
 import { formatMoney } from '../../../lib/constants/business';
-import { colors, spacing } from '../../../lib/theme';
+import { colors, spacing, insetTop, insetBottom } from '../../../lib/theme';
 
 interface CardMethod {
   id: string;
@@ -321,7 +322,7 @@ export default function Wallet() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.offWhite },
   header: {
-    paddingTop: 66,
+    paddingTop: insetTop + 19,
     paddingHorizontal: 22,
     paddingBottom: 8,
     flexDirection: 'row',
@@ -435,7 +436,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 26,
     paddingTop: 10,
     paddingHorizontal: 22,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
   },
   grabber: { width: 40, height: 5, borderRadius: 3, backgroundColor: '#D8D8D8', alignSelf: 'center', marginBottom: 12 },
   sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },

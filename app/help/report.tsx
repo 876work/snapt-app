@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { TextField } from '../../components/ui/TextField';

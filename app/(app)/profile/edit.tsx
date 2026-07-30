@@ -1,11 +1,12 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
 import { useAuth } from '../../../lib/store';
 import { realAuth, saveProfile } from '../../../lib/auth';
-import { colors, spacing } from '../../../lib/theme';
+import { colors, spacing, insetBottom } from '../../../lib/theme';
 
 export default function EditProfile() {
   const router = useRouter();
@@ -131,7 +132,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     backgroundColor: colors.offWhite,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',

@@ -1,10 +1,11 @@
 import React from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { CreatorAvatar } from '../../../components/ui/CreatorAvatar';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
 import { creatorById, useBookings } from '../../../lib/store';
-import { colors } from '../../../lib/theme';
+import { colors, insetBottom } from '../../../lib/theme';
 
 const CATEGORIES = ['Edit quality', 'Turnaround', 'Communication'];
 
@@ -115,7 +116,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     backgroundColor: colors.offWhite,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',

@@ -1,5 +1,6 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '../../lib/text';
 import { ScreenHeader } from './ScreenHeader';
 import { colors } from '../../lib/theme';
 import { BoltIcon } from './Icons';

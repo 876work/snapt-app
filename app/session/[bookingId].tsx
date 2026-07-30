@@ -1,5 +1,6 @@
 import React from 'react';
-import { Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
@@ -8,7 +9,7 @@ import { creatorById, useBookings } from '../../lib/store';
 import { chatEnabled, fetchMessages, sendMessage, subscribeToMessages } from '../../lib/chat';
 import { supabase } from '../../lib/supabase';
 import { NO_SHOW_GRACE_MINUTES } from '../../lib/constants/business';
-import { colors } from '../../lib/theme';
+import { colors, insetBottom } from '../../lib/theme';
 
 // Demo session-day state machine, matching the prototype's Advance-status
 // control. Real states arrive with the Phase 1/4 backend.
@@ -701,7 +702,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     backgroundColor: colors.offWhite,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',
@@ -781,7 +782,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 26,
     paddingTop: 10,
     paddingHorizontal: 20,
-    paddingBottom: 28,
+    paddingBottom: Math.max(insetBottom + 12, 28),
   },
   grabber: { width: 40, height: 5, borderRadius: 3, backgroundColor: '#D8D8D8', alignSelf: 'center', marginBottom: 16 },
   sheetTitle: { fontSize: 19, fontWeight: '800', letterSpacing: -0.3, color: colors.ink },

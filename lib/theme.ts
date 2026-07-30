@@ -34,9 +34,18 @@ export const radii = {
   sm: 12,
 } as const;
 
+import { initialWindowMetrics } from 'react-native-safe-area-context';
+
+// Device safe-area insets, readable at module load so StyleSheets can use
+// them directly. The design frame assumed a 47pt notch and a 34pt home
+// indicator; screens offset from these instead of hardcoding those guesses.
+// Fallbacks reproduce the old fixed values if metrics are unavailable.
+export const insetTop = initialWindowMetrics?.insets.top ?? 47;
+export const insetBottom = initialWindowMetrics?.insets.bottom ?? 0;
+
 export const spacing = {
   screenX: 22,
-  headerTop: 58,
+  headerTop: insetTop + 11,
 } as const;
 
 export const type = {

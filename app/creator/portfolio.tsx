@@ -1,5 +1,6 @@
 import React from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../../lib/text';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { InfoBanner } from '../../components/ui/Misc';
 import { TextField } from '../../components/ui/TextField';

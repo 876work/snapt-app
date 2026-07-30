@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, View, ViewStyle } from 'react-native';
+import { Text } from '../../lib/text';
 import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../lib/theme';
 

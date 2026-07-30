@@ -1,11 +1,12 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { useAuth } from '../../lib/store';
 import { useCreator } from '../../lib/store/creator';
 import { formatMoney } from '../../lib/constants/business';
-import { colors } from '../../lib/theme';
+import { colors, insetTop } from '../../lib/theme';
 
 const FIXED = [
   { id: 's1', day: 'TODAY', title: 'Golden-hour portraits', time: '5:30 PM · 1.5 hrs', loc: 'Rodney Bay', payUsd: 95.2, status: 'Confirmed' },
@@ -110,7 +111,7 @@ export default function CreatorSchedule() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.offWhite },
-  header: { paddingTop: 66, paddingHorizontal: 22, paddingBottom: 8 },
+  header: { paddingTop: insetTop + 19, paddingHorizontal: 22, paddingBottom: 8 },
   title: { fontSize: 18, fontWeight: '800', letterSpacing: -0.35, color: colors.ink },
   body: { paddingHorizontal: 22, paddingTop: 12 },
   dayLabel: {

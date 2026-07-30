@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
@@ -8,7 +9,7 @@ import { SlideToConfirm } from '../../../components/ui/SlideToConfirm';
 import { useAuth } from '../../../lib/store';
 import { useCreator, JobStage } from '../../../lib/store/creator';
 import { formatMoney, NO_SHOW_GRACE_MINUTES } from '../../../lib/constants/business';
-import { colors } from '../../../lib/theme';
+import { colors, insetBottom } from '../../../lib/theme';
 
 // Creator job flow: offer → accepted → on the way → check-in (safety code)
 // → session in progress → footage upload → submitted.
@@ -531,7 +532,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     backgroundColor: colors.offWhite,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',

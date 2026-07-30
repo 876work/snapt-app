@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
@@ -7,7 +8,7 @@ import { Button } from '../../components/ui/Button';
 import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { useBookings } from '../../lib/store';
 import { apiConfigured, fetchEligibleCreators } from '../../lib/api';
-import { colors, spacing } from '../../lib/theme';
+import { colors, spacing, insetBottom } from '../../lib/theme';
 
 export default function CreatorAssignment() {
   const router = useRouter();
@@ -349,7 +350,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     backgroundColor: colors.offWhite,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',

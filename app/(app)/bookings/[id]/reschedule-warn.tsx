@@ -1,5 +1,6 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '../../../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ScreenHeader } from '../../../../components/ui/ScreenHeader';
 import { Button } from '../../../../components/ui/Button';

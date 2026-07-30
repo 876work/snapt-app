@@ -1,12 +1,13 @@
 import React from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { EDIT_STYLES, REMOTE_PACKAGES, useUpload } from '../../lib/store/upload';
 import { useAuth } from '../../lib/store';
 import { formatMoney } from '../../lib/constants/business';
-import { colors } from '../../lib/theme';
+import { colors, insetBottom } from '../../lib/theme';
 import type { MediaKind } from '../../lib/mock/data';
 
 const THUMBS = [
@@ -235,7 +236,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     backgroundColor: colors.offWhite,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',

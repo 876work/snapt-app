@@ -1,7 +1,8 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors } from '../../lib/theme';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '../../lib/text';
+import { colors, insetBottom } from '../../lib/theme';
 import { BookingsIcon, HomeIcon, ProfileIcon, WalletIcon } from '../../components/ui/Icons';
 
 const TABS: { name: string; label: string; Icon: (p: { color: string }) => React.JSX.Element }[] = [
@@ -62,7 +63,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 18,
     right: 18,
-    bottom: 26,
+    bottom: Math.max(insetBottom + 8, 26),
     backgroundColor: colors.ink,
     borderRadius: 28,
     padding: 7,

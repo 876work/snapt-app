@@ -1,5 +1,6 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { Text } from '../../../lib/text';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
 import { Card, InfoBanner } from '../../../components/ui/Misc';
 import { colors, spacing } from '../../../lib/theme';

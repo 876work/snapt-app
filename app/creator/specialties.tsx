@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
@@ -7,7 +8,7 @@ import { Button } from '../../components/ui/Button';
 import { OccasionIcon } from '../../components/ui/Icons';
 import { OCCASIONS, Occasion } from '../../lib/mock/data';
 import { useCreator } from '../../lib/store/creator';
-import { colors } from '../../lib/theme';
+import { colors, insetBottom } from '../../lib/theme';
 
 // Specialties are a hard matching filter (§12): clients booking an occasion
 // you haven't selected will never see you. At least one is required.
@@ -93,7 +94,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 30,
+    paddingBottom: Math.max(insetBottom + 12, 30),
     backgroundColor: colors.offWhite,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',

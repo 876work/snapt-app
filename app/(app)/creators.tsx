@@ -1,5 +1,6 @@
 import React from 'react';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../../lib/text';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { CREATORS } from '../../lib/mock/data';

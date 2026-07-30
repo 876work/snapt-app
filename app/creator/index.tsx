@@ -1,12 +1,13 @@
 import React from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { useAuth } from '../../lib/store';
 import { JobOffer, useCreator } from '../../lib/store/creator';
 import { apiConfigured, fetchMyBookings } from '../../lib/api';
 import { CREATOR_PLATFORM_FEE_RATE, formatMoney } from '../../lib/constants/business';
-import { colors } from '../../lib/theme';
+import { colors, insetTop } from '../../lib/theme';
 
 export default function CreatorHome() {
   const router = useRouter();
@@ -266,7 +267,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.offWhite },
   header: {
     backgroundColor: colors.ink,
-    paddingTop: 64,
+    paddingTop: insetTop + 17,
     paddingHorizontal: 22,
     paddingBottom: 22,
     borderBottomLeftRadius: 26,

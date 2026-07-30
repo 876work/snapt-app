@@ -1,9 +1,10 @@
 import React from 'react';
-import { Dimensions, FlatList, Image, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, FlatList, Image, StyleSheet, View } from 'react-native';
+import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { Button } from '../../components/ui/Button';
-import { colors } from '../../lib/theme';
+import { colors, insetTop } from '../../lib/theme';
 
 const { width } = Dimensions.get('window');
 
@@ -129,7 +130,7 @@ export default function Intro() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.offWhite, paddingTop: 90 },
+  root: { flex: 1, backgroundColor: colors.offWhite, paddingTop: insetTop + 43 },
   art: {
     height: 340,
     borderRadius: 24,

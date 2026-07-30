@@ -1,5 +1,6 @@
 import React from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { BoltIcon, OccasionIcon } from '../../components/ui/Icons';
@@ -7,7 +8,7 @@ import { QuickBookSheet } from '../../components/home/QuickBookSheet';
 import { useAuth, useBookings } from '../../lib/store';
 import { AREAS, Area, CREATORS, OCCASIONS, Occasion } from '../../lib/mock/data';
 import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
-import { colors } from '../../lib/theme';
+import { colors, insetTop } from '../../lib/theme';
 
 export default function Home() {
   const router = useRouter();
@@ -347,7 +348,7 @@ const styles = StyleSheet.create({
   hero: {
     position: 'relative',
     backgroundColor: colors.yellow,
-    paddingTop: 64,
+    paddingTop: insetTop + 17,
     paddingHorizontal: 22,
     paddingBottom: 154,
     overflow: 'hidden',

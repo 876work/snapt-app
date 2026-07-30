@@ -1,5 +1,6 @@
 import React from 'react';
-import { StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { StyleSheet, View, ViewStyle } from 'react-native';
+import { Text } from '../../lib/text';
 import { colors } from '../../lib/theme';
 
 export function Card({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
