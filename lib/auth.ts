@@ -87,6 +87,14 @@ export async function signInWithEmail(email: string, password: string): Promise<
 }
 
 export async function signOutEverywhere(): Promise<void> {
+  // Best-effort: stop this device receiving the account's pushes first,
+  // while the session token is still valid for the unregister call.
+  try {
+    const { unregisterPush } = await import('./push');
+    await unregisterPush();
+  } catch {
+    // never block sign-out
+  }
   if (supabase) await supabase.auth.signOut();
   useAuth.getState().signOut();
 }
@@ -161,6 +169,9 @@ export function initAuth(): void {
           if (status) useAuth.getState().setCreatorStatus(status);
         });
       });
+      // Keep this device's push token bound to the signed-in account
+      // (no-ops unless the user already granted notification permission).
+      import('./push').then((p) => p.registerIfGranted());
     } else if (state.signedIn) {
       state.signOut();
     }

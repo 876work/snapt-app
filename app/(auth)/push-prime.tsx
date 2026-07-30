@@ -24,6 +24,15 @@ export default function PushPrime() {
     router.replace('/(app)/home');
   };
 
+  const enable = async () => {
+    // Fires the real OS permission dialog, registers the Expo push token,
+    // then continues either way — "Not now" semantics are preserved by the
+    // OS denial itself (no in-app re-prompt, per §13).
+    const { enablePush } = await import('../../lib/push');
+    await enablePush();
+    finish();
+  };
+
   return (
     <View style={styles.root}>
       <View style={styles.art}>
@@ -42,7 +51,7 @@ export default function PushPrime() {
           We'll only notify you about things that matter — booking confirmations, your creator on
           the way, and your photos arriving. No spam.
         </Text>
-        <Button title="Turn on notifications" arrow onPress={finish} />
+        <Button title="Turn on notifications" arrow onPress={enable} />
         <Pressable onPress={finish}>
           <Text style={styles.notNow}>Not now</Text>
         </Pressable>

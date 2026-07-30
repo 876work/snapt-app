@@ -30,6 +30,9 @@ export default function RootLayout() {
   React.useEffect(() => {
     // Restores a persisted Supabase session (no-op in mock mode).
     initAuth();
+    // Foreground notifications render as banners (no-op on builds without
+    // the native module).
+    import('../lib/push').then((p) => p.initPushHandling());
   }, []);
 
   if (!fontsLoaded && !fontsError) return null;

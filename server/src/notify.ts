@@ -76,11 +76,49 @@ export async function notify(
       if (profile?.email) await sendEmail(profile.email, title, `<p>${body}</p>`);
     }
     if (spec.push) {
-      // FCM lands with Phase 7 credentials; the routing decision is made
-      // here so no trigger is silently dropped later.
-      console.log(`[push stub] user=${userId} trigger=${trigger}`);
+      await sendPush(userId, title, body, trigger);
     }
   } catch (err) {
     console.error('notify failed', trigger, err);
+  }
+}
+
+/**
+ * Push transport: Expo Push Service (relays to FCM on Android and APNs on
+ * iOS — credentials live in EAS, none needed server-side). The per-trigger
+ * push/in-app routing above is the reconciled 11_Notification_Trigger_Mapping
+ * table; this function is transport only. Dead tokens (uninstalled devices)
+ * are pruned on DeviceNotRegistered.
+ */
+async function sendPush(userId: string, title: string, body: string, trigger: string): Promise<void> {
+  const { data: tokens } = await supabaseAdmin
+    .from('push_tokens')
+    .select('token')
+    .eq('user_id', userId);
+  if (!tokens || tokens.length === 0) return;
+  try {
+    const res = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(
+        tokens.map((t) => ({ to: t.token, title, body, sound: 'default', data: { trigger } })),
+      ),
+    });
+    const json = (await res.json()) as {
+      data?: { status: string; details?: { error?: string } }[];
+    };
+    const dead = (json.data ?? [])
+      .map((ticket, i) =>
+        ticket.status === 'error' && ticket.details?.error === 'DeviceNotRegistered'
+          ? tokens[i].token
+          : null,
+      )
+      .filter((t): t is string => t !== null);
+    if (dead.length > 0) {
+      await supabaseAdmin.from('push_tokens').delete().in('token', dead);
+    }
+  } catch (err) {
+    // Push is best-effort; in-app (and email where flagged) already landed.
+    console.error('[push] send failed', trigger, err);
   }
 }

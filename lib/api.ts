@@ -472,6 +472,31 @@ export async function submitPortfolioItemApi(
   });
 }
 
+// --- Push token registry (Expo push service; server routes per-trigger).
+
+export function registerPushTokenApi(token: string, platform: 'ios' | 'android') {
+  return authedPost<{ registered: boolean }>(`/v1/push-tokens`, { token, platform });
+}
+
+export async function unregisterPushTokenApi(token: string): Promise<void> {
+  if (!apiUrl) return;
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (supabase) {
+      const { data } = await supabase.auth.getSession();
+      const t = data.session?.access_token;
+      if (t) headers.Authorization = `Bearer ${t}`;
+    }
+    await fetch(`${apiUrl}/v1/push-tokens`, {
+      method: 'DELETE',
+      headers,
+      body: JSON.stringify({ token }),
+    });
+  } catch {
+    // Best effort — sign-out proceeds regardless.
+  }
+}
+
 /**
  * Content/moderation report (Policy 04). The category choice drives the
  * server's auto-assigned severity and its consequence automation — the
