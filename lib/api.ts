@@ -478,6 +478,14 @@ export function registerPushTokenApi(token: string, platform: 'ios' | 'android')
   return authedPost<{ registered: boolean }>(`/v1/push-tokens`, { token, platform });
 }
 
+/** Server truth for the master toggle: is this device's token active? */
+export async function fetchPushTokenActive(token: string): Promise<boolean | null> {
+  const result = await request<{ active: boolean }>(
+    `/v1/push-tokens/status?token=${encodeURIComponent(token)}`,
+  );
+  return result?.active ?? null;
+}
+
 export async function unregisterPushTokenApi(token: string): Promise<void> {
   if (!apiUrl) return;
   try {

@@ -23,6 +23,22 @@ export function registerPushRoutes(app: FastifyInstance) {
     return reply.code(201).send({ registered: true });
   });
 
+  // Delivery status for THIS device's token — the master push toggle shows
+  // server truth, not a client-side guess (an app can't revoke its own OS
+  // permission, so "off" is implemented as no registered token).
+  app.get<{ Querystring: { token?: string } }>('/v1/push-tokens/status', async (request, reply) => {
+    const user = requireUser(request);
+    const token = request.query.token?.trim();
+    if (!token) return reply.code(400).send({ error: 'token query param is required' });
+    const { data } = await supabaseAdmin
+      .from('push_tokens')
+      .select('token')
+      .eq('token', token)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    return { active: Boolean(data) };
+  });
+
   // Sign-out hygiene: the app unregisters the device token so a shared
   // device doesn't keep receiving the previous account's notifications.
   app.delete<{ Body: { token?: string } }>('/v1/push-tokens', async (request, reply) => {

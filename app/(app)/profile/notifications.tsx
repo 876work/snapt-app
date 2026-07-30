@@ -3,7 +3,7 @@ import { AppState, Linking, Pressable, ScrollView, StyleSheet, Switch, View } fr
 import { Text } from '../../../lib/text';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
 import { Card, InfoBanner } from '../../../components/ui/Misc';
-import { getPushStatus, enablePush, PushStatus } from '../../../lib/push';
+import { getDeliveryStatus, enablePush, disablePush, DeliveryStatus } from '../../../lib/push';
 import { colors, spacing } from '../../../lib/theme';
 
 // §13: four toggles plus a non-toggleable critical bucket (payments, safety,
@@ -22,12 +22,12 @@ export default function NotificationSettings() {
   const [prefs, setPrefs] = React.useState<Record<string, boolean>>(
     Object.fromEntries(TOGGLES.map((t) => [t.key, true])),
   );
-  const [push, setPush] = React.useState<PushStatus | null>(null);
+  const [push, setPush] = React.useState<DeliveryStatus | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const refreshPush = React.useCallback(() => {
-    getPushStatus().then(setPush);
+    getDeliveryStatus().then(setPush);
   }, []);
 
   React.useEffect(() => {
@@ -77,13 +77,23 @@ export default function NotificationSettings() {
     }
   };
 
-  const turnOn = async () => {
+  // Master toggle. ON: fires the OS dialog when never asked, otherwise just
+  // (re-)registers the token. OFF: unregisters the token server-side — the
+  // app can't revoke its own OS permission, so "off" means the dispatcher
+  // has nowhere to deliver. In-app + email are unaffected either way.
+  const togglePush = async (value: boolean) => {
     if (busy) return;
     setBusy(true);
-    await enablePush();
+    if (value) {
+      await enablePush();
+    } else {
+      await disablePush();
+    }
     setBusy(false);
     refreshPush();
   };
+
+  const pushOn = push?.status === 'granted' && push.delivering === true;
 
   return (
     <View style={styles.root}>
@@ -91,12 +101,7 @@ export default function NotificationSettings() {
       <ScrollView contentContainerStyle={styles.body}>
         {push?.available && (
           <Card style={{ padding: 16, marginBottom: 14 }}>
-            {push.status === 'granted' ? (
-              <View style={styles.pushRow}>
-                <View style={[styles.dot, { backgroundColor: '#2E7D43' }]} />
-                <Text style={styles.pushTitle}>Push notifications are on</Text>
-              </View>
-            ) : push.status === 'denied' && !push.canAskAgain ? (
+            {push.status === 'denied' && !push.canAskAgain ? (
               <>
                 <View style={styles.pushRow}>
                   <View style={[styles.dot, { backgroundColor: '#B4442E' }]} />
@@ -114,16 +119,21 @@ export default function NotificationSettings() {
             ) : (
               <>
                 <View style={styles.pushRow}>
-                  <View style={[styles.dot, { backgroundColor: colors.greyLight }]} />
-                  <Text style={styles.pushTitle}>Push notifications are off</Text>
+                  <View style={[styles.dot, { backgroundColor: pushOn ? '#2E7D43' : colors.greyLight }]} />
+                  <Text style={[styles.pushTitle, { flex: 1 }]}>Push notifications</Text>
+                  <Switch
+                    value={pushOn}
+                    disabled={busy}
+                    onValueChange={togglePush}
+                    trackColor={{ true: colors.yellow }}
+                    thumbColor="#fff"
+                  />
                 </View>
                 <Text style={styles.pushSub}>
-                  Get notified about booking offers, confirmations, and your photos arriving —
-                  even when the app is closed.
+                  {pushOn
+                    ? "You'll get booking offers, confirmations, and delivery alerts on this device — even when the app is closed."
+                    : 'Turn on to get booking offers, confirmations, and delivery alerts on this device — even when the app is closed.'}
                 </Text>
-                <Pressable onPress={turnOn} disabled={busy} style={[styles.pushBtn, busy && { opacity: 0.6 }]}>
-                  <Text style={styles.pushBtnLabel}>{busy ? 'Turning on…' : 'Turn on push notifications'}</Text>
-                </Pressable>
               </>
             )}
           </Card>
