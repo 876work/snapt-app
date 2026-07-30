@@ -10,7 +10,7 @@
     "splash": {
       "image": "./assets/design/snapt-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#FFB800"
+      "backgroundColor": "#FAFAFA"
     },
     "ios": {
       "supportsTablet": false,
