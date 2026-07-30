@@ -54,7 +54,17 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       base_area: body.base_area ?? null,
       service_radius_km: body.service_radius_km ?? null,
       bio: body.bio ?? null,
-      availability: body.availability ?? {},
+      // Default weekly template until availability editing ships — without
+      // one an approved creator can never be booked (the slot engine has
+      // nothing to offer). Mon–Sat 9–17, Sunday off; editable via API.
+      availability: body.availability ?? {
+        mon: [{ start: '09:00', end: '17:00' }],
+        tue: [{ start: '09:00', end: '17:00' }],
+        wed: [{ start: '09:00', end: '17:00' }],
+        thu: [{ start: '09:00', end: '17:00' }],
+        fri: [{ start: '09:00', end: '17:00' }],
+        sat: [{ start: '09:00', end: '17:00' }],
+      },
     });
     if (insertError) {
       const conflict = insertError.code === '23505';
