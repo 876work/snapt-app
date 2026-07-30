@@ -71,6 +71,27 @@ export async function registerIfGranted(): Promise<void> {
   }
 }
 
+export interface PushStatus {
+  /** False when the native module is absent (old build / Expo Go). */
+  available: boolean;
+  status: 'granted' | 'denied' | 'undetermined';
+  /** False = the OS won't show the dialog again; user must use Settings. */
+  canAskAgain: boolean;
+}
+
+export async function getPushStatus(): Promise<PushStatus> {
+  try {
+    const Device = await import('expo-device');
+    if (!Device.isDevice) return { available: false, status: 'undetermined', canAskAgain: true };
+    const Notifications = await import('expo-notifications');
+    const p = await Notifications.getPermissionsAsync();
+    const status = p.granted ? 'granted' : p.status === 'undetermined' ? 'undetermined' : 'denied';
+    return { available: true, status, canAskAgain: p.canAskAgain };
+  } catch {
+    return { available: false, status: 'undetermined', canAskAgain: true };
+  }
+}
+
 /** Sign-out hygiene: stop this device receiving the account's pushes. */
 export async function unregisterPush(): Promise<void> {
   try {

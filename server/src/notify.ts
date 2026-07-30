@@ -76,7 +76,23 @@ export async function notify(
       if (profile?.email) await sendEmail(profile.email, title, `<p>${body}</p>`);
     }
     if (spec.push) {
-      await sendPush(userId, title, body, trigger);
+      // §13 per-category muting, enforced on the push channel only — in-app
+      // rows are always written and emails stay transactional. 'bookings'
+      // maps to the order_updates preference; 'account' and 'safety' are the
+      // non-toggleable critical bucket (payments, disputes, safety). The
+      // messages / booking_reminders / promotions prefs gate triggers that
+      // don't exist yet (chat push, session reminders, marketing).
+      let muted = false;
+      if (spec.category === 'bookings') {
+        const { data: p } = await supabaseAdmin
+          .from('profiles')
+          .select('notification_prefs')
+          .eq('id', userId)
+          .maybeSingle();
+        const prefs = (p?.notification_prefs ?? {}) as Record<string, boolean>;
+        muted = prefs.order_updates === false;
+      }
+      if (!muted) await sendPush(userId, title, body, trigger);
     }
   } catch (err) {
     console.error('notify failed', trigger, err);
