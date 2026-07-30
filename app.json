@@ -30,7 +30,21 @@
     "plugins": [
       "expo-router",
       "expo-status-bar",
-      "expo-image"
+      "expo-image",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Snapt uses your photo library so you can upload footage for editing and add photos to your creator portfolio.",
+          "cameraPermission": "Snapt uses the camera to capture photos and videos during sessions."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "savePhotosPermission": "Snapt saves your delivered photos and videos to your photo library.",
+          "photosPermission": "Snapt uses your photo library to save and manage your delivered content."
+        }
+      ]
     ],
     "extra": {
       "router": {},
