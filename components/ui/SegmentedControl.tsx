@@ -46,13 +46,14 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   segActive: {
-    backgroundColor: '#fff',
+    // CD design: active segment is the black pill.
+    backgroundColor: colors.ink,
     shadowColor: '#000',
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.12,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
   label: { fontSize: 13, fontWeight: '600', color: colors.grey },
-  labelActive: { color: colors.ink, fontWeight: '800' },
+  labelActive: { color: '#fff', fontWeight: '800' },
 });

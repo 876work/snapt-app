@@ -42,9 +42,9 @@ export default function DurationAndPackage() {
         <Text style={styles.sectionLabel}>What do you need?</Text>
         <SegmentedControl
           options={[
-            { value: 'photo', label: 'Photos' },
-            { value: 'video', label: 'Video' },
-            { value: 'both', label: 'Both' },
+            { value: 'photo', label: '📷 Photos' },
+            { value: 'video', label: '🎥 Video' },
+            { value: 'both', label: '🎁 Both' },
           ]}
           value={draft.mediaKind}
           onChange={(mediaKind) => setDraft({ mediaKind })}
@@ -70,7 +70,9 @@ export default function DurationAndPackage() {
                 onPress={() => setDraft({ durationHours: d.hours })}
                 style={[styles.row, active && styles.rowActive]}
               >
-                <View style={[styles.radio, active && styles.radioActive]} />
+                <View style={[styles.radio, active && styles.radioActive]}>
+                  {active && <View style={styles.radioInner} />}
+                </View>
                 <View style={{ flex: 1 }}>
                   <View style={styles.rowTitleWrap}>
                     <Text style={styles.rowTitle}>{d.label}</Text>
@@ -132,8 +134,17 @@ const styles = StyleSheet.create({
     padding: 15,
   },
   rowActive: { borderColor: colors.yellow, backgroundColor: colors.yellowSoft },
-  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.greyLight },
-  radioActive: { borderWidth: 6, borderColor: colors.yellow },
+  radio: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: colors.greyLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioActive: { borderRadius: 7, borderWidth: 0, backgroundColor: colors.yellow },
+  radioInner: { width: 10, height: 10, borderRadius: 3, backgroundColor: '#fff' },
   rowTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   rowTitle: { fontSize: 15, fontWeight: '700', color: colors.ink },
   popBadge: { backgroundColor: colors.yellowTint, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
