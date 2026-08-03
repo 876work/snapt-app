@@ -1,7 +1,8 @@
 import React from 'react';
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs, usePathname } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
+import { useAuth } from '../../lib/store';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { colors, insetBottom } from '../../lib/theme';
 
@@ -72,9 +73,30 @@ function CreatorTabBar({ state, navigation }: TabBarProps) {
 }
 
 export default function CreatorLayout() {
+  const creatorStatus = useAuth((s) => s.creatorStatus);
+  const pathname = usePathname();
+
+  // Status gate for the whole creator shell (previously absent — anyone
+  // opening /creator/apply got the full tab bar and could wander into
+  // Jobs/Schedule/Earnings unapproved):
+  //   none    → application flow only
+  //   review  → pending status screen only
+  //   approved → the real creator app (apply/pending bounce to it)
+  const openRoutes = ['/creator/apply', '/creator/pending'];
+  if (creatorStatus !== 'approved' && !openRoutes.includes(pathname)) {
+    return <Redirect href={creatorStatus === 'review' ? '/creator/pending' : '/creator/apply'} />;
+  }
+  if (creatorStatus === 'approved' && openRoutes.includes(pathname)) {
+    return <Redirect href="/creator" />;
+  }
+  if (creatorStatus === 'none' && pathname === '/creator/pending') {
+    return <Redirect href="/creator/apply" />;
+  }
+
   return (
     <Tabs
-      tabBar={(props) => <CreatorTabBar {...props} />}
+      // No tab bar until approved — apply/pending render as plain screens.
+      tabBar={(props) => (creatorStatus === 'approved' ? <CreatorTabBar {...props} /> : null)}
       screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.offWhite } }}
     >
       <Tabs.Screen name="index" />
@@ -86,6 +108,7 @@ export default function CreatorLayout() {
       <Tabs.Screen name="specialties" options={{ href: null }} />
       <Tabs.Screen name="portfolio" options={{ href: null }} />
       <Tabs.Screen name="apply" options={{ href: null }} />
+      <Tabs.Screen name="pending" options={{ href: null }} />
       <Tabs.Screen name="job/[id]" options={{ href: null }} />
     </Tabs>
   );

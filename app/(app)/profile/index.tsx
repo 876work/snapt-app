@@ -48,8 +48,21 @@ export default function Profile() {
             <Pressable
               key={m}
               onPress={() => {
+                // Creator mode is status-gated: only approved creators
+                // actually switch; applicants land on the right step of
+                // their journey and the toggle stays on Client.
+                if (m === 'creator') {
+                  if (creatorStatus === 'approved') {
+                    setMode(m);
+                    router.push('/creator');
+                  } else if (creatorStatus === 'review') {
+                    router.push('/creator/pending');
+                  } else {
+                    router.push('/creator/apply');
+                  }
+                  return;
+                }
                 setMode(m);
-                if (m === 'creator' && creatorStatus === 'approved') router.push('/creator');
               }}
               style={[styles.modeSeg, mode === m && styles.modeSegActive]}
             >

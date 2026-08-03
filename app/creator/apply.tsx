@@ -117,7 +117,8 @@ export default function CreatorApplication() {
             }
             setSpecialties(sel);
             setCreatorStatus('review');
-            router.back();
+            // The status screen is the designed landing after submitting.
+            router.replace('/creator/pending');
           }}
         />
       </View>
