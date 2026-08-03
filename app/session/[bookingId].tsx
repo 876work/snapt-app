@@ -7,6 +7,7 @@ import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { creatorById, useBookings } from '../../lib/store';
 import { chatEnabled, fetchMessages, sendMessage, subscribeToMessages } from '../../lib/chat';
+import { apiConfigured } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 import { NO_SHOW_GRACE_MINUTES } from '../../lib/constants/business';
 import { colors, insetBottom } from '../../lib/theme';
@@ -19,7 +20,7 @@ const STAGE_COPY: Record<Stage, { headline: string; sub: string; badge: string; 
   enroute: {
     headline: '{name} is on the way',
     sub: 'Track their arrival below — your safety code is ready when they get there.',
-    badge: 'On the way',
+    badge: 'On the way · Arriving in 12 minutes',
     dot: colors.yellow,
   },
   arrived: {
@@ -53,6 +54,10 @@ export default function SessionDay() {
   const [stage, setStage] = React.useState<Stage>('enroute');
   const [graceLeft, setGraceLeft] = React.useState(NO_SHOW_GRACE_MINUTES * 60);
   const [graceRunning, setGraceRunning] = React.useState(false);
+  // Demo-only previews (mock mode): simulated notice period + the
+  // creator-cancelled variant. Real notice derives from the booking.
+  const [demoNotice, setDemoNotice] = React.useState<'3 days' | '36 hrs' | '6 hrs'>('3 days');
+  const [creatorCancelled, setCreatorCancelled] = React.useState(false);
   const [safetyOpen, setSafetyOpen] = React.useState(false);
   const [chatOpen, setChatOpen] = React.useState(false);
   const [toast, setToast] = React.useState<string | null>(null);
@@ -172,6 +177,8 @@ export default function SessionDay() {
         }
       />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        {stage !== 'enroute' && (
+        <>
         <View style={styles.headRow}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.headline}>{copy.headline.replace('{name}', firstName)}</Text>
@@ -191,32 +198,9 @@ export default function SessionDay() {
           </Svg>
           <Text style={styles.reportLabel}>Report an issue with this session</Text>
         </Pressable>
-
-        {stage === 'arrived' && (
-          <View style={styles.codeInstruction}>
-            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-              <Rect x="4.5" y="10.5" width="15" height="9.5" rx="2.5" stroke="#1B9A57" strokeWidth={1.8} />
-              <Path d="M8 10.5V8a4 4 0 018 0v2.5" stroke="#1B9A57" strokeWidth={1.8} />
-            </Svg>
-            <Text style={styles.codeInstructionText}>
-              Share your code with {creator?.name ?? 'your creator'} to begin the session.
-            </Text>
-          </View>
+        </>
         )}
-
-        {/* Map placeholder */}
-        <View style={styles.map}>
-          <View style={styles.mapLegend}>
-            <View style={styles.legendRow}>
-              <View style={[styles.legendDot, { backgroundColor: colors.yellow, borderWidth: 1.5, borderColor: colors.ink }]} />
-              <Text style={styles.legendLabel}>Your location</Text>
-            </View>
-            <View style={[styles.legendRow, { marginTop: 3 }]}>
-              <View style={[styles.legendDot, { backgroundColor: colors.ink }]} />
-              <Text style={styles.legendLabel}>{creator?.name ?? 'Creator'}</Text>
-            </View>
-          </View>
-        </View>
+        
 
         {/* Creator card */}
         {creator && (
@@ -235,25 +219,44 @@ export default function SessionDay() {
           </View>
         )}
 
-        {/* Grace period — report unlocks only after countdown (handoff §8) */}
-        {stage === 'enroute' && (
-          <View style={styles.graceCard}>
+        {stage === 'arrived' && (
+          <View style={styles.codeInstruction}>
+            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+              <Rect x="4.5" y="10.5" width="15" height="9.5" rx="2.5" stroke="#1B9A57" strokeWidth={1.8} />
+              <Path d="M8 10.5V8a4 4 0 018 0v2.5" stroke="#1B9A57" strokeWidth={1.8} />
+            </Svg>
+            <Text style={styles.codeInstructionText}>
+              Share your code with {creator?.name ?? 'your creator'} to begin the session.
+            </Text>
+          </View>
+        )}
+
+        {/* Waiting card — reporting unlocks after the grace period (§8). */}
+        {stage === 'enroute' && creatorCancelled && (
+          <View style={styles.cancelledCard}>
+            <Text style={styles.cancelledTitle}>{firstName} cancelled this session</Text>
+            <Text style={styles.cancelledSub}>
+              You get a full refund including all fees — or we can rematch you with another creator
+              for the same time where availability allows.
+            </Text>
+          </View>
+        )}
+        {stage === 'enroute' && !creatorCancelled && (
+          <View style={styles.waitCard}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
               <Svg width={17} height={17} viewBox="0 0 24 24" fill="none">
-                <Circle cx="12" cy="12" r="9" stroke="#8A6400" strokeWidth={1.9} />
-                <Path d="M12 7.5V12l3 2" stroke="#8A6400" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
+                <Circle cx="12" cy="12" r="9" stroke={colors.ink} strokeWidth={1.9} />
+                <Path d="M12 7.5V12l3 2" stroke={colors.ink} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
               </Svg>
               <Text style={styles.graceTitle}>
                 {graceRunning
-                  ? graceLeft > 0
-                    ? `Grace period: ${graceMin}:${String(graceSec).padStart(2, '0')} remaining`
-                    : 'Grace period has ended'
-                  : `${NO_SHOW_GRACE_MINUTES}-minute grace period applies`}
+                  ? `Waiting for ${firstName} · ${Math.floor((NO_SHOW_GRACE_MINUTES * 60 - graceLeft) / 60)}:${String((NO_SHOW_GRACE_MINUTES * 60 - graceLeft) % 60).padStart(2, '0')} elapsed`
+                  : `Waiting for ${firstName}`}
               </Text>
             </View>
             <Text style={styles.graceNote}>
-              If {firstName} hasn't arrived {NO_SHOW_GRACE_MINUTES} minutes past your start time, you can
-              report a no-show and get a full refund.
+              Give {firstName} a few more minutes — reporting opens {NO_SHOW_GRACE_MINUTES} minutes
+              after the scheduled start.
             </Text>
             <Pressable
               disabled={!graceRunning || graceLeft > 0}
@@ -261,18 +264,23 @@ export default function SessionDay() {
               style={[styles.noShowBtn, (!graceRunning || graceLeft > 0) && styles.noShowBtnDisabled]}
             >
               <Text style={[styles.noShowBtnLabel, (!graceRunning || graceLeft > 0) && { color: '#A8A29A' }]}>
-                {graceRunning && graceLeft === 0 ? 'Report a no-show' : 'Report unlocks after grace period'}
+                {graceRunning
+                  ? graceLeft > 0
+                    ? `Available in ${graceMin}:${String(graceSec).padStart(2, '0')}`
+                    : 'Report a no-show'
+                  : 'Available after the grace period'}
               </Text>
             </Pressable>
-            {!graceRunning ? (
-              <Pressable onPress={() => setGraceRunning(true)}>
-                <Text style={styles.demoLink}>Start grace countdown (demo)</Text>
-              </Pressable>
-            ) : graceLeft > 0 ? (
-              <Pressable onPress={() => setGraceLeft(0)}>
-                <Text style={styles.demoLink}>Skip grace period (demo)</Text>
-              </Pressable>
-            ) : null}
+            {!apiConfigured &&
+              (!graceRunning ? (
+                <Pressable onPress={() => setGraceRunning(true)}>
+                  <Text style={styles.demoLink}>Start grace countdown (demo)</Text>
+                </Pressable>
+              ) : graceLeft > 0 ? (
+                <Pressable onPress={() => setGraceLeft(0)}>
+                  <Text style={styles.demoLink}>Skip grace period (demo)</Text>
+                </Pressable>
+              ) : null)}
           </View>
         )}
 
@@ -332,42 +340,82 @@ export default function SessionDay() {
             them.
           </Text>
         </View>
-        <View style={{ height: 24 }} />
-      </ScrollView>
-
-      <View style={styles.footer}>
-        {stage === 'wrapped' && booking ? (
-          <Pressable onPress={() => router.replace(`/bookings/${booking.id}`)} style={styles.wrapBtn}>
-            <Text style={styles.wrapBtnLabel}>Session wrapped — track your edit</Text>
-            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-              <Path d="M5 12h14M13 6l6 6-6 6" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
-            </Svg>
-          </Pressable>
-        ) : (
-          stage === 'enroute' &&
-          booking && (
-            <View style={{ flexDirection: 'row', gap: 10 }}>
+        {stage === 'enroute' && !creatorCancelled && booking && (
+          <>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
               <Pressable
                 onPress={() => router.push(`/bookings/${booking.id}/reschedule-blocked`)}
                 style={styles.footerBtn}
               >
+                <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+                  <Rect x="4" y="5.5" width="16" height="14" rx="3" stroke={colors.ink} strokeWidth={1.8} />
+                  <Path d="M4 9.5h16M8 3.5v3M16 3.5v3" stroke={colors.ink} strokeWidth={1.8} strokeLinecap="round" />
+                </Svg>
                 <Text style={styles.footerBtnLabel}>Reschedule</Text>
               </Pressable>
               <Pressable
                 onPress={() => router.push(`/bookings/${booking.id}/cancel`)}
                 style={[styles.footerBtn, styles.footerBtnDanger]}
               >
+                <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+                  <Path d="M6 6l12 12M18 6L6 18" stroke="#B0392B" strokeWidth={2.2} strokeLinecap="round" />
+                </Svg>
                 <Text style={[styles.footerBtnLabel, { color: '#B0392B' }]}>Cancel booking</Text>
               </Pressable>
             </View>
-          )
+            <Text style={styles.noticeCaption}>
+              {apiConfigured && booking.scheduledAt
+                ? `${(() => {
+                    const h = (new Date(booking.scheduledAt).getTime() - Date.now()) / 3600_000;
+                    return h >= 48 ? `${Math.round(h / 24)} days' notice` : `${Math.max(Math.round(h), 0)} hrs' notice`;
+                  })()}`
+                : `${demoNotice}' notice`}
+              {' · '}
+              {new Date(booking.scheduledAt).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+              {' · '}
+              {new Date(booking.scheduledAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+            </Text>
+          </>
         )}
-        {stage !== 'wrapped' && (
+
+        {/* Demo-only preview controls (mock mode). */}
+        {!apiConfigured && stage === 'enroute' && (
+          <View style={styles.demoCard}>
+            <Text style={styles.demoOverline}>DEMO · NOTICE BEFORE SESSION</Text>
+            <View style={styles.demoSegTrack}>
+              {(['3 days', '36 hrs', '6 hrs'] as const).map((n) => (
+                <Pressable
+                  key={n}
+                  onPress={() => setDemoNotice(n)}
+                  style={[styles.demoSeg, demoNotice === n && styles.demoSegActive]}
+                >
+                  <Text style={[styles.demoSegLabel, demoNotice === n && styles.demoSegLabelActive]}>{n}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable onPress={() => setCreatorCancelled((v) => !v)}>
+              <Text style={styles.demoToggle}>Toggle creator-cancelled state</Text>
+            </Pressable>
+          </View>
+        )}
+        {!apiConfigured && stage !== 'wrapped' && (
           <Pressable onPress={advance} style={styles.advanceBtn}>
             <Text style={styles.advanceLabel}>Advance status (demo)</Text>
           </Pressable>
         )}
-      </View>
+        <View style={{ height: 24 }} />
+      </ScrollView>
+
+      {stage === 'wrapped' && booking && (
+        <View style={styles.footer}>
+          <Pressable onPress={() => router.replace(`/bookings/${booking.id}`)} style={styles.wrapBtn}>
+            <Text style={styles.wrapBtnLabel}>Session wrapped — track your edit</Text>
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+              <Path d="M5 12h14M13 6l6 6-6 6" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          </Pressable>
+        </View>
+      )}
 
       <Pressable onPress={() => setChatOpen(true)} style={styles.chatFab}>
         <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
@@ -619,14 +667,59 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     alignSelf: 'flex-start',
-    backgroundColor: colors.segBgAlt,
+    backgroundColor: '#FFF4D6',
     borderRadius: 9,
     paddingVertical: 5,
     paddingHorizontal: 10,
     marginTop: 8,
   },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
-  statusLabel: { fontSize: 11, fontWeight: '700', color: colors.ink },
+  statusLabel: { fontSize: 11, fontWeight: '700', color: '#8A6800' },
+  waitCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderTopWidth: 3,
+    borderTopColor: colors.yellow,
+    padding: 15,
+    marginTop: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  cancelledCard: {
+    backgroundColor: '#FDECEA',
+    borderWidth: 1,
+    borderColor: '#F6D5D2',
+    borderRadius: 16,
+    padding: 15,
+    marginTop: 16,
+  },
+  cancelledTitle: { fontSize: 14.5, fontWeight: '800', color: '#B0392B' },
+  cancelledSub: { fontSize: 12, color: '#8A5049', lineHeight: 18, marginTop: 6 },
+  noticeCaption: {
+    fontSize: 11,
+    color: '#9A948B',
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  demoCard: {
+    borderWidth: 1.5,
+    borderColor: '#E0DCD2',
+    borderStyle: 'dashed',
+    borderRadius: 14,
+    padding: 13,
+    marginTop: 18,
+  },
+  demoOverline: { fontSize: 9, fontWeight: '800', letterSpacing: 0.6, color: '#A8A29A' },
+  demoSegTrack: { flexDirection: 'row', gap: 5, backgroundColor: '#F1EEE7', borderRadius: 11, padding: 3, marginTop: 9 },
+  demoSeg: { flex: 1, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  demoSegActive: { backgroundColor: '#fff' },
+  demoSegLabel: { fontSize: 11, fontWeight: '600', color: '#8A8377' },
+  demoSegLabelActive: { color: colors.ink, fontWeight: '800' },
+  demoToggle: { fontSize: 11, fontWeight: '700', color: colors.yellowDark, marginTop: 10 },
   graceCard: {
     backgroundColor: '#FFF9EC',
     borderWidth: 1,
@@ -725,6 +818,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderWidth: 1.5,
     borderColor: '#E7E7E7',
+    flexDirection: 'row',
+    gap: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },
