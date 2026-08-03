@@ -13,7 +13,11 @@ import { colors } from '../../lib/theme';
 // 4-digit walkthrough.
 export default function Verify() {
   const router = useRouter();
-  const { name = '', email = '' } = useLocalSearchParams<{ name?: string; email?: string }>();
+  const { name = '', email = '', phone = '' } = useLocalSearchParams<{
+    name?: string;
+    email?: string;
+    phone?: string;
+  }>();
   const codeLength = realAuth ? 6 : 4;
   const [code, setCode] = React.useState('');
   const [busy, setBusy] = React.useState(false);
@@ -29,6 +33,13 @@ export default function Verify() {
     if (result.error) {
       setError(result.error);
       return;
+    }
+    // Session is live now — persist the phone captured at signup (payout
+    // queue and booking comms read profiles.phone). Best effort.
+    if (phone) {
+      import('../../lib/auth').then(({ saveProfile }) =>
+        saveProfile({ name: String(name), email: String(email), phone: String(phone) }),
+      );
     }
     router.push({ pathname: '/(auth)/onboarding-currency', params: { name, email } });
   };
