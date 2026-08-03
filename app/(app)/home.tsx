@@ -29,7 +29,18 @@ export default function Home() {
     router.push('/booking/occasion');
   };
 
-  const featured = CREATORS.slice(0, 2);
+  // Real approved creators in API mode (rating shows "New" until the
+  // reviews system lands; initials until avatar upload exists). Mock
+  // catalog only when no API is configured.
+  const [featured, setFeatured] = React.useState(CREATORS.slice(0, 2));
+  React.useEffect(() => {
+    import('../../lib/api').then(({ apiConfigured, fetchFeaturedCreators }) => {
+      if (!apiConfigured) return;
+      fetchFeaturedCreators().then((list) => {
+        if (list && list.length > 0) setFeatured(list.slice(0, 2));
+      });
+    });
+  }, []);
 
   return (
     <View style={styles.root}>
@@ -413,15 +424,16 @@ const styles = StyleSheet.create({
   segTrack: { flexDirection: 'row', gap: 5, backgroundColor: colors.segBg, borderRadius: 12, padding: 4 },
   seg: { flex: 1, height: 38, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   segActive: {
-    backgroundColor: '#fff',
+    // CD design: the active segment is the black pill, not white.
+    backgroundColor: colors.ink,
     shadowColor: '#000',
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.12,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
   segLabel: { fontSize: 12.5, fontWeight: '600', color: colors.grey },
-  segLabelActive: { color: colors.ink, fontWeight: '800' },
+  segLabelActive: { color: '#fff', fontWeight: '800' },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',

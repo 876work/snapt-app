@@ -17,13 +17,28 @@ export function QuickBookSheet({ open, onClose }: { open: boolean; onClose: () =
   const [occasion, setOccasion] = React.useState<Occasion | null>(null);
   const [area, setArea] = React.useState<Area | null>(null);
   const [areaOpen, setAreaOpen] = React.useState(false);
+  const [date, setDate] = React.useState<string | null>(null);
+
+  // Next 14 days for the quick-start date strip (matches the booking
+  // advance window). Availability is still enforced on Date & Time — this
+  // just pre-fills the draft.
+  const days = React.useMemo(() => {
+    return Array.from({ length: 14 }).map((_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() + i);
+      const iso = d.toISOString().slice(0, 10);
+      const label =
+        i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+      return { iso, label };
+    });
+  }, []);
 
   const lastCompleted = bookings.find((b) => b.status === 'completed');
   const lastCreator = lastCompleted ? creatorById(lastCompleted.creatorId) : undefined;
 
   const startBooking = () => {
     resetDraft('in-person');
-    setDraft({ occasion, area, type: 'in-person' });
+    setDraft({ occasion, area, type: 'in-person', date });
     onClose();
     router.push('/booking/occasion');
   };
@@ -180,6 +195,27 @@ export function QuickBookSheet({ open, onClose }: { open: boolean; onClose: () =
                 </View>
               )}
 
+              <Text style={styles.sectionLabel}>When?</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ marginHorizontal: -20 }}
+                contentContainerStyle={{ paddingHorizontal: 20, gap: 8, paddingBottom: 4 }}
+              >
+                {days.map((d) => {
+                  const active = date === d.iso;
+                  return (
+                    <Pressable
+                      key={d.iso}
+                      onPress={() => setDate(active ? null : d.iso)}
+                      style={[styles.chip, active && styles.chipActive]}
+                    >
+                      <Text style={styles.chipLabel}>{d.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+
               <Pressable onPress={startBooking} style={styles.cta}>
                 <Text style={styles.ctaLabel}>Check availability</Text>
                 <Svg width={19} height={19} viewBox="0 0 24 24" fill="none">
@@ -291,15 +327,16 @@ const styles = StyleSheet.create({
   segTrack: { flexDirection: 'row', gap: 5, backgroundColor: colors.segBg, borderRadius: 13, padding: 4 },
   seg: { flex: 1, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   segActive: {
-    backgroundColor: '#fff',
+    // CD design: the active segment is the black pill, not white.
+    backgroundColor: colors.ink,
     shadowColor: '#000',
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.12,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
   segLabel: { fontSize: 13, fontWeight: '600', color: colors.grey },
-  segLabelActive: { color: colors.ink, fontWeight: '800' },
+  segLabelActive: { color: '#fff', fontWeight: '800' },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',

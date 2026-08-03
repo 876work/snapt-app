@@ -88,6 +88,27 @@ export function registerCreatorRoutes(app: FastifyInstance) {
     return reply.code(201).send({ status: 'in_review' });
   });
 
+  // Public featured rail for the client home: approved creators' public
+  // card info only. Browsing, not matching — assignment still goes through
+  // the fully-gated eligibleCreators path.
+  app.get('/v1/creators/featured', async () => {
+    const { data } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('user_id, specialties, verified, base_area, profiles!inner(full_name, avatar_url)')
+      .eq('vetting_status', 'approved')
+      .limit(6);
+    return {
+      creators: (data ?? []).map((c: any) => ({
+        id: c.user_id,
+        full_name: c.profiles.full_name,
+        specialties: c.specialties ?? [],
+        verified: c.verified,
+        base_area: c.base_area,
+        avatar_url: c.profiles.avatar_url,
+      })),
+    };
+  });
+
   app.get('/v1/creator/me', async (request, reply) => {
     const user = requireUser(request);
     const { data, error } = await supabaseAdmin

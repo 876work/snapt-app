@@ -103,6 +103,28 @@ interface ServerCreator {
  * Creator shape. rating/distance are null until the reviews system and
  * geocoding exist — the UI renders "New" / base area for those.
  */
+function mapServerCreators(list: ServerCreator[]): Creator[] {
+  return list.map((c, i) => ({
+    id: c.id,
+    name: c.full_name,
+    rating: null,
+    sessions: 0,
+    specialties: c.specialties,
+    verified: c.verified,
+    distanceKm: null,
+    tint: AVATAR_TINTS[i % AVATAR_TINTS.length],
+    photo: c.avatar_url ? { uri: c.avatar_url } : null,
+    loc: c.base_area ?? '',
+  }));
+}
+
+/** Approved creators for the home "Top creators" rail (public info). */
+export async function fetchFeaturedCreators(): Promise<Creator[] | null> {
+  const result = await request<{ creators: ServerCreator[] }>(`/v1/creators/featured`);
+  if (!result) return null;
+  return mapServerCreators(result.creators);
+}
+
 export async function fetchEligibleCreators(occasion: string, area?: string | null): Promise<Creator[] | null> {
   const qs = area ? `&area=${encodeURIComponent(area)}` : '';
   const result = await request<{ creators: ServerCreator[] }>(
