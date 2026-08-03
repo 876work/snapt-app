@@ -35,6 +35,7 @@ export default function Login() {
         contentContainerStyle={styles.body}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        automaticallyAdjustKeyboardInsets
       >
         <BackCircle onPress={() => router.back()} />
         <View style={{ marginTop: 16 }}>
