@@ -330,9 +330,11 @@ export function registerAdminRoutes(app: FastifyInstance) {
     return { access_token: json.access_token, role: data.role };
   });
 
-  // Responsive single-page portal on the same origin.
+  // Responsive single-page portal on the same origin. no-store: the portal
+  // is tiny and changes with every deploy — a cached stale copy once served
+  // a broken page for days after the fix had shipped.
   app.get('/admin', async (_request, reply) => {
-    reply.type('text/html').send(ADMIN_HTML);
+    reply.header('Cache-Control', 'no-store').type('text/html').send(ADMIN_HTML);
   });
 }
 
