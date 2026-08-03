@@ -10,6 +10,7 @@ import {
   formatMoney,
 } from '../../lib/constants/business';
 import { colors } from '../../lib/theme';
+import { navShrinkOnScroll } from '../../lib/navShrink';
 
 const PAYOUTS = [
   { id: 'p1', title: 'Portraits — Keisha B.', state: 'pending', date: 'Jul 25 · clears in ~48h', calc: 'Job $140 − 20% promo fee', amount: 112 },
@@ -69,7 +70,7 @@ export default function CreatorEarnings() {
   return (
     <View style={styles.root}>
       <ScreenHeader title="Earnings" onBack={() => router.back()} />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {/* Balance card */}
         <View style={styles.balanceCard}>
           <View style={{ flexDirection: 'row', alignItems: 'stretch', justifyContent: 'space-between', gap: 6 }}>

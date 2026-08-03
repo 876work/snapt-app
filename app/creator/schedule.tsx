@@ -7,6 +7,7 @@ import { useAuth } from '../../lib/store';
 import { useCreator } from '../../lib/store/creator';
 import { formatMoney } from '../../lib/constants/business';
 import { colors, insetTop } from '../../lib/theme';
+import { navShrinkOnScroll } from '../../lib/navShrink';
 
 const FIXED = [
   { id: 's1', day: 'TODAY', title: 'Golden-hour portraits', time: '5:30 PM · 1.5 hrs', loc: 'Rodney Bay', payUsd: 95.2, status: 'Confirmed' },
@@ -29,7 +30,7 @@ export default function CreatorSchedule() {
       <View style={styles.header}>
         <Text style={styles.title}>Schedule</Text>
       </View>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {accepted.map((j) => (
           <View key={j.id}>
             <Text style={styles.dayLabel}>JUST ACCEPTED</Text>

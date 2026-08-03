@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { colors } from '../../lib/theme';
+import { navShrinkOnScroll } from '../../lib/navShrink';
 
 // Tabs per handoff §13: All, Bookings, Messages, Promotions. Critical items
 // get an accent indicator, no separate tab.
@@ -35,7 +36,7 @@ export default function Inbox() {
           </Pressable>
         ))}
       </ScrollView>
-      <ScrollView contentContainerStyle={styles.body}>
+      <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} contentContainerStyle={styles.body}>
         {items.map((i) => (
           <View key={i.id} style={styles.item}>
             {i.critical && <View style={styles.accent} />}

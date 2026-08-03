@@ -5,6 +5,7 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { useAuth } from '../../../lib/store';
 import { formatMoney } from '../../../lib/constants/business';
 import { colors, spacing, insetTop, insetBottom } from '../../../lib/theme';
+import { navShrinkOnScroll } from '../../../lib/navShrink';
 
 interface CardMethod {
   id: string;
@@ -96,7 +97,7 @@ export default function Wallet() {
           </Svg>
         </Pressable>
       </View>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {/* Credit card */}
         <View style={styles.creditCard}>
           <View style={styles.creditGlow} />

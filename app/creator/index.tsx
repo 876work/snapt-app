@@ -8,6 +8,7 @@ import { JobOffer, useCreator } from '../../lib/store/creator';
 import { apiConfigured, fetchMyBookings } from '../../lib/api';
 import { CREATOR_PLATFORM_FEE_RATE, formatMoney } from '../../lib/constants/business';
 import { colors, insetTop } from '../../lib/theme';
+import { navShrinkOnScroll } from '../../lib/navShrink';
 
 export default function CreatorHome() {
   const router = useRouter();
@@ -130,7 +131,7 @@ export default function CreatorHome() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {reconsent && (
           <View style={{ backgroundColor: '#FFF4D6', borderRadius: 14, padding: 14, marginBottom: 12 }}>
             <Text style={{ fontSize: 13.5, fontWeight: '800', color: colors.ink }}>

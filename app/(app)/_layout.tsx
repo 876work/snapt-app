@@ -1,8 +1,9 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Animated, Pressable, StyleSheet } from 'react-native';
 import { Text } from '../../lib/text';
 import { colors, insetBottom } from '../../lib/theme';
+import { navShrinkReset, useNavShrinkAnim } from '../../lib/navShrink';
 import { BookingsIcon, HomeIcon, ProfileIcon, WalletIcon } from '../../components/ui/Icons';
 
 const TABS: { name: string; label: string; Icon: (p: { color: string }) => React.JSX.Element }[] = [
@@ -18,8 +19,9 @@ interface TabBarProps {
 }
 
 function PillTabBar({ state, navigation }: TabBarProps) {
+  const { opacity, scale } = useNavShrinkAnim();
   return (
-    <View style={styles.bar}>
+    <Animated.View style={[styles.bar, { opacity, transform: [{ scale }] }]}>
       {TABS.map((tab) => {
         const route = state.routes.find((r) => r.name === tab.name);
         if (!route) return null;
@@ -27,7 +29,10 @@ function PillTabBar({ state, navigation }: TabBarProps) {
         return (
           <Pressable
             key={tab.name}
-            onPress={() => navigation.navigate(tab.name)}
+            onPress={() => {
+              navShrinkReset();
+              navigation.navigate(tab.name);
+            }}
             style={[styles.item, active && styles.itemActive]}
           >
             <tab.Icon color={active ? colors.ink : 'rgba(255,255,255,0.75)'} />
@@ -35,7 +40,7 @@ function PillTabBar({ state, navigation }: TabBarProps) {
           </Pressable>
         );
       })}
-    </View>
+    </Animated.View>
   );
 }
 

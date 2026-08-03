@@ -8,6 +8,7 @@ import { LEGAL_DOCS } from '../../../lib/mock/legal';
 import { useAuth } from '../../../lib/store';
 import { signOutEverywhere } from '../../../lib/auth';
 import { colors, spacing, insetTop, insetBottom } from '../../../lib/theme';
+import { navShrinkOnScroll } from '../../../lib/navShrink';
 
 const chevron = (
   <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
@@ -41,7 +42,7 @@ export default function Profile() {
           </Svg>
         </Pressable>
       </View>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {/* Mode toggle */}
         <View style={styles.modeTrack}>
           {(['client', 'creator'] as const).map((m) => (

@@ -6,12 +6,13 @@ import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { CREATORS } from '../../lib/mock/data';
 import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { colors } from '../../lib/theme';
+import { navShrinkOnScroll } from '../../lib/navShrink';
 
 export default function AllCreators() {
   return (
     <View style={styles.root}>
       <ScreenHeader title="Creators near you" />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <View style={styles.grid}>
           {CREATORS.map((c) => (
             <View key={c.id} style={styles.card}>

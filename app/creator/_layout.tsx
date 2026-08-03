@@ -1,6 +1,7 @@
 import React from 'react';
 import { Redirect, Tabs, usePathname } from 'expo-router';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Animated, Pressable, StyleSheet } from 'react-native';
+import { navShrinkReset, useNavShrinkAnim } from '../../lib/navShrink';
 import { Text } from '../../lib/text';
 import { useAuth } from '../../lib/store';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
@@ -51,8 +52,9 @@ interface TabBarProps {
 }
 
 function CreatorTabBar({ state, navigation }: TabBarProps) {
+  const { opacity, scale } = useNavShrinkAnim();
   return (
-    <View style={styles.bar}>
+    <Animated.View style={[styles.bar, { opacity, transform: [{ scale }] }]}>
       {TABS.map((tab) => {
         const route = state.routes.find((r) => r.name === tab.name);
         if (!route) return null;
@@ -60,7 +62,10 @@ function CreatorTabBar({ state, navigation }: TabBarProps) {
         return (
           <Pressable
             key={tab.name}
-            onPress={() => navigation.navigate(tab.name)}
+            onPress={() => {
+              navShrinkReset();
+              navigation.navigate(tab.name);
+            }}
             style={[styles.item, active && styles.itemActive]}
           >
             <tab.Icon color={active ? colors.ink : 'rgba(255,255,255,0.75)'} />
@@ -68,7 +73,7 @@ function CreatorTabBar({ state, navigation }: TabBarProps) {
           </Pressable>
         );
       })}
-    </View>
+    </Animated.View>
   );
 }
 

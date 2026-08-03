@@ -8,6 +8,7 @@ import { creatorById, useAuth, useBookings } from '../../../lib/store';
 import { formatMoney } from '../../../lib/constants/business';
 import { BookingStatus } from '../../../lib/mock/data';
 import { colors, spacing, insetTop } from '../../../lib/theme';
+import { navShrinkOnScroll } from '../../../lib/navShrink';
 
 const STATUS_STYLE: Record<BookingStatus, { label: string; color: string; bg: string }> = {
   pending: { label: 'Pending', color: colors.goldText, bg: colors.yellowTint },
@@ -25,7 +26,7 @@ export default function Bookings() {
 
   return (
     <View style={styles.root}>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Bookings</Text>
         {bookings.map((b) => {
           const c = creatorById(b.creatorId);

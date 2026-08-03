@@ -9,6 +9,7 @@ import { useAuth, useBookings } from '../../lib/store';
 import { AREAS, Area, CREATORS, OCCASIONS, Occasion } from '../../lib/mock/data';
 import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { colors, insetTop } from '../../lib/theme';
+import { navShrinkOnScroll } from '../../lib/navShrink';
 
 export default function Home() {
   const router = useRouter();
@@ -44,7 +45,7 @@ export default function Home() {
 
   return (
     <View style={styles.root}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 106 }}>
+      <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 106 }}>
         {/* Yellow hero header */}
         <View style={styles.hero}>
           <Image
