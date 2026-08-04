@@ -72,6 +72,30 @@ export async function createUploadTarget(
   };
 }
 
+/**
+ * Permanently remove one object. Idempotent on both drivers (deleting a
+ * missing key is not an error), so a retention run interrupted between the
+ * storage delete and the DB mark can safely retry.
+ */
+export async function deleteObject(bucket: MediaBucket, path: string): Promise<void> {
+  if (r2Configured) {
+    const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+    const client = await r2Client();
+    await client.send(
+      new DeleteObjectCommand({
+        Bucket: process.env.R2_BUCKET as string,
+        Key: `${bucket}/${path}`,
+      }),
+    );
+    return;
+  }
+  const { error } = await supabaseAdmin.storage.from(bucket).remove([path]);
+  // Supabase returns success with an empty list for missing paths; a real
+  // error (auth, network) must surface so the DB is never marked deleted
+  // for a file that may still exist.
+  if (error) throw new Error(`deleteObject: ${error.message}`);
+}
+
 export async function createDownloadUrl(bucket: MediaBucket, path: string): Promise<string> {
   if (r2Configured) {
     const [{ GetObjectCommand }, { getSignedUrl }] = await Promise.all([

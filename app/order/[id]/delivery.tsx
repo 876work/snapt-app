@@ -25,15 +25,27 @@ export default function Delivery() {
 
   // Real deliverables (signed URLs) in API mode — the endpoint only ever
   // returns deliverables to clients, never raw footage. Mock grid otherwise.
+  // Retention-deleted files come back with deleted=true and no URL: they are
+  // excluded from the grid and the screen shows a clear "no longer
+  // available" state instead of broken images or dead downloads.
   const [real, setReal] = React.useState<typeof DELIVERABLES | null>(null);
+  const [expiresAt, setExpiresAt] = React.useState<string | null>(null);
+  const [allDeleted, setAllDeleted] = React.useState(false);
   React.useEffect(() => {
-    import('../../../lib/api').then(({ apiConfigured, fetchMediaApi }) => {
+    import('../../../lib/api').then(({ apiConfigured, fetchMediaListingApi }) => {
       if (!apiConfigured || !id) return;
-      fetchMediaApi(id).then((media) => {
-        if (!media || media.length === 0) return;
+      fetchMediaListingApi(id).then((listing) => {
+        if (!listing || listing.media.length === 0) return;
+        setExpiresAt(listing.files_expire_at);
+        const live = listing.media.filter((m) => !m.deleted && m.download_url);
+        if (live.length === 0) {
+          setAllDeleted(true);
+          setReal([]);
+          return;
+        }
         setReal(
-          media.map((m, i) => ({
-            name: m.download_url.split('/').pop()?.split('?')[0]?.replace(/^\d+-/, '') ?? `file-${i + 1}`,
+          live.map((m, i) => ({
+            name: m.download_url!.split('/').pop()?.split('?')[0]?.replace(/^\d+-/, '') ?? `file-${i + 1}`,
             meta: m.content_type ?? 'delivered file',
             thumb: { uri: m.download_url } as unknown as number,
             tint: '#F2C14E',
@@ -127,17 +139,38 @@ export default function Delivery() {
     <View style={styles.root}>
       <ScreenHeader title="Your content" />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        {allDeleted && (
+          <View style={styles.expiredCard}>
+            <Text style={styles.expiredTitle}>These files are no longer available</Text>
+            <Text style={styles.expiredSub}>
+              Delivered files are stored for 12 months and have now been permanently removed, as
+              covered in our retention policy. Files you downloaded to your device are unaffected.
+            </Text>
+          </View>
+        )}
+        {!allDeleted && (<>
         <View style={styles.readyCard}>
           <View style={styles.readyIcon}>
             <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
               <Path d="M5 12.5l4.5 4.5L19 7" stroke={colors.ink} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" />
             </Svg>
           </View>
-          <View>
+          <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.readyTitle}>It's ready!</Text>
             <Text style={styles.readySub}>
               {deliverables.length} edited files, delivered by {firstName}.
             </Text>
+            {expiresAt && (
+              <Text style={styles.expiryLine}>
+                Available until{' '}
+                {new Date(expiresAt).toLocaleDateString(undefined, {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric',
+                })}{' '}
+                — download to keep forever.
+              </Text>
+            )}
           </View>
         </View>
 
@@ -194,17 +227,20 @@ export default function Delivery() {
             <Text style={styles.revBtnLabel}>Request revision</Text>
           </Pressable>
         </View>
+        </>)}
         <View style={{ height: 24 }} />
       </ScrollView>
       <View style={styles.footer}>
         {saveNote ? <Text style={styles.saveNote}>{saveNote}</Text> : null}
-        <Pressable onPress={saveAll} style={styles.cta}>
-          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-            <Path d="M12 4v11m0 0l-4-4m4 4l4-4" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
-            <Path d="M5 19h14" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" />
-          </Svg>
-          <Text style={styles.ctaLabel}>Download all</Text>
-        </Pressable>
+        {!allDeleted && (
+          <Pressable onPress={saveAll} style={styles.cta}>
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+              <Path d="M12 4v11m0 0l-4-4m4 4l4-4" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
+              <Path d="M5 19h14" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" />
+            </Svg>
+            <Text style={styles.ctaLabel}>Download all</Text>
+          </Pressable>
+        )}
         <Pressable onPress={() => router.push(`/order/${id}/rating`)} style={styles.rateBtn}>
           <Text style={styles.rateLabel}>Rate your experience</Text>
         </Pressable>
@@ -235,6 +271,17 @@ const styles = StyleSheet.create({
   },
   readyTitle: { fontSize: 16, fontWeight: '800', letterSpacing: -0.2, color: colors.ink },
   readySub: { fontSize: 12.5, color: '#8A7530', marginTop: 2 },
+  expiryLine: { fontSize: 11, fontWeight: '700', color: '#8A7530', marginTop: 6, lineHeight: 15 },
+  expiredCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#EFEDE7',
+    padding: 20,
+    marginBottom: 20,
+  },
+  expiredTitle: { fontSize: 15.5, fontWeight: '800', letterSpacing: -0.2, color: colors.ink },
+  expiredSub: { fontSize: 12.5, color: colors.grey, lineHeight: 18.5, marginTop: 7 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   fileCard: {
     width: '47%',

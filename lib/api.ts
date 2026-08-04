@@ -476,13 +476,25 @@ export async function fetchSessionApi(id: string): Promise<SessionState | null> 
 export interface MediaItem {
   id: string;
   kind: 'raw' | 'deliverable';
-  download_url: string;
+  /** null when the file was removed by the retention job. */
+  download_url: string | null;
   content_type: string | null;
+  deleted?: boolean;
+}
+
+export interface MediaListing {
+  media: MediaItem[];
+  /** When the retention job will remove the deliverables (ISO), if known. */
+  files_expire_at: string | null;
 }
 
 export async function fetchMediaApi(id: string): Promise<MediaItem[] | null> {
-  const result = await request<{ media: MediaItem[] }>(`/v1/bookings/${id}/media`);
+  const result = await request<MediaListing>(`/v1/bookings/${id}/media`);
   return result?.media ?? null;
+}
+
+export async function fetchMediaListingApi(id: string): Promise<MediaListing | null> {
+  return request<MediaListing>(`/v1/bookings/${id}/media`);
 }
 
 export function deliverApi(id: string) {

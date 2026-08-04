@@ -49,6 +49,7 @@ const TRIGGERS: Record<string, TriggerSpec> = {
   strike_issued: { category: 'account', push: true, email: true }, // §6: with reason stated
   suspension_applied: { category: 'account', push: true, email: true }, // §6
   reconsent_required: { category: 'account', push: true, email: true }, // §14 material change
+  files_expiring: { category: 'bookings', push: true, email: true }, // retention: 30d/7d download warnings
 };
 
 export async function notify(

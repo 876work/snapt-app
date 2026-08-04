@@ -132,6 +132,12 @@ export function registerRevisionRoutes(app: FastifyInstance) {
         .from('revision_requests')
         .update({ status: 'delivered', delivered_at: new Date().toISOString() })
         .eq('id', revision.id);
+      // A re-delivery is the new final delivery — the retention clocks for
+      // this booking's files restart from here.
+      await supabaseAdmin
+        .from('bookings')
+        .update({ delivered_at: new Date().toISOString() })
+        .eq('id', booking.id);
       await notify(booking.client_id, 'revision_delivered', 'Your revision is ready',
         'The updated files are in — open the app to view and download them.');
       return { delivered: true };

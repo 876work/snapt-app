@@ -84,6 +84,57 @@ export function registerAdminRoutes(app: FastifyInstance) {
     },
   );
 
+  // --- File retention (scheduled job) -------------------------------------
+  // Manual trigger; dry_run defaults to the app_config kill switch. The
+  // scheduler runs the same function daily.
+  app.post<{ Querystring: { dry_run?: string } }>(
+    '/v1/admin/retention/run',
+    async (request, reply) => {
+      const adminId = await requireAdmin(request, reply);
+      if (!adminId) return;
+      const { runRetention } = await import('../retention.js');
+      const dryRun =
+        request.query.dry_run === undefined ? undefined : request.query.dry_run !== 'false';
+      const result = await runRetention(dryRun === undefined ? undefined : { dryRun });
+      await audit(adminId, 'retention_run', undefined, {
+        dry_run: result.dry_run,
+        eligible: result.eligible.length,
+        deleted: result.deleted,
+        errors: result.errors.length,
+      });
+      return result;
+    },
+  );
+  app.get('/v1/admin/retention/log', async (request, reply) => {
+    const adminId = await requireAdmin(request, reply);
+    if (!adminId) return;
+    const { data } = await supabaseAdmin
+      .from('retention_log')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(200);
+    return { log: data ?? [] };
+  });
+  // Explicit legal hold: block deletion on an order (open dispute/report/
+  // revision also auto-raises it). Lifting stamps legal_hold_lifted_at —
+  // files stay ineligible for retention_hold_release_days (90) after that.
+  app.post<{ Params: { id: string }; Body: { hold?: boolean } }>(
+    '/v1/admin/bookings/:id/legal-hold',
+    async (request, reply) => {
+      const adminId = await requireAdmin(request, reply);
+      if (!adminId) return;
+      const hold = request.body?.hold;
+      if (typeof hold !== 'boolean') return reply.code(400).send({ error: 'hold: boolean required' });
+      const patch = hold
+        ? { legal_hold: true }
+        : { legal_hold: false, legal_hold_lifted_at: new Date().toISOString() };
+      const { error } = await supabaseAdmin.from('bookings').update(patch).eq('id', request.params.id);
+      if (error) return reply.code(500).send({ error: error.message });
+      await audit(adminId, hold ? 'legal_hold_set' : 'legal_hold_lifted', request.params.id);
+      return { legal_hold: hold };
+    },
+  );
+
   // §15 analytics: platform counters off the shared data model.
   app.get('/v1/admin/analytics', async (request, reply) => {
     const adminId = await requireAdmin(request, reply);

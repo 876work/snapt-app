@@ -1,5 +1,6 @@
 import { supabaseAdmin } from './supabase.js';
 import { notify } from './notify.js';
+import { runRetention } from './retention.js';
 
 // Phase 5 job runner — the two named line items:
 // 1. Payout release moves from lazy-on-read to scheduled, so the
@@ -57,9 +58,29 @@ async function remindEvidenceDeadlines(): Promise<void> {
   }
 }
 
+// Daily retention run, once per calendar day (UTC), guarded by a config row
+// so restarts and multiple ticks never double-run it. Dry-run vs live is
+// governed inside runRetention by app_config.retention_dry_run.
+async function retentionDaily(): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10);
+  const { data } = await supabaseAdmin
+    .from('app_config')
+    .select('value')
+    .eq('key', 'retention_last_run_day')
+    .maybeSingle();
+  if (data?.value === today) return;
+  await supabaseAdmin
+    .from('app_config')
+    .upsert({ key: 'retention_last_run_day', value: JSON.stringify(today), description: 'Retention job: last run day (set by the scheduler)' });
+  const result = await runRetention();
+  console.log(
+    `[retention] dry_run=${result.dry_run} scanned=${result.scanned} eligible=${result.eligible.length} deleted=${result.deleted} errors=${result.errors.length} held=${result.held.length} warnings=${result.warnings_sent}`,
+  );
+}
+
 export function startScheduler(): void {
   const tick = () =>
-    Promise.all([releasePayouts(), remindEvidenceDeadlines()]).catch((err) =>
+    Promise.all([releasePayouts(), remindEvidenceDeadlines(), retentionDaily()]).catch((err) =>
       console.error('scheduler tick failed', err),
     );
   void tick();

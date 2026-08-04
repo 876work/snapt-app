@@ -118,23 +118,44 @@ export function registerMediaRoutes(app: FastifyInstance) {
 
     let query = supabaseAdmin
       .from('booking_media')
-      .select('id, kind, storage_path, content_type, created_at')
+      .select('id, kind, storage_path, content_type, created_at, deleted_at')
       .eq('booking_id', booking.id)
       .order('created_at', { ascending: true });
     if (!isCreator) query = query.eq('kind', 'deliverable');
     const { data, error } = await query;
     if (error) return reply.code(500).send({ error: error.message });
 
+    // Retention-deleted files keep their registry row but never a URL — the
+    // app renders a "no longer available" state instead of a broken link.
     const media = await Promise.all(
       (data ?? []).map(async (m) => ({
-        ...m,
-        download_url: await createDownloadUrl(
-          bucketFor(m.kind as 'raw' | 'deliverable'),
-          m.storage_path,
-        ),
+        id: m.id,
+        kind: m.kind,
+        storage_path: m.storage_path,
+        content_type: m.content_type,
+        created_at: m.created_at,
+        deleted: m.deleted_at != null,
+        download_url: m.deleted_at
+          ? null
+          : await createDownloadUrl(bucketFor(m.kind as 'raw' | 'deliverable'), m.storage_path),
       })),
     );
-    return { media };
+
+    // When deliverables expire (retention window), so the client screen can
+    // show the date alongside the download prompts.
+    const { data: bRow } = await supabaseAdmin
+      .from('bookings')
+      .select('delivered_at')
+      .eq('id', booking.id)
+      .maybeSingle();
+    const { getConfig } = await import('../config.js');
+    const config = await getConfig();
+    const deliverableDays = (config['retention_deliverable_days'] as number) ?? 365;
+    const files_expire_at = bRow?.delivered_at
+      ? new Date(new Date(bRow.delivered_at).getTime() + deliverableDays * 86400_000).toISOString()
+      : null;
+
+    return { media, files_expire_at };
   });
 
   // Delivery: creator marks the final edit delivered. Requires at least one
@@ -157,7 +178,12 @@ export function registerMediaRoutes(app: FastifyInstance) {
     if (!count) {
       return reply.code(409).send({ error: 'Upload at least one deliverable before delivering' });
     }
-    await supabaseAdmin.from('bookings').update({ status: 'completed' }).eq('id', booking.id);
+    // delivered_at anchors the retention windows (raw +30d, deliverables
+    // +12mo); a revision re-delivery moves it forward (new final delivery).
+    await supabaseAdmin
+      .from('bookings')
+      .update({ status: 'completed', delivered_at: new Date().toISOString() })
+      .eq('id', booking.id);
     await createPayoutForBooking(booking);
     await notify(booking.client_id, 'delivery_ready', 'Your content is ready!', 'Your edited files are delivered — open the app to view, download, and rate your experience.');
     await notify(user.id, 'payout_pending', 'Payout on the way', 'Delivery made — your earnings are pending and clear once the 7-day dispute window closes.');
