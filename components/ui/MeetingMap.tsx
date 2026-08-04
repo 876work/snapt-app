@@ -1,8 +1,9 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker } from 'react-native-maps';
 import { Text } from '../../lib/text';
 import { colors } from '../../lib/theme';
+import { MAP_PROVIDER } from '../../lib/mapProvider';
 
 /**
  * Read-only meeting-point map (creator job detail, Session Day). Renders a
@@ -31,7 +32,7 @@ export function MeetingMap({
   return (
     <View style={[styles.wrap, { height }]}>
       <MapView
-        provider={PROVIDER_GOOGLE}
+        provider={MAP_PROVIDER}
         style={StyleSheet.absoluteFill}
         initialRegion={{ latitude: lat, longitude: lng, latitudeDelta: 0.02, longitudeDelta: 0.016 }}
         scrollEnabled={false}

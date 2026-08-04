@@ -2,9 +2,9 @@ import React from 'react';
 import { Image, Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
-import Constants from 'expo-constants';
-import MapView, { Marker, PROVIDER_GOOGLE, Polygon, Region } from 'react-native-maps';
+import MapView, { Marker, Polygon, Region } from 'react-native-maps';
 import Svg, { Circle as SvgCircle, Path } from 'react-native-svg';
+import { MAP_PROVIDER } from '../../lib/mapProvider';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { Button } from '../../components/ui/Button';
 import { InfoBanner } from '../../components/ui/Misc';
@@ -34,13 +34,6 @@ import { colors, spacing, insetBottom } from '../../lib/theme';
 
 const LOGO = require('../../assets/design/snapt-icon.png');
 
-// Google tiles when a Maps key is baked into this binary; Apple tiles
-// otherwise (keyless dev builds) so the map is never a blank grid.
-const PROVIDER =
-  Platform.OS === 'android' ||
-  Boolean((Constants.expoConfig?.ios?.config as { googleMapsApiKey?: string } | undefined)?.googleMapsApiKey)
-    ? PROVIDER_GOOGLE
-    : undefined;
 
 export default function Location() {
   const router = useRouter();
@@ -170,7 +163,7 @@ export default function Location() {
         <View style={styles.mapWrap}>
           <MapView
             ref={mapRef}
-            provider={PROVIDER}
+            provider={MAP_PROVIDER}
             style={StyleSheet.absoluteFill}
             initialRegion={initialRegion}
             minZoomLevel={MIN_ZOOM_LEVEL}

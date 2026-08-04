@@ -17,20 +17,26 @@ import type { ConfigContext, ExpoConfig } from 'expo/config';
  */
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...(config as ExpoConfig),
-  ios: {
-    ...config.ios,
-    config: {
-      ...config.ios?.config,
-      googleMapsApiKey: process.env.GOOGLE_MAPS_IOS_KEY,
-    },
-  },
-  android: {
-    ...config.android,
-    config: {
-      ...config.android?.config,
-      googleMaps: {
-        apiKey: process.env.GOOGLE_MAPS_ANDROID_KEY,
+  // The keys go through react-native-maps' own config plugin, NOT through
+  // ios.config.googleMapsApiKey — that legacy path makes Expo prebuild inject
+  // `pod 'react-native-google-maps'`, a pod that no longer exists in
+  // react-native-maps >= 1.20 (Google support moved to the
+  // `react-native-maps/Google` subspec, which this plugin wires correctly,
+  // along with GMSServices.provideAPIKey in the AppDelegate).
+  plugins: [
+    ...((config.plugins ?? []) as NonNullable<ExpoConfig['plugins']>),
+    [
+      'react-native-maps',
+      {
+        iosGoogleMapsApiKey: process.env.GOOGLE_MAPS_IOS_KEY,
+        androidGoogleMapsApiKey: process.env.GOOGLE_MAPS_ANDROID_KEY,
       },
-    },
+    ],
+  ],
+  extra: {
+    ...config.extra,
+    // Runtime flag for MapView provider selection: Google tiles on iOS only
+    // when the Google subspec was actually compiled in (key present at build).
+    hasGoogleMapsIOS: Boolean(process.env.GOOGLE_MAPS_IOS_KEY),
   },
 });
