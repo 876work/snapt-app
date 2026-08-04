@@ -7,10 +7,13 @@ import { ScreenHeader } from '../../../../components/ui/ScreenHeader';
 import { Button } from '../../../../components/ui/Button';
 import { InfoBanner } from '../../../../components/ui/Misc';
 import { MonthCalendar } from '../../../../components/ui/MonthCalendar';
-import { useBookings } from '../../../../lib/store';
+import { SlideToConfirm } from '../../../../components/ui/SlideToConfirm';
+import { hoursUntil, useAuth, useBookings } from '../../../../lib/store';
 import { apiConfigured, fetchDayFlags, fetchDaySlots, rescheduleBookingApi } from '../../../../lib/api';
 import {
   ADVANCE_BOOKING_WINDOW_DAYS,
+  cancelTierForHoursUntil,
+  formatMoney,
   RESCHEDULE_FREE_COUNT,
 } from '../../../../lib/constants/business';
 import { colors, spacing, insetBottom } from '../../../../lib/theme';
@@ -28,6 +31,7 @@ export default function ReschedulePick() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { bookings, rescheduleBooking } = useBookings();
+  const currency = useAuth((s) => s.currency);
   const booking = bookings.find((b) => b.id === id);
   const [date, setDate] = React.useState<string | null>(null);
   const [time, setTime] = React.useState<string | null>(null);
@@ -83,23 +87,31 @@ export default function ReschedulePick() {
   if (!booking) return null;
 
   const confirmReschedule = async () => {
-    if (!date || !time) return;
+    if (!date || !time) return false;
     if (apiConfigured) {
       // Server enforces the fee tiers, the <24h cutoff, and re-checks that
       // this creator is still free at the new time.
       const result = await rescheduleBookingApi(booking.id, date, time);
       if (result && 'error' in result) {
         setError(result.error);
-        return;
+        return false; // slider unlocks so the user can retry
       }
       // null = API unreachable; fall through to the mock path.
     }
     rescheduleBooking(booking.id, `${date}T${time}:00`);
     router.dismissTo(`/bookings/${booking.id}`);
+    return true;
   };
 
   // >1 free reschedule becomes cancel+rebook (§5)
   const usedFree = booking.rescheduleCount >= RESCHEDULE_FREE_COUNT;
+
+  // 24–48 hrs out carries the 50% charge (same as cancelling in that band;
+  // under 24h routes to reschedule-blocked before reaching this screen), so
+  // the commit becomes slide-to-confirm with the charge shown. Free
+  // reschedules keep a plain button.
+  const feeApplies = cancelTierForHoursUntil(hoursUntil(booking.scheduledAt)) === 'between24and48h';
+  const feeCharge = booking.priceUsd * 0.5;
 
   return (
     <View style={styles.root}>
@@ -155,7 +167,17 @@ export default function ReschedulePick() {
       <View style={styles.footer}>
         <View style={{ flex: 1 }}>
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <Button title="Confirm new time" arrow disabled={!date || !time} onPress={confirmReschedule} />
+          {feeApplies ? (
+            <SlideToConfirm
+              label="Slide to confirm reschedule"
+              disabled={!date || !time}
+              value={formatMoney(feeCharge, currency)}
+              valueLabel="Reschedule charge"
+              onConfirm={confirmReschedule}
+            />
+          ) : (
+            <Button title="Confirm new time" arrow disabled={!date || !time} onPress={confirmReschedule} />
+          )}
         </View>
       </View>
     </View>

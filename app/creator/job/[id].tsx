@@ -7,6 +7,7 @@ import { ScreenHeader } from '../../../components/ui/ScreenHeader';
 import { Button } from '../../../components/ui/Button';
 import { SlideToConfirm } from '../../../components/ui/SlideToConfirm';
 import { useAuth } from '../../../lib/store';
+import { apiConfigured } from '../../../lib/api';
 import { useCreator, JobStage } from '../../../lib/store/creator';
 import { formatMoney, NO_SHOW_GRACE_MINUTES } from '../../../lib/constants/business';
 import { colors, insetBottom } from '../../../lib/theme';
@@ -47,15 +48,18 @@ export default function CreatorJob() {
     return fn(api);
   };
 
-  const acceptJob = () =>
-    withApi(async (api) => {
+  const acceptJob = async () => {
+    const ok = await withApi(async (api) => {
       const r = await api.acceptBookingApi(job.id);
       if (r && 'error' in r) {
         setActionError(r.error); // offer expired/reassigned
         return false;
       }
       return true;
-    }).then((ok) => ok && next('accepted'));
+    });
+    if (ok) next('accepted');
+    return ok; // false unlocks the slider for a retry
+  };
 
   const arriveCheckIn = () =>
     withApi(async (api) => {
@@ -108,6 +112,7 @@ export default function CreatorJob() {
   }, [stage]);
 
   const deliverRevision = () =>
+    // Returns the success flag so a failed delivery unlocks the slider.
     withApi(async (api) => {
       if (!openRevision) return false;
       if (picked.length === 0) {
@@ -131,8 +136,8 @@ export default function CreatorJob() {
       return true;
     });
 
-  const submitFootage = () =>
-    withApi(async (api) => {
+  const submitFootage = async () => {
+    const ok = await withApi(async (api) => {
       // In-person: raw footage upload + session completion (payout trigger).
       // Remote-edit jobs: the upload is the DELIVERABLE, then deliver.
       const kind = job.type === 'remote' ? 'deliverable' : 'raw';
@@ -153,7 +158,10 @@ export default function CreatorJob() {
         return false;
       }
       return true;
-    }).then((ok) => ok && next('submitted'));
+    });
+    if (ok) next('submitted');
+    return ok; // false unlocks the slider for a retry
+  };
 
   return (
     <View style={styles.root}>
@@ -274,7 +282,6 @@ export default function CreatorJob() {
                 <View style={{ marginTop: 12 }}>
                   <SlideToConfirm
                     label="Slide to report client no-show"
-                    danger
                     onConfirm={() => {
                       next('submitted');
                       router.back();
@@ -377,10 +384,18 @@ export default function CreatorJob() {
           <Button title="Wrap session — upload footage" arrow onPress={() => next('upload')} />
         )}
         {stage === 'upload' && (
-          <Button title="Submit footage" onPress={submitFootage} />
+          <SlideToConfirm
+            label={job.type === 'remote' ? 'Slide to submit finished edit' : 'Slide to submit footage'}
+            disabled={apiConfigured && picked.length === 0}
+            onConfirm={submitFootage}
+          />
         )}
         {stage === 'submitted' && openRevision && (
-          <Button title="Deliver revision" onPress={deliverRevision} />
+          <SlideToConfirm
+            label="Slide to deliver revision"
+            disabled={apiConfigured && picked.length === 0}
+            onConfirm={deliverRevision}
+          />
         )}
         {stage === 'submitted' && !openRevision && (
           <Button title="Back to jobs" variant="ghost" onPress={() => router.back()} />

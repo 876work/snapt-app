@@ -323,7 +323,6 @@ export default function Profile() {
             <View style={{ marginTop: 18 }}>
               <SlideToConfirm
                 label="Slide to delete account"
-                danger
                 onConfirm={() => {
                   setDeleteOpen(false);
                   // Phase 0: signs out only. Real account deletion is a

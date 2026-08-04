@@ -4,6 +4,7 @@ import { Text, TextInput } from '../../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
+import { SlideToConfirm } from '../../../components/ui/SlideToConfirm';
 import { creatorById, useBookings } from '../../../lib/store';
 import { colors, insetBottom } from '../../../lib/theme';
 
@@ -89,14 +90,15 @@ export default function Delivery() {
   const [canBuyRound, setCanBuyRound] = React.useState(false);
   const buyRound = async () => {
     const api = await import('../../../lib/api');
-    if (!api.apiConfigured || !id) return;
+    if (!api.apiConfigured || !id) return false;
     const result = await api.purchaseRevisionApi(id);
     if (result && 'purchased' in result) {
       setCanBuyRound(false);
       setRevStatus(`Extra round added ($${result.charged_usd.toFixed(2)}) — send your request again.`);
-    } else if (result && 'error' in result) {
-      setRevStatus(result.error);
+      return true;
     }
+    setRevStatus(result && 'error' in result ? result.error : 'Purchase failed — try again.');
+    return false; // slider unlocks so the user can retry
   };
   const requestRevision = async () => {
     setRevStatus(null);
@@ -180,9 +182,9 @@ export default function Delivery() {
           />
           {revStatus ? <Text style={styles.revStatus}>{revStatus}</Text> : null}
           {canBuyRound ? (
-            <Pressable onPress={buyRound} style={[styles.revBtn, { backgroundColor: colors.yellow }]}>
-              <Text style={[styles.revBtnLabel, { color: colors.ink }]}>Buy an extra revision round</Text>
-            </Pressable>
+            // Paid extra: charges the card on file, so it slides like every
+            // other payment.
+            <SlideToConfirm label="Slide to buy an extra revision round" onConfirm={buyRound} />
           ) : null}
           <Pressable
             onPress={requestRevision}

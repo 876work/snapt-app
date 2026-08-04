@@ -30,11 +30,12 @@ export default function NoShowCreator() {
       const result = await reportNoShowApi(booking.id, true);
       if (result && 'error' in result) {
         setError(result.error);
-        return;
+        return false; // slider unlocks so the user can retry
       }
     }
     reportNoShow(booking.id);
     router.dismissTo('/bookings');
+    return true;
   };
 
   return (
@@ -58,7 +59,7 @@ export default function NoShowCreator() {
         {contacted ? (
           <View style={{ marginTop: 26 }}>
             {error ? <Text style={styles.error}>{error}</Text> : null}
-            <SlideToConfirm label="Slide to report no-show" danger onConfirm={fileReport} />
+            <SlideToConfirm label="Slide to report no-show" onConfirm={fileReport} />
           </View>
         ) : (
           <Text style={styles.hint}>Check the box above to unlock the report.</Text>

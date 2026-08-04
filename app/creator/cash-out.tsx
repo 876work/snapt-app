@@ -79,17 +79,18 @@ export default function CashOut() {
     setMethodError(null);
     if (!configured(method)) {
       setMethodError('Add your details for this method first.');
-      return;
+      return false; // slider unlocks so the user can retry
     }
     const { apiConfigured, cashOutApi } = await import('../../lib/api');
     if (apiConfigured) {
       const result = await cashOutApi();
       if (result && 'error' in result) {
         setMethodError(result.error);
-        return;
+        return false;
       }
     }
     setDone(true);
+    return true;
   };
 
   if (done) {
@@ -170,8 +171,10 @@ export default function CashOut() {
         </View>
       </ScrollView>
       <View style={styles.footer}>
+        {methodError && configured(method) ? <Text style={styles.footerError}>{methodError}</Text> : null}
         <SlideToConfirm
           label={`Slide to cash out ${formatMoney(available, currency)}`}
+          disabled={available <= 0}
           onConfirm={confirmCashOut}
         />
       </View>
@@ -212,6 +215,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',
   },
+  footerError: { fontSize: 12.5, color: colors.error, fontWeight: '600', marginBottom: 10 },
   doneWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, marginTop: -80 },
   doneIcon: {
     width: 72,

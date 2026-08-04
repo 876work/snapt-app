@@ -31,12 +31,13 @@ export default function CancelConfirm() {
       const result = await cancelBookingApi(booking.id);
       if (result && 'error' in result) {
         setError(result.error);
-        return;
+        return false; // slider unlocks so the user can retry
       }
       // result null = API unreachable; fall through to the local mock path.
     }
     cancelBooking(booking.id);
     router.replace(`/bookings/${booking.id}/cancel-done`);
+    return true;
   };
 
   // Displayed tier is advisory — the authoritative fee computation runs
@@ -136,7 +137,12 @@ export default function CancelConfirm() {
       </ScrollView>
 
       <View style={styles.footer}>
-        <SlideToConfirm label={remote ? 'Slide to cancel order' : 'Slide to cancel booking'} danger onConfirm={confirmCancel} />
+        <SlideToConfirm
+          label={remote ? 'Slide to cancel order' : 'Slide to cancel booking'}
+          value={free ? formatMoney(0, currency) : formatMoney(charge, currency)}
+          valueLabel="Cancellation charge"
+          onConfirm={confirmCancel}
+        />
         <Pressable onPress={() => router.back()} style={styles.keepBtn}>
           <Text style={styles.keepLabel}>Keep my booking</Text>
         </Pressable>

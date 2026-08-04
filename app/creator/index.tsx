@@ -1,13 +1,14 @@
 import React from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import { SlideToConfirm } from '../../components/ui/SlideToConfirm';
 import { useAuth } from '../../lib/store';
 import { JobOffer, useCreator } from '../../lib/store/creator';
 import { apiConfigured, fetchMyBookings } from '../../lib/api';
 import { CREATOR_PLATFORM_FEE_RATE, formatMoney } from '../../lib/constants/business';
-import { colors, insetTop } from '../../lib/theme';
+import { colors, insetTop, insetBottom } from '../../lib/theme';
 import { navShrinkOnScroll } from '../../lib/navShrink';
 
 export default function CreatorHome() {
@@ -109,12 +110,18 @@ export default function CreatorHome() {
     setReconsent(n?.[0] ?? null);
   };
 
-  const decline = async (id: string) => {
+  // Declining is irreversible (the offer reassigns server-side), so it goes
+  // through a slide-to-confirm sheet rather than a bare tap.
+  const [declineTarget, setDeclineTarget] = React.useState<JobOffer | null>(null);
+  const confirmDecline = async () => {
+    if (!declineTarget) return false;
     if (apiConfigured) {
       const { declineBookingApi } = await import('../../lib/api');
-      await declineBookingApi(id); // reassigns server-side, no strike
+      await declineBookingApi(declineTarget.id); // reassigns server-side, no strike
     }
-    declineOffer(id);
+    declineOffer(declineTarget.id);
+    setDeclineTarget(null);
+    return true;
   };
 
   return (
@@ -239,7 +246,7 @@ export default function CreatorHome() {
                     </View>
                   </View>
                   <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
-                    <Pressable onPress={() => decline(j.id)} style={styles.declineBtn}>
+                    <Pressable onPress={() => setDeclineTarget(j)} style={styles.declineBtn}>
                       <Text style={styles.declineLabel}>Decline</Text>
                     </Pressable>
                     <Pressable onPress={() => router.push(`/creator/job/${j.id}`)} style={styles.acceptBtn}>
@@ -282,12 +289,61 @@ export default function CreatorHome() {
         )}
         <View style={{ height: 130 }} />
       </ScrollView>
+
+      {/* Decline confirmation — slide-to-confirm (offer reassigns, can't undo) */}
+      <Modal
+        visible={declineTarget != null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setDeclineTarget(null)}
+      >
+        <View style={styles.sheetBackdrop}>
+          <Pressable style={{ flex: 1 }} onPress={() => setDeclineTarget(null)} />
+          <View style={styles.sheet}>
+            <View style={styles.grabber} />
+            <Text style={styles.sheetTitle}>Decline this job?</Text>
+            <Text style={styles.sheetSub}>
+              {declineTarget?.title ?? 'This job'} goes back into matching for another creator.
+              Declining before accepting carries no strike, but you can't get the offer back.
+            </Text>
+            <View style={{ marginTop: 18 }}>
+              <SlideToConfirm label="Slide to decline this job" onConfirm={confirmDecline} />
+            </View>
+            <Pressable onPress={() => setDeclineTarget(null)} style={styles.sheetKeepBtn}>
+              <Text style={styles.sheetKeepLabel}>Keep the offer</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.offWhite },
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(26,26,26,0.45)' },
+  sheet: {
+    backgroundColor: colors.offWhite,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingTop: 10,
+    paddingHorizontal: 22,
+    paddingBottom: Math.max(insetBottom + 12, 30),
+  },
+  grabber: { width: 40, height: 5, borderRadius: 3, backgroundColor: '#D8D8D8', alignSelf: 'center', marginBottom: 14 },
+  sheetTitle: { fontSize: 19, fontWeight: '800', letterSpacing: -0.3, color: colors.ink },
+  sheetSub: { fontSize: 13, color: colors.grey, lineHeight: 19, marginTop: 8 },
+  sheetKeepBtn: {
+    height: 50,
+    borderRadius: 15,
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#E7E7E7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+  },
+  sheetKeepLabel: { fontSize: 14.5, fontWeight: '800', color: colors.ink },
   header: {
     backgroundColor: colors.ink,
     paddingTop: insetTop + 17,

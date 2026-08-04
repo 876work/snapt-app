@@ -72,11 +72,11 @@ export default function RemoteOrderSummary() {
         setPayOpen(false);
         router.dismissAll();
         router.replace(`/bookings/${result.booking.id}`);
-        return;
+        return true;
       }
       if (result && 'error' in result) {
         setOrderError(result.error);
-        return;
+        return false; // slider unlocks so the user can retry
       }
       // null = API unreachable — fall through to mock.
     }
@@ -87,6 +87,7 @@ export default function RemoteOrderSummary() {
     setPayOpen(false);
     router.dismissAll();
     router.replace(`/bookings/${booking.id}`);
+    return true;
   };
 
   return (
@@ -255,24 +256,19 @@ export default function RemoteOrderSummary() {
                 </View>
                 <Text style={styles.saveLabel}>Save this card for next time</Text>
               </Pressable>
-              <View style={styles.payingBar}>
-                <Text style={styles.payingLabel}>You're paying</Text>
-                <Text style={styles.payingValue}>{formatMoney(total, currency)}</Text>
-              </View>
-              {cardValid ? (
-                <>
-                  {orderError ? (
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: colors.error, marginBottom: 10 }}>
-                      {orderError}
-                    </Text>
-                  ) : null}
-                  <SlideToConfirm label="Slide to pay & order" onConfirm={placeOrder} />
-                </>
-              ) : (
-                <View style={styles.payDisabled}>
-                  <Text style={styles.payDisabledLabel}>Enter card details to pay</Text>
-                </View>
-              )}
+              <View style={{ marginTop: 18 }} />
+              {orderError ? (
+                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.error, marginBottom: 10 }}>
+                  {orderError}
+                </Text>
+              ) : null}
+              <SlideToConfirm
+                label={cardValid ? 'Slide to confirm & pay' : 'Enter card details to pay'}
+                disabled={!cardValid}
+                value={formatMoney(total, currency)}
+                valueLabel="You're paying"
+                onConfirm={placeOrder}
+              />
               <View style={{ height: 20 }} />
             </ScrollView>
           </View>
@@ -402,25 +398,4 @@ const styles = StyleSheet.create({
   },
   checkboxOn: { backgroundColor: colors.yellow, borderColor: colors.yellow },
   saveLabel: { fontSize: 11.5, fontWeight: '700', color: colors.ink },
-  payingBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.ink,
-    borderRadius: 14,
-    paddingVertical: 13,
-    paddingHorizontal: 16,
-    marginTop: 18,
-    marginBottom: 12,
-  },
-  payingLabel: { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.62)' },
-  payingValue: { fontSize: 16, fontWeight: '800', color: '#fff', letterSpacing: -0.3 },
-  payDisabled: {
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: '#EFEDE7',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  payDisabledLabel: { fontSize: 13.5, fontWeight: '700', color: '#A8A29A' },
 });

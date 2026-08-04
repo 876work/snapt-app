@@ -19,6 +19,7 @@ export default function NoShowClient() {
   const booking = bookings.find((b) => b.id === id);
 
   const [now, setNow] = React.useState(Date.now());
+  const [error, setError] = React.useState<string | null>(null);
   React.useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
@@ -59,15 +60,22 @@ export default function NoShowClient() {
               text="The grace period has passed. If your creator still hasn't arrived, you can file a no-show report. You'll receive a full refund, and we'll offer a rematch or free cancellation."
             />
             <View style={{ marginTop: 26 }}>
+              {error ? <Text style={styles.error}>{error}</Text> : null}
               <SlideToConfirm
                 label="Slide to report no-show"
-                danger
                 onConfirm={async () => {
                   // Server re-checks the grace period and issues the full
                   // refund + creator strike (§8).
-                  if (apiConfigured) await reportNoShowApi(booking.id);
+                  if (apiConfigured) {
+                    const result = await reportNoShowApi(booking.id);
+                    if (result && 'error' in result) {
+                      setError(result.error);
+                      return false; // slider unlocks so the user can retry
+                    }
+                  }
                   reportNoShow(booking.id);
                   router.replace(`/bookings/${booking.id}/no-show-client-done`);
+                  return true;
                 }}
               />
             </View>
@@ -85,4 +93,5 @@ const styles = StyleSheet.create({
   countdownLabel: { fontSize: 12.5, fontWeight: '700', color: colors.grey },
   countdown: { fontSize: 44, fontWeight: '800', letterSpacing: -1, color: colors.ink },
   countdownSub: { fontSize: 12, color: colors.grey, textAlign: 'center', lineHeight: 17, paddingHorizontal: 12 },
+  error: { fontSize: 13, color: colors.error, fontWeight: '600', marginBottom: 12 },
 });
