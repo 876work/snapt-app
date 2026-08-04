@@ -93,6 +93,48 @@ export async function signInWithEmail(email: string, password: string): Promise<
 // email signup who later taps "Continue with Google" lands in their one
 // existing account — bookings/payments never split across duplicates.
 
+/**
+ * Read the `nonce` claim out of an ID token WITHOUT verifying it — GoTrue
+ * does the real verification (signature, audience, expiry) server-side.
+ *
+ * GoTrue rejects a sign-in when the nonce we pass and the nonce claim in the
+ * token disagree about EXISTING ("Passed nonce and nonce in id_token should
+ * either both exist or not"). We never invent a nonce: we mirror exactly
+ * what the provider put in the token, so the two can never diverge.
+ *
+ * Byte-level (latin1) decoding is deliberate: the only claim read here is
+ * `nonce`, which is always ASCII. Multi-byte names elsewhere in the payload
+ * may decode as mojibake, but they are never read and cannot break
+ * JSON.parse (UTF-8 continuation bytes are ≥0x80, never control chars).
+ */
+function nonceClaimOf(idToken: string): string | null {
+  try {
+    const segment = idToken.split('.')[1];
+    if (!segment) return null;
+    const b64 = segment.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    let json = '';
+    let buffer = 0;
+    let bits = 0;
+    for (const ch of padded) {
+      if (ch === '=') break;
+      const value = CHARS.indexOf(ch);
+      if (value < 0) continue;
+      buffer = (buffer << 6) | value;
+      bits += 6;
+      if (bits >= 8) {
+        bits -= 8;
+        json += String.fromCharCode((buffer >> bits) & 0xff);
+      }
+    }
+    const claims = JSON.parse(json) as { nonce?: unknown };
+    return typeof claims.nonce === 'string' && claims.nonce.length > 0 ? claims.nonce : null;
+  } catch {
+    return null; // unparseable → treat as "no nonce", same as before
+  }
+}
+
 export type OAuthResult = AuthResult & {
   /** User dismissed the provider sheet — do nothing, show nothing. */
   cancelled?: boolean;
@@ -135,9 +177,13 @@ async function completeOAuthSignIn(providedName: string | null): Promise<OAuthRe
 export async function signInWithGoogle(): Promise<OAuthResult> {
   if (!supabase) return { error: 'Google sign-in needs the live backend (demo mode).' };
   try {
-    const { GoogleSignin, statusCodes, isSuccessResponse } = await import(
+    const { GoogleSignin, isSuccessResponse } = await import(
       '@react-native-google-signin/google-signin'
     );
+    // NOTE: this package (MIT tier, v16) exposes no nonce option at all —
+    // custom nonces are a paid-tier feature. Google's native iOS SDK still
+    // stamps its own nonce into the ID token, so we must NOT assume the
+    // token is nonce-free; see nonceClaimOf below.
     GoogleSignin.configure({
       webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
       iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
@@ -147,10 +193,19 @@ export async function signInWithGoogle(): Promise<OAuthResult> {
     if (!isSuccessResponse(response)) return { error: null, cancelled: true };
     const idToken = response.data.idToken;
     if (!idToken) return { error: "Google didn't return a token — try again." };
-    const { error } = await supabase.auth.signInWithIdToken({ provider: 'google', token: idToken });
+    // Mirror the token's own nonce claim: both present, or both absent.
+    // Passing a value we generated ourselves would be the "mixed" case that
+    // GoTrue rejects, since the SDK never sends our value to Google.
+    const nonce = nonceClaimOf(idToken);
+    const { error } = await supabase.auth.signInWithIdToken({
+      provider: 'google',
+      token: idToken,
+      ...(nonce ? { nonce } : {}),
+    });
     if (error) return { error: error.message };
     const g = response.data.user;
-    return completeOAuthSignIn(g.name ?? [g.givenName, g.familyName].filter(Boolean).join(' ') ?? null);
+    const googleName = g.name || [g.givenName, g.familyName].filter(Boolean).join(' ');
+    return completeOAuthSignIn(googleName || null);
   } catch (e) {
     const code = (e as { code?: string }).code;
     const { statusCodes } = await import('@react-native-google-signin/google-signin');
@@ -175,6 +230,16 @@ export async function signInWithApple(): Promise<OAuthResult> {
       ],
     });
     if (!credential.identityToken) return { error: "Apple didn't return a token — try again." };
+    // NONCE: deliberately none on both sides. No `nonce` is requested above,
+    // so Apple issues a token with no nonce claim and we pass none — GoTrue's
+    // "both exist or neither" rule is satisfied.
+    //
+    // Do NOT reuse Google's nonceClaimOf() here: the two providers have
+    // opposite requirements. If a nonce is ever added to this flow, Apple
+    // needs the SHA256 HASH of the raw value in signInAsync({ nonce }) and
+    // the RAW value passed to signInWithIdToken — mirroring the token claim
+    // would send the hash and fail. That change also needs expo-crypto,
+    // which is a native module (rebuild, not an OTA update).
     const { error } = await supabase.auth.signInWithIdToken({
       provider: 'apple',
       token: credential.identityToken,

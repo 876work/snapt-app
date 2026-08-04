@@ -119,7 +119,11 @@ function FacebookF() {
 export function SocialButtons() {
   const router = useRouter();
   const [busy, setBusy] = React.useState<'google' | 'apple' | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
+  // Errors are attributed to the provider that produced them — a single
+  // shared string rendered at the bottom blamed Apple for Google's failures.
+  const [error, setError] = React.useState<{ provider: 'google' | 'apple'; message: string } | null>(
+    null,
+  );
 
   const run = async (provider: 'google' | 'apple') => {
     if (busy) return;
@@ -130,7 +134,7 @@ export function SocialButtons() {
     setBusy(null);
     if (result.cancelled) return; // user backed out — nothing to show
     if (result.error) {
-      setError(result.error);
+      setError({ provider, message: result.error });
       return;
     }
     if (result.isNewUser) {
@@ -161,6 +165,7 @@ export function SocialButtons() {
           </>
         )}
       </Pressable>
+      {error?.provider === 'google' && <Text style={socialStyles.error}>{error.message}</Text>}
       {Platform.OS === 'ios' && (
         <Pressable
           onPress={() => run('apple')}
@@ -177,7 +182,7 @@ export function SocialButtons() {
           )}
         </Pressable>
       )}
-      {error ? <Text style={socialStyles.error}>{error}</Text> : null}
+      {error?.provider === 'apple' && <Text style={socialStyles.error}>{error.message}</Text>}
       <View style={socialStyles.orRow}>
         <View style={socialStyles.orLine} />
         <Text style={socialStyles.orLabel}>or</Text>
