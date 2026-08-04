@@ -5,6 +5,7 @@ import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/store';
 import { colors, insetBottom, insetTop } from '../../lib/theme';
+import { safeBack } from '../../lib/nav';
 
 // Suspension state: creator mode is locked server-side (matching already
 // excludes suspended creators; existing bookings are handled per policy by
@@ -47,7 +48,7 @@ export default function CreatorSuspended() {
         <Pressable onPress={() => router.push('/legal/trust-safety')} style={styles.ghostBtn}>
           <Text style={styles.ghostLabel}>Read the Trust & Safety Policy</Text>
         </Pressable>
-        <Pressable onPress={() => router.replace('/(app)/profile')}>
+        <Pressable onPress={() => safeBack('/(app)/profile')}>
           <Text style={styles.backLink}>Back to profile</Text>
         </Pressable>
       </View>

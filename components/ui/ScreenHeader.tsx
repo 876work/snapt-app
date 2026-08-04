@@ -1,24 +1,26 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
-import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
+import { safeBack } from '../../lib/nav';
 import { colors, spacing } from '../../lib/theme';
 
 export function ScreenHeader({
   title,
   onBack,
   right,
+  backFallback,
 }: {
   title: string;
   onBack?: () => void;
   right?: React.ReactNode;
+  /** Where back lands when there is no history to pop (default: home). */
+  backFallback?: string;
 }) {
-  const router = useRouter();
   return (
     <View style={styles.row}>
       <Pressable
-        onPress={onBack ?? (() => router.back())}
+        onPress={onBack ?? (() => safeBack(backFallback))}
         style={({ pressed }) => [styles.back, pressed && { opacity: 0.7 }]}
       >
         <Svg width={10} height={17} viewBox="0 0 10 17" fill="none">

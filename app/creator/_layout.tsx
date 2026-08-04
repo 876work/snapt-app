@@ -84,6 +84,12 @@ export default function CreatorLayout() {
   // Status gate for the whole creator shell — every route branches off the
   // single server-side status. Non-approved users only ever see the screen
   // for their state; approved users get bounced off the status screens.
+  //
+  // The gate ONLY acts while the pathname is inside /creator. During a back
+  // navigation out of the group the layout re-renders with the destination
+  // pathname while still mounted — redirecting then fights the pop and
+  // loops until React throws "Maximum update depth exceeded" (the
+  // Become-a-Creator back-button crash, 2026-08-04).
   const HOME_FOR: Record<string, string> = {
     not_applied: '/creator/apply',
     in_progress: '/creator/apply',
@@ -94,15 +100,20 @@ export default function CreatorLayout() {
   };
   const statusHome = HOME_FOR[creatorStatus] ?? '/creator/apply';
   const openRoutes = ['/creator/apply', '/creator/pending', '/creator/rejected', '/creator/suspended'];
-  if (creatorStatus !== 'approved') {
+  const inGroup = pathname.startsWith('/creator');
+  if (inGroup && creatorStatus !== 'approved') {
     if (pathname !== statusHome) return <Redirect href={statusHome} />;
-  } else if (openRoutes.includes(pathname)) {
+  } else if (inGroup && openRoutes.includes(pathname)) {
     return <Redirect href="/creator" />;
   }
 
   return (
     <Tabs
       // No tab bar until approved — apply/pending render as plain screens.
+      // backBehavior "none": back never jumps to the index tab (which the
+      // status gate forbids for non-approved users — that tug-of-war was
+      // the crash); it bubbles to the root stack and exits to Profile.
+      backBehavior="none"
       tabBar={(props) => (creatorStatus === 'approved' ? <CreatorTabBar {...props} /> : null)}
       screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.offWhite } }}
     >

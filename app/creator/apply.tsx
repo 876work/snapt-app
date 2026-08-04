@@ -91,6 +91,25 @@ export default function CreatorApplication() {
     return () => clearTimeout(t);
   }, [sel, serviceType, baseArea, creatorStatus, setCreatorStatus]);
 
+  // Flush the draft on unmount so backing out inside the debounce window
+  // never loses the last edit (the resume-where-you-left-off guarantee).
+  const latest = React.useRef({ sel, serviceType, baseArea });
+  latest.current = { sel, serviceType, baseArea };
+  React.useEffect(() => {
+    return () => {
+      if (!loaded.current) return;
+      import('../../lib/api').then(({ apiConfigured, saveCreatorDraftApi }) => {
+        if (!apiConfigured) return;
+        const v = latest.current;
+        saveCreatorDraftApi({
+          specialties: v.sel,
+          service_type: v.serviceType,
+          base_area: v.baseArea ?? undefined,
+        });
+      });
+    };
+  }, []);
+
   const toggle = (o: Occasion) =>
     setSel((s) => (s.includes(o) ? s.filter((x) => x !== o) : [...s, o]));
 
@@ -127,7 +146,7 @@ export default function CreatorApplication() {
 
   return (
     <View style={styles.root}>
-      <ScreenHeader title="Become a Creator" />
+      <ScreenHeader title="Become a Creator" backFallback="/(app)/profile" />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <Text style={styles.lead}>
           Tell us what you shoot and we'll take it from there. Applications are vetted — most hear back

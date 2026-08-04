@@ -13,6 +13,49 @@ import {
 } from '@expo-google-fonts/inter';
 import { initAuth } from '../lib/auth';
 import { ApiErrorOverlay } from '../components/ui/ApiErrorOverlay';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '../lib/text';
+
+/**
+ * Root error boundary (expo-router renders this for any uncaught render
+ * error below the root layout). A recoverable branded screen instead of a
+ * silent crash to the home screen — "Try again" re-renders the failed
+ * route.
+ */
+export function ErrorBoundary({ error, retry }: { error: Error; retry: () => Promise<void> }) {
+  return (
+    <View style={ebStyles.root}>
+      <Text style={ebStyles.title}>Something went wrong</Text>
+      <Text style={ebStyles.sub}>
+        The app hit an unexpected error. Your data is safe — try again, and if it keeps happening,
+        let us know via Help &amp; support.
+      </Text>
+      <Text style={ebStyles.detail} numberOfLines={3}>
+        {error.message}
+      </Text>
+      <Pressable onPress={retry} style={ebStyles.cta}>
+        <Text style={ebStyles.ctaLabel}>Try again</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const ebStyles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: '#FAFAFA', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 36 },
+  title: { fontSize: 20, fontWeight: '800', letterSpacing: -0.4, color: '#1A1A1A' },
+  sub: { fontSize: 13.5, color: '#767676', lineHeight: 20, textAlign: 'center', marginTop: 10 },
+  detail: { fontSize: 11, color: '#B4B1AA', textAlign: 'center', marginTop: 14 },
+  cta: {
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: '#FFB800',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+    marginTop: 26,
+  },
+  ctaLabel: { fontSize: 15, fontWeight: '800', color: '#1A1A1A' },
+});
 
 export default function RootLayout() {
   // The design system is 100% Inter — every Text/TextInput renders through

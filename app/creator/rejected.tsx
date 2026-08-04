@@ -5,6 +5,7 @@ import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/store';
 import { colors, insetBottom, insetTop } from '../../lib/theme';
+import { safeBack } from '../../lib/nav';
 
 // Rejection state: shows the admin's reason and the path to reapply —
 // never a blank screen or a spinner. Reapplying reopens the application
@@ -60,7 +61,7 @@ export default function CreatorRejected() {
         <Pressable onPress={() => router.push('/help/contact')} style={styles.ghostBtn}>
           <Text style={styles.ghostLabel}>Contact support</Text>
         </Pressable>
-        <Pressable onPress={() => router.replace('/(app)/profile')}>
+        <Pressable onPress={() => safeBack('/(app)/profile')}>
           <Text style={styles.backLink}>Back to profile</Text>
         </Pressable>
       </View>

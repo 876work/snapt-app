@@ -4,6 +4,7 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/store';
+import { safeBack } from '../../lib/nav';
 import { colors, insetBottom, insetTop } from '../../lib/theme';
 
 // Creator application status screen: shown while vetting is in review.
@@ -54,7 +55,7 @@ export default function CreatorPending() {
         </Pressable>
       </View>
       <View style={styles.footer}>
-        <Pressable onPress={() => router.replace('/(app)/profile')} style={styles.cta}>
+        <Pressable onPress={() => safeBack('/(app)/profile')} style={styles.cta}>
           <Text style={styles.ctaLabel}>Back to profile</Text>
         </Pressable>
       </View>
