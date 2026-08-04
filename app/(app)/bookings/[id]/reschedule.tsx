@@ -15,6 +15,7 @@ import {
   cancelTierForHoursUntil,
   formatMoney,
   RESCHEDULE_FREE_COUNT,
+  USD_PROCESSING_NOTE,
 } from '../../../../lib/constants/business';
 import { colors, spacing, insetBottom } from '../../../../lib/theme';
 
@@ -168,13 +169,19 @@ export default function ReschedulePick() {
         <View style={{ flex: 1 }}>
           {error ? <Text style={styles.error}>{error}</Text> : null}
           {feeApplies ? (
-            <SlideToConfirm
-              label="Slide to confirm reschedule"
-              disabled={!date || !time}
-              value={formatMoney(feeCharge, currency)}
-              valueLabel="Reschedule charge"
-              onConfirm={confirmReschedule}
-            />
+            <>
+              <SlideToConfirm
+                label="Slide to confirm reschedule"
+                disabled={!date || !time}
+                value={formatMoney(feeCharge, 'USD')}
+                valueLabel="Reschedule charge (USD)"
+                onConfirm={confirmReschedule}
+              />
+              <Text style={styles.usdNote}>
+                {currency === 'XCD' ? `≈ ${formatMoney(feeCharge, 'XCD')} · ` : ''}
+                {USD_PROCESSING_NOTE}
+              </Text>
+            </>
           ) : (
             <Button title="Confirm new time" arrow disabled={!date || !time} onPress={confirmReschedule} />
           )}
@@ -216,6 +223,7 @@ const styles = StyleSheet.create({
   timeLabel: { fontSize: 13, fontWeight: '700', color: colors.ink },
   slotNote: { fontSize: 11, color: colors.greyWarm, marginTop: 12 },
   error: { fontSize: 12.5, color: colors.error, fontWeight: '600', marginBottom: 10 },
+  usdNote: { fontSize: 11, color: colors.grey, lineHeight: 15.5, marginTop: 10, textAlign: 'center' },
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,

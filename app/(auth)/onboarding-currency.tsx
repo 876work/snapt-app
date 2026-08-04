@@ -5,15 +5,17 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Button } from '../../components/ui/Button';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { useAuth } from '../../lib/store';
-import { Currency, XCD_PER_USD } from '../../lib/constants/business';
+import { Currency, getXcdPerUsd } from '../../lib/constants/business';
 import { colors } from '../../lib/theme';
 
-const OPTIONS: { value: Currency; title: string; sub: string }[] = [
+// Built per-render so the peg reflects the server-synced rate, not the
+// bundled fallback captured at import time.
+const options = (): { value: Currency; title: string; sub: string }[] => [
   { value: 'USD', title: 'US Dollar (USD)', sub: 'Base currency — all charges settle in USD' },
   {
     value: 'XCD',
     title: 'EC Dollar (XCD)',
-    sub: `Display prices in XCD at the fixed peg ${XCD_PER_USD} XCD = 1 USD`,
+    sub: `Approximate display prices at the fixed peg ${getXcdPerUsd()} XCD = 1 USD — charges are always processed in USD`,
   },
 ];
 
@@ -28,7 +30,7 @@ export default function OnboardingCurrency() {
       <ScreenHeader title="How should we show prices?" />
       <View style={styles.body}>
         <Text style={styles.sub}>You can change this any time in your Profile.</Text>
-        {OPTIONS.map((o) => {
+        {options().map((o) => {
           const active = o.value === choice;
           return (
             <Pressable

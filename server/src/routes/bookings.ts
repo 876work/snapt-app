@@ -181,7 +181,9 @@ export function registerBookingRoutes(app: FastifyInstance) {
 
     const config = await getConfig();
     const clientFeeRate = (config['client_service_fee_rate'] as number) ?? 0.08;
-    const xcdPerUsd = (config['xcd_per_usd'] as number) ?? 2.7;
+    // app_config.xcd_per_usd is the single source of truth for the peg
+    // (admin-editable); this fallback only covers a missing config row.
+    const xcdPerUsd = (config['xcd_per_usd'] as number) ?? 2.72;
     const subtotal = Math.round((sessionPrice + addonsUsd) * 100) / 100;
     const serviceFee = Math.round(subtotal * clientFeeRate * 100) / 100;
     const total = Math.round((subtotal + serviceFee) * 100) / 100;

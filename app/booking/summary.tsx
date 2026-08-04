@@ -15,6 +15,8 @@ import {
   CANCEL_FULL_REFUND_HOURS,
   CLIENT_SERVICE_FEE_RATE,
   formatMoney,
+  formatMoneyTotal,
+  USD_PROCESSING_NOTE,
 } from '../../lib/constants/business';
 import { colors, spacing, insetBottom } from '../../lib/theme';
 
@@ -185,8 +187,17 @@ export default function OrderSummary() {
           <Divider />
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total</Text>
-            <Text style={styles.totalValue}>{formatMoney(total, currency)}</Text>
+            {/* Total = sum of the converted lines above, so the breakdown
+                always adds up on screen (rounding absorbed here). */}
+            <Text style={styles.totalValue}>
+              {formatMoneyTotal([base, addonsTotal, serviceFee], currency)}
+            </Text>
           </View>
+          {currency === 'XCD' && (
+            <Text style={styles.usdChargeNote}>
+              You'll be charged {formatMoney(total, 'USD')} USD — XCD figures are approximate.
+            </Text>
+          )}
         </View>
 
         {/* Cancellation banner */}
@@ -329,10 +340,14 @@ export default function OrderSummary() {
               <SlideToConfirm
                 label={cardValid ? 'Slide to confirm & pay' : 'Enter card details to pay'}
                 disabled={!cardValid}
-                value={formatMoney(total, currency)}
-                valueLabel="You're paying"
+                value={formatMoney(total, 'USD')}
+                valueLabel="You're paying (USD)"
                 onConfirm={book}
               />
+              <Text style={styles.usdNote}>
+                {currency === 'XCD' ? `≈ ${formatMoney(total, 'XCD')} · ` : ''}
+                {USD_PROCESSING_NOTE}
+              </Text>
               <View style={{ height: 20 }} />
             </ScrollView>
           </View>
@@ -450,6 +465,8 @@ const styles = StyleSheet.create({
   },
   switchKnobOn: { alignSelf: 'flex-end' },
   totalRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
+  usdChargeNote: { fontSize: 11, color: colors.grey, fontWeight: '600', marginTop: 2 },
+  usdNote: { fontSize: 11, color: colors.grey, lineHeight: 15.5, marginTop: 10, textAlign: 'center' },
   totalLabel: { fontSize: 15, fontWeight: '700', color: colors.ink },
   totalValue: { fontSize: 20, fontWeight: '800', color: colors.ink },
   priceLabel: { fontSize: 13.5, color: colors.grey },

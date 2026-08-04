@@ -136,6 +136,11 @@ export async function saveProfile(patch: {
  */
 export function initAuth(): void {
   const store = useAuth.getState();
+  // Display peg (xcd_per_usd) comes from server config — fire-and-forget;
+  // the bundled fallback covers the first frames and offline mock mode.
+  import('./api').then(({ apiConfigured, syncDisplayRates }) => {
+    if (apiConfigured) syncDisplayRates();
+  });
   if (!supabase) {
     store.setHydrated();
     return;

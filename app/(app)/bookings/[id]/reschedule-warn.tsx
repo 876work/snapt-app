@@ -6,7 +6,7 @@ import { ScreenHeader } from '../../../../components/ui/ScreenHeader';
 import { Button } from '../../../../components/ui/Button';
 import { Card, InfoBanner } from '../../../../components/ui/Misc';
 import { useAuth, useBookings } from '../../../../lib/store';
-import { formatMoney } from '../../../../lib/constants/business';
+import { formatCharge, USD_PROCESSING_NOTE } from '../../../../lib/constants/business';
 import { colors, spacing } from '../../../../lib/theme';
 
 // Rescheduling 24–48 hrs out carries the same 50% charge as cancelling in
@@ -33,8 +33,9 @@ export default function RescheduleWarn() {
         <Card style={{ gap: 12, marginTop: 14 }}>
           <View style={styles.row}>
             <Text style={styles.rowLabel}>Reschedule charge</Text>
-            <Text style={styles.rowValue}>{formatMoney(charge, currency)}</Text>
+            <Text style={styles.rowValue}>{formatCharge(charge, currency)}</Text>
           </View>
+          <Text style={styles.usdNote}>{USD_PROCESSING_NOTE}</Text>
         </Card>
         <View style={{ gap: 10, marginTop: 24 }}>
           <Button
@@ -54,4 +55,5 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   rowLabel: { fontSize: 12.5, color: colors.grey, fontWeight: '600' },
   rowValue: { fontSize: 15, fontWeight: '800', color: colors.ink },
+  usdNote: { fontSize: 11, color: colors.grey, lineHeight: 15.5 },
 });

@@ -7,7 +7,12 @@ import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { SlideToConfirm } from '../../components/ui/SlideToConfirm';
 import { EDIT_STYLES, REMOTE_PACKAGES, useUpload } from '../../lib/store/upload';
 import { useAuth, useBookings } from '../../lib/store';
-import { CLIENT_SERVICE_FEE_RATE, formatMoney } from '../../lib/constants/business';
+import {
+  CLIENT_SERVICE_FEE_RATE,
+  formatMoney,
+  formatMoneyTotal,
+  USD_PROCESSING_NOTE,
+} from '../../lib/constants/business';
 import { colors, insetBottom } from '../../lib/theme';
 
 const ADDONS = [
@@ -149,8 +154,16 @@ export default function RemoteOrderSummary() {
           <View style={styles.hr} />
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total</Text>
-            <Text style={styles.totalValue}>{formatMoney(total, currency)}</Text>
+            {/* Total = sum of the converted lines above (rounding absorbed). */}
+            <Text style={styles.totalValue}>
+              {formatMoneyTotal([pkg.priceUsd, addonsTotal, serviceFee], currency)}
+            </Text>
           </View>
+          {currency === 'XCD' && (
+            <Text style={styles.usdChargeNote}>
+              You'll be charged {formatMoney(total, 'USD')} USD — XCD figures are approximate.
+            </Text>
+          )}
         </View>
 
         <View style={styles.stripeRow}>
@@ -265,10 +278,14 @@ export default function RemoteOrderSummary() {
               <SlideToConfirm
                 label={cardValid ? 'Slide to confirm & pay' : 'Enter card details to pay'}
                 disabled={!cardValid}
-                value={formatMoney(total, currency)}
-                valueLabel="You're paying"
+                value={formatMoney(total, 'USD')}
+                valueLabel="You're paying (USD)"
                 onConfirm={placeOrder}
               />
+              <Text style={styles.usdNote}>
+                {currency === 'XCD' ? `≈ ${formatMoney(total, 'XCD')} · ` : ''}
+                {USD_PROCESSING_NOTE}
+              </Text>
               <View style={{ height: 20 }} />
             </ScrollView>
           </View>
@@ -335,6 +352,8 @@ const styles = StyleSheet.create({
   etaText: { flex: 1, fontSize: 12.5, color: colors.grey, lineHeight: 17 },
   hr: { height: 1, backgroundColor: '#F1F1F1', marginVertical: 3 },
   totalRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
+  usdChargeNote: { fontSize: 11, color: colors.grey, fontWeight: '600', marginTop: 2 },
+  usdNote: { fontSize: 11, color: colors.grey, lineHeight: 15.5, marginTop: 10, textAlign: 'center' },
   totalLabel: { fontSize: 15, fontWeight: '700', color: colors.ink },
   totalValue: { fontSize: 20, fontWeight: '800', color: colors.ink },
   rowLabel: { fontSize: 13.5, color: colors.grey },

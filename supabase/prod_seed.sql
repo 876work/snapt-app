@@ -12,7 +12,7 @@ insert into app_config (key, value, description, confirmed) values
   ('client_service_fee_rate', '0.08', 'Client service fee, shown as line item at checkout', true),
   ('creator_platform_fee_rate', '0.32', 'Standard creator platform fee', true),
   ('creator_promo_fee_rate', '0.20', 'Illustrative promo fee rate, shown with strikethrough; admin-set', true),
-  ('xcd_per_usd', '2.70', 'Fixed peg: XCD per 1 USD (USD is base/storage currency)', true),
+  ('xcd_per_usd', '2.72', 'Fixed peg: XCD per 1 USD (USD is base/storage currency)', true),
   ('advance_booking_window_days', '14', 'How far ahead a session can be booked', true),
   ('free_revisions_per_order', '1', 'Free revision rounds per order; additional rounds are paid add-ons', true),
   ('cancel_tiers', '{"over48h": 0, "between24and48h": 0.5, "under24h": 1}',
@@ -582,7 +582,7 @@ shown as a separate line item before payment.
 2.1. Snapt operates in US Dollars (USD) as its base currency. All amounts are stored and
 processed in USD.
 2.2. You may choose to display prices in Eastern Caribbean Dollars (XCD) in your app
-settings. XCD amounts are display conversions at the fixed peg of 2.70 XCD = 1.00 USD.
+settings. XCD amounts are display conversions at the fixed peg of 2.72 XCD = 1.00 USD.
 Your payment method is charged in USD; your bank or card issuer determines any
 conversion applied on their side.
 

@@ -55,6 +55,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T | null> {
   }
 }
 
+/**
+ * Public business config (no auth). The XCD display peg lives ONLY in the
+ * server's app_config (`xcd_per_usd`, admin-editable) — this pulls it at
+ * launch so the client never carries its own copy of the rate.
+ */
+export async function syncDisplayRates(): Promise<void> {
+  const result = await request<{ config: Record<string, unknown> }>('/v1/config');
+  const rate = Number(result?.config?.['xcd_per_usd']);
+  if (Number.isFinite(rate) && rate > 0) {
+    const { setXcdPerUsd } = await import('./constants/business');
+    setXcdPerUsd(rate);
+  }
+}
+
 /** Which days in the advance window have at least one bookable slot. */
 export async function fetchDayFlags(
   occasion: string,

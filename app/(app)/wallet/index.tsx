@@ -3,7 +3,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text, TextInput } from '../../../lib/text';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { useAuth } from '../../../lib/store';
-import { formatMoney } from '../../../lib/constants/business';
+import { formatMoney, USD_PROCESSING_NOTE } from '../../../lib/constants/business';
 import { colors, spacing, insetTop, insetBottom } from '../../../lib/theme';
 import { navShrinkOnScroll } from '../../../lib/navShrink';
 
@@ -163,8 +163,10 @@ export default function Wallet() {
           </Pressable>
         </View>
 
-        {/* Transactions */}
+        {/* Transactions — receipts show the USD amounts actually charged/
+            refunded, never a converted figure (currency disclosure rule). */}
         <Text style={styles.sectionTitle}>Transactions</Text>
+        {currency === 'XCD' && <Text style={styles.usdNote}>{USD_PROCESSING_NOTE}</Text>}
         <View style={styles.list}>
           {txns.map((t, i) => (
             <View key={t.id} style={[styles.methodRow, i < txns.length - 1 && styles.rowBorder]}>
@@ -196,7 +198,7 @@ export default function Wallet() {
               </View>
               <Text style={[styles.txnAmount, { color: t.amount > 0 ? '#1B9A57' : colors.ink }]}>
                 {t.amount > 0 ? '+' : '−'}
-                {formatMoney(Math.abs(t.amount), currency)}
+                {formatMoney(Math.abs(t.amount), 'USD')}
               </Text>
             </View>
           ))}
@@ -387,6 +389,7 @@ const styles = StyleSheet.create({
   statDiv: { width: 1, backgroundColor: '#F0EDE6', marginVertical: 3 },
   statLabel: { fontSize: 9.5, fontWeight: '800', color: colors.yellowDark, letterSpacing: 0.6 },
   statValue: { fontSize: 15, fontWeight: '800', letterSpacing: -0.3, color: colors.ink },
+  usdNote: { fontSize: 11, color: colors.grey, lineHeight: 15.5, marginTop: -6, marginBottom: 10 },
   sectionTitle: { fontSize: 13, fontWeight: '800', letterSpacing: -0.2, color: colors.ink, marginTop: 22, marginBottom: 10, marginHorizontal: 2 },
   list: {
     backgroundColor: '#fff',

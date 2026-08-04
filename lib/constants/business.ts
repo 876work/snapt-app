@@ -7,7 +7,18 @@ export const CREATOR_PLATFORM_FEE_RATE = 0.32;
 // Actual promo value is admin-set; 20% is the prototype's illustrative rate.
 export const CREATOR_PROMO_FEE_RATE = 0.2;
 
-export const XCD_PER_USD = 2.7;
+// USD→XCD peg. The single source of truth is the server's app_config row
+// `xcd_per_usd` (admin-editable, no code change needed); syncDisplayRates()
+// in lib/api pulls it at launch and overrides this bootstrap fallback. Never
+// hardcode the rate anywhere else.
+const XCD_PER_USD_FALLBACK = 2.72;
+let xcdPerUsd = XCD_PER_USD_FALLBACK;
+export function getXcdPerUsd(): number {
+  return xcdPerUsd;
+}
+export function setXcdPerUsd(rate: number): void {
+  if (Number.isFinite(rate) && rate > 0) xcdPerUsd = rate;
+}
 
 export const ADVANCE_BOOKING_WINDOW_DAYS = 14;
 export const FREE_REVISIONS_PER_ORDER = 1;
@@ -66,12 +77,57 @@ export const OCCASION_DEFAULT_DURATION_HOURS: Partial<Record<string, number>> = 
 
 export type Currency = 'USD' | 'XCD';
 
-export function formatMoney(usd: number, currency: Currency): string {
-  if (currency === 'XCD') {
-    return `EC$${(usd * XCD_PER_USD).toFixed(0)}`;
-  }
-  return `$${usd.toFixed(0)}`;
+// Money rules (Don, 2026-08-03): all amounts are stored and calculated in
+// USD — XCD is display-only, converted from the USD source at the point of
+// display, rounded to 2 decimals (never to whole dollars, never rounded up
+// as a convenience, never chained through an already-converted number).
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** USD source value → the number shown for the given display currency. */
+export function convertForDisplay(usd: number, currency: Currency): number {
+  return round2(currency === 'XCD' ? usd * xcdPerUsd : usd);
 }
+
+function formatDisplayValue(v: number, currency: Currency): string {
+  const sign = v < 0 ? '−' : '';
+  const abs = Math.abs(v);
+  // Whole USD catalog prices stay clean ($60); anything fractional and all
+  // XCD conversions show exact cents.
+  const digits = currency === 'USD' && Number.isInteger(abs) ? 0 : 2;
+  const num = abs.toLocaleString('en-US', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+  return `${sign}${currency === 'XCD' ? 'EC$' : '$'}${num}`;
+}
+
+export function formatMoney(usd: number, currency: Currency): string {
+  return formatDisplayValue(convertForDisplay(usd, currency), currency);
+}
+
+/**
+ * Total line for a breakdown: sums the individually converted line items so
+ * the displayed lines always add up to the displayed total — any rounding
+ * remainder is absorbed here, never shown as maths that doesn't add up.
+ */
+export function formatMoneyTotal(lineItemsUsd: number[], currency: Currency): string {
+  const total = round2(lineItemsUsd.reduce((sum, usd) => sum + convertForDisplay(usd, currency), 0));
+  return formatDisplayValue(total, currency);
+}
+
+/**
+ * Charged-amount presentation (§ currency disclosure): the USD figure is
+ * what the card is actually charged; XCD is secondary and approximate.
+ */
+export function formatCharge(usd: number, currency: Currency): string {
+  const base = formatMoney(usd, 'USD');
+  return currency === 'XCD' ? `${base} (≈ ${formatMoney(usd, 'XCD')})` : base;
+}
+
+/** Short disclosure line for payment/receipt/refund screens. */
+export const USD_PROCESSING_NOTE =
+  'Charges are processed in USD — your bank may apply its own conversion rate.';
 
 export type CancelTier = keyof typeof CANCEL_TIERS;
 

@@ -10,7 +10,9 @@ import {
   CANCEL_TIERS,
   cancelTierForHoursUntil,
   CLIENT_SERVICE_FEE_RATE,
+  formatCharge,
   formatMoney,
+  USD_PROCESSING_NOTE,
 } from '../../../../lib/constants/business';
 import { colors, spacing, insetBottom } from '../../../../lib/theme';
 
@@ -78,7 +80,7 @@ export default function CancelConfirm() {
           title: '50% charge applies',
           titleColor: '#8A6400',
           bodyColor: '#8A6800',
-          body: `You're inside the 24–48 hour window, so half the session cost (${formatMoney(charge, currency)}) is charged. ${formatMoney(refund, currency)} is returned to your original payment method. The service fee is non-refundable.`,
+          body: `You're inside the 24–48 hour window, so half the session cost (${formatCharge(charge, currency)}) is charged. ${formatCharge(refund, currency)} is returned to your original payment method. The service fee is non-refundable.`,
         }
       : {
           style: styles.bannerFull,
@@ -139,10 +141,14 @@ export default function CancelConfirm() {
       <View style={styles.footer}>
         <SlideToConfirm
           label={remote ? 'Slide to cancel order' : 'Slide to cancel booking'}
-          value={free ? formatMoney(0, currency) : formatMoney(charge, currency)}
-          valueLabel="Cancellation charge"
+          value={formatMoney(free ? 0 : charge, 'USD')}
+          valueLabel="Cancellation charge (USD)"
           onConfirm={confirmCancel}
         />
+        <Text style={styles.usdNote}>
+          {!free && currency === 'XCD' ? `≈ ${formatMoney(charge, 'XCD')} · ` : ''}
+          {USD_PROCESSING_NOTE}
+        </Text>
         <Pressable onPress={() => router.back()} style={styles.keepBtn}>
           <Text style={styles.keepLabel}>Keep my booking</Text>
         </Pressable>
@@ -205,6 +211,7 @@ const styles = StyleSheet.create({
   policyRowValue: { fontSize: 12.5, color: colors.grey, fontWeight: '600' },
   policyRowActive: { color: colors.ink, fontWeight: '800' },
   error: { fontSize: 13, color: colors.error, fontWeight: '600', marginTop: 14 },
+  usdNote: { fontSize: 11, color: colors.grey, lineHeight: 15.5, textAlign: 'center' },
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
