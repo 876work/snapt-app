@@ -48,6 +48,14 @@ export default function Forgot() {
           disabled={!email.includes('@') || busy}
           onPress={send}
         />
+        {/* OAuth accounts have no password to reset — steer them back to
+            their provider button before they burn a code on it. (If they do
+            run the flow anyway, GoTrue simply ADDS a password to the same
+            account, so nothing breaks either way.) */}
+        <Text style={styles.oauthNote}>
+          Signed up with Google or Apple? You don't have a password — just use that button on the
+          log-in screen.
+        </Text>
       </View>
     </View>
   );
@@ -58,4 +66,5 @@ const styles = StyleSheet.create({
   body: { paddingHorizontal: 22, paddingTop: 8, gap: 16 },
   sub: { fontSize: 13.5, lineHeight: 19.5, color: colors.grey },
   err: { fontSize: 12.5, color: colors.error, fontWeight: '600' },
+  oauthNote: { fontSize: 12, color: colors.greyWarm, lineHeight: 17, textAlign: 'center', marginTop: 4 },
 });

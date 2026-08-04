@@ -15,6 +15,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "app.snaptcarib.snapt",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -58,7 +59,14 @@
           "photosPermission": "Snapt uses your photo library to save and manage your delivered content."
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.570146606269-j3c88mhk91ai60bsvsk7lchecutdei80"
+        }
+      ],
+      "expo-apple-authentication"
     ],
     "extra": {
       "router": {},

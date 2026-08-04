@@ -1,13 +1,16 @@
 import React from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   TextInput as RNTextInput,
   View,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { Text, TextInput } from '../../lib/text';
 import { COUNTRIES, Country } from '../../lib/constants/countries';
@@ -107,21 +110,74 @@ function FacebookF() {
 }
 
 /** The three social sign-in rows + "or" divider (visual stubs until OAuth). */
+/**
+ * Live Google / Apple sign-in (Supabase signInWithIdToken — native token
+ * flow, no browser redirect). Apple renders on iOS only; Google renders on
+ * both. Facebook is hidden until its OAuth ships — App Review rejects dead
+ * buttons. Cancelling the provider sheet is a silent no-op.
+ */
 export function SocialButtons() {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState<'google' | 'apple' | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const run = async (provider: 'google' | 'apple') => {
+    if (busy) return;
+    setBusy(provider);
+    setError(null);
+    const { signInWithApple, signInWithGoogle } = await import('../../lib/auth');
+    const result = provider === 'google' ? await signInWithGoogle() : await signInWithApple();
+    setBusy(null);
+    if (result.cancelled) return; // user backed out — nothing to show
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    if (result.isNewUser) {
+      // Same onboarding as email signups: currency → notification priming →
+      // home, starting in client mode.
+      router.push({
+        pathname: '/(auth)/onboarding-currency',
+        params: { name: result.name ?? '', email: result.email ?? '' },
+      });
+    } else {
+      router.replace('/(app)/home');
+    }
+  };
+
   return (
     <View style={socialStyles.wrap}>
-      <Pressable style={[socialStyles.btn, socialStyles.google]}>
-        <GoogleG />
-        <Text style={[socialStyles.label, { color: '#1A1A1A' }]}>Continue with Google</Text>
+      <Pressable
+        onPress={() => run('google')}
+        disabled={busy != null}
+        style={[socialStyles.btn, socialStyles.google, busy === 'apple' && { opacity: 0.5 }]}
+      >
+        {busy === 'google' ? (
+          <ActivityIndicator size="small" color="#1A1A1A" />
+        ) : (
+          <>
+            <GoogleG />
+            <Text style={[socialStyles.label, { color: '#1A1A1A' }]}>Continue with Google</Text>
+          </>
+        )}
       </Pressable>
-      <Pressable style={[socialStyles.btn, socialStyles.apple]}>
-        <AppleMark />
-        <Text style={[socialStyles.label, { color: '#fff' }]}>Continue with Apple</Text>
-      </Pressable>
-      <Pressable style={[socialStyles.btn, socialStyles.facebook]}>
-        <FacebookF />
-        <Text style={[socialStyles.label, { color: '#fff' }]}>Continue with Facebook</Text>
-      </Pressable>
+      {Platform.OS === 'ios' && (
+        <Pressable
+          onPress={() => run('apple')}
+          disabled={busy != null}
+          style={[socialStyles.btn, socialStyles.apple, busy === 'google' && { opacity: 0.5 }]}
+        >
+          {busy === 'apple' ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <>
+              <AppleMark />
+              <Text style={[socialStyles.label, { color: '#fff' }]}>Continue with Apple</Text>
+            </>
+          )}
+        </Pressable>
+      )}
+      {error ? <Text style={socialStyles.error}>{error}</Text> : null}
       <View style={socialStyles.orRow}>
         <View style={socialStyles.orLine} />
         <Text style={socialStyles.orLabel}>or</Text>
@@ -145,6 +201,7 @@ const socialStyles = StyleSheet.create({
   apple: { backgroundColor: '#0B0B0B' },
   facebook: { backgroundColor: '#1877F2' },
   label: { fontSize: 14.5, fontWeight: '700' },
+  error: { fontSize: 12.5, fontWeight: '600', color: '#C0392B', textAlign: 'center' },
   orRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 6 },
   orLine: { flex: 1, height: 1, backgroundColor: '#E4DFD4' },
   orLabel: { fontSize: 12, color: '#A8A29A', fontWeight: '600' },

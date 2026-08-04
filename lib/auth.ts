@@ -86,6 +86,114 @@ export async function signInWithEmail(email: string, password: string): Promise<
   return { error: null };
 }
 
+// --- OAuth (Google / Apple) -----------------------------------------------
+// Native token flows only (no browser redirect): the provider SDK returns an
+// ID token and Supabase verifies it via signInWithIdToken. Supabase links an
+// OAuth identity to an existing account with the same VERIFIED email, so an
+// email signup who later taps "Continue with Google" lands in their one
+// existing account — bookings/payments never split across duplicates.
+
+export type OAuthResult = AuthResult & {
+  /** User dismissed the provider sheet — do nothing, show nothing. */
+  cancelled?: boolean;
+  /** Account created just now → route through onboarding like a signup. */
+  isNewUser?: boolean;
+  name?: string;
+  email?: string;
+};
+
+/**
+ * After signInWithIdToken: detect first-ever sign-in and capture the
+ * provider-supplied name if the profile doesn't have one. Apple only sends
+ * fullName on the FIRST authorization ever, so it must be written now or
+ * it is lost permanently (private-relay users are unreachable otherwise).
+ */
+async function completeOAuthSignIn(providedName: string | null): Promise<OAuthResult> {
+  const { data: auth } = await supabase!.auth.getUser();
+  const user = auth.user;
+  if (!user) return { error: 'Sign-in failed — try again.' };
+  const isNewUser = Date.now() - new Date(user.created_at).getTime() < 120_000;
+
+  const { data: prof } = await supabase!
+    .from('profiles')
+    .select('full_name')
+    .eq('id', user.id)
+    .maybeSingle();
+  let name = prof?.full_name ?? '';
+  if (!name && providedName) {
+    name = providedName;
+    await supabase!
+      .from('profiles')
+      .update({ full_name: providedName, updated_at: new Date().toISOString() })
+      .eq('id', user.id);
+    await supabase!.auth.updateUser({ data: { full_name: providedName } });
+    useAuth.getState().setProfile({ name: providedName });
+  }
+  return { error: null, isNewUser, name, email: user.email ?? '' };
+}
+
+export async function signInWithGoogle(): Promise<OAuthResult> {
+  if (!supabase) return { error: 'Google sign-in needs the live backend (demo mode).' };
+  try {
+    const { GoogleSignin, statusCodes, isSuccessResponse } = await import(
+      '@react-native-google-signin/google-signin'
+    );
+    GoogleSignin.configure({
+      webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+      iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+    });
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    const response = await GoogleSignin.signIn();
+    if (!isSuccessResponse(response)) return { error: null, cancelled: true };
+    const idToken = response.data.idToken;
+    if (!idToken) return { error: "Google didn't return a token — try again." };
+    const { error } = await supabase.auth.signInWithIdToken({ provider: 'google', token: idToken });
+    if (error) return { error: error.message };
+    const g = response.data.user;
+    return completeOAuthSignIn(g.name ?? [g.givenName, g.familyName].filter(Boolean).join(' ') ?? null);
+  } catch (e) {
+    const code = (e as { code?: string }).code;
+    const { statusCodes } = await import('@react-native-google-signin/google-signin');
+    if (code === statusCodes.SIGN_IN_CANCELLED || code === statusCodes.IN_PROGRESS) {
+      return { error: null, cancelled: true };
+    }
+    if (code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+      return { error: 'Google Play services is unavailable on this device.' };
+    }
+    return { error: 'Google sign-in failed — try again.' };
+  }
+}
+
+export async function signInWithApple(): Promise<OAuthResult> {
+  if (!supabase) return { error: 'Apple sign-in needs the live backend (demo mode).' };
+  try {
+    const AppleAuthentication = await import('expo-apple-authentication');
+    const credential = await AppleAuthentication.signInAsync({
+      requestedScopes: [
+        AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+        AppleAuthentication.AppleAuthenticationScope.EMAIL,
+      ],
+    });
+    if (!credential.identityToken) return { error: "Apple didn't return a token — try again." };
+    const { error } = await supabase.auth.signInWithIdToken({
+      provider: 'apple',
+      token: credential.identityToken,
+    });
+    if (error) return { error: error.message };
+    // fullName arrives ONLY on the first authorization ever. Private-relay
+    // addresses (@privaterelay.appleid.com) are real, routable emails —
+    // stored and used like any other, nothing special to do here.
+    const n = credential.fullName;
+    const providedName = n ? [n.givenName, n.familyName].filter(Boolean).join(' ') : '';
+    return completeOAuthSignIn(providedName || null);
+  } catch (e) {
+    if ((e as { code?: string }).code === 'ERR_REQUEST_CANCELED') {
+      return { error: null, cancelled: true };
+    }
+    return { error: 'Apple sign-in failed — try again.' };
+  }
+}
+
 export async function signOutEverywhere(): Promise<void> {
   // Best-effort: stop this device receiving the account's pushes first,
   // while the session token is still valid for the unregister call.
