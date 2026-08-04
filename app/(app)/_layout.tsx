@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tabs } from 'expo-router';
+import { Tabs, usePathname } from 'expo-router';
 import { Animated, Pressable, StyleSheet } from 'react-native';
 import { Text } from '../../lib/text';
 import { colors, insetBottom } from '../../lib/theme';
@@ -44,10 +44,17 @@ function PillTabBar({ state, navigation }: TabBarProps) {
   );
 }
 
+// The floating pill bar shows ONLY on the four tab roots. Nested task
+// screens (booking detail, cancel/reschedule, profile edit, …) carry their
+// own headers and bottom CTAs — the absolutely-positioned bar was covering
+// footer buttons/sliders (reported on the reschedule screen, 2026-08-04).
+const TAB_ROOTS = ['/home', '/bookings', '/wallet', '/profile'];
+
 export default function AppLayout() {
+  const pathname = usePathname();
   return (
     <Tabs
-      tabBar={(props) => <PillTabBar {...props} />}
+      tabBar={(props) => (TAB_ROOTS.includes(pathname) ? <PillTabBar {...props} /> : null)}
       screenOptions={{
         headerShown: false,
         sceneStyle: { backgroundColor: colors.offWhite },

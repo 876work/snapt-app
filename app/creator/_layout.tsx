@@ -107,6 +107,10 @@ export default function CreatorLayout() {
     return <Redirect href="/creator" />;
   }
 
+  // Same rule as the client shell: the floating bar only on tab roots —
+  // job detail and cash-out have footer sliders the bar would cover.
+  const tabRoots = ['/creator', '/creator/schedule', '/creator/earnings', '/creator/profile'];
+
   return (
     <Tabs
       // No tab bar until approved — apply/pending render as plain screens.
@@ -114,7 +118,9 @@ export default function CreatorLayout() {
       // status gate forbids for non-approved users — that tug-of-war was
       // the crash); it bubbles to the root stack and exits to Profile.
       backBehavior="none"
-      tabBar={(props) => (creatorStatus === 'approved' ? <CreatorTabBar {...props} /> : null)}
+      tabBar={(props) =>
+        creatorStatus === 'approved' && tabRoots.includes(pathname) ? <CreatorTabBar {...props} /> : null
+      }
       screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.offWhite } }}
     >
       <Tabs.Screen name="index" />
