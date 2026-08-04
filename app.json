@@ -61,6 +61,13 @@
       ],
       "expo-notifications",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Snapt uses your location to centre the map and help you drop your meeting-point pin in the right place. When In Use only — never in the background.",
+          "isAndroidBackgroundLocationEnabled": false
+        }
+      ],
+      [
         "@react-native-google-signin/google-signin",
         {
           "iosUrlScheme": "com.googleusercontent.apps.570146606269-j3c88mhk91ai60bsvsk7lchecutdei80"

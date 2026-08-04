@@ -55,14 +55,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T | null> {
   }
 }
 
-/** Named service areas with coordinates (drives the meeting-point map). */
-export async function fetchServiceAreas(): Promise<
-  { name: string; lat: number; lng: number; radius_km: number }[] | null
-> {
-  const result = await request<{ areas: { name: string; lat: number; lng: number; radius_km: number }[] }>(
-    '/v1/service-areas',
-  );
-  return result?.areas ?? null;
+/** Highlighted locations + the authoritative service-area polygon. */
+export async function fetchServiceAreas(): Promise<{
+  areas: { name: string; lat: number; lng: number }[];
+  polygon: [number, number][];
+} | null> {
+  return request<{
+    areas: { name: string; lat: number; lng: number }[];
+    polygon: [number, number][];
+  }>('/v1/service-areas');
 }
 
 /**

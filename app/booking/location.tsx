@@ -1,34 +1,59 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
-import MapView, { Circle, Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
+import Constants from 'expo-constants';
+import MapView, { Marker, PROVIDER_GOOGLE, Polygon, Region } from 'react-native-maps';
 import Svg, { Circle as SvgCircle, Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { Button } from '../../components/ui/Button';
 import { InfoBanner } from '../../components/ui/Misc';
-import { Area } from '../../lib/mock/data';
+import {
+  LocationPrimeSheet,
+  locationPermissionState,
+  wasLocationPrimed,
+} from '../../components/LocationPrime';
 import { useBookings } from '../../lib/store';
-import { DEFAULT_REGION, GeoArea, MOCK_AREAS, insideServiceArea, nearestArea } from '../../lib/geo';
+import {
+  DEFAULT_REGION,
+  GeoArea,
+  HIGHLIGHT_HIDE_DELTA,
+  MAP_BOUNDS,
+  MIN_ZOOM_LEVEL,
+  MOCK_AREAS,
+  MOCK_POLYGON,
+  insideServiceArea,
+  nearestArea,
+} from '../../lib/geo';
 import { colors, spacing, insetBottom } from '../../lib/theme';
 
-// Meeting point: real Google map with a draggable pin. The pin snaps its
-// label to the nearest named service area (pure math on coordinates fetched
-// once from /v1/service-areas — no per-interaction Google requests) and is
-// validated against the coverage circles; the server re-validates at booking
-// creation. The optional directions text rides along as meeting_point and
-// surfaces on the creator's job detail.
+// Meeting point. ONE polygon (the island's northern region) is the
+// authoritative inside/outside check — the 19 highlighted locations are
+// orientation markers and snap labels only. The server re-validates the pin
+// against the same polygon at booking creation.
+
+const LOGO = require('../../assets/design/snapt-icon.png');
+
+// Google tiles when a Maps key is baked into this binary; Apple tiles
+// otherwise (keyless dev builds) so the map is never a blank grid.
+const PROVIDER =
+  Platform.OS === 'android' ||
+  Boolean((Constants.expoConfig?.ios?.config as { googleMapsApiKey?: string } | undefined)?.googleMapsApiKey)
+    ? PROVIDER_GOOGLE
+    : undefined;
 
 export default function Location() {
   const router = useRouter();
   const { draft, setDraft } = useBookings();
 
   const [areas, setAreas] = React.useState<GeoArea[]>(MOCK_AREAS);
+  const [polygon, setPolygon] = React.useState<[number, number][]>(MOCK_POLYGON);
   React.useEffect(() => {
     import('../../lib/api').then(({ apiConfigured, fetchServiceAreas }) => {
       if (!apiConfigured) return;
-      fetchServiceAreas().then((real) => {
-        if (real && real.length > 0) setAreas(real);
+      fetchServiceAreas().then((result) => {
+        if (result?.areas?.length) setAreas(result.areas);
+        if (result?.polygon && result.polygon.length >= 3) setPolygon(result.polygon);
       });
     });
   }, []);
@@ -38,56 +63,125 @@ export default function Location() {
       ? { latitude: draft.meetingLat, longitude: draft.meetingLng }
       : null,
   );
-
   const snapped = React.useMemo(
     () => (pin ? nearestArea(areas, pin.latitude, pin.longitude) : null),
     [areas, pin],
   );
   const inside = React.useMemo(
-    () => (pin ? insideServiceArea(areas, pin.latitude, pin.longitude) : false),
-    [areas, pin],
+    () => (pin ? insideServiceArea(polygon, pin.latitude, pin.longitude) : false),
+    [polygon, pin],
   );
 
-  const place = (latitude: number, longitude: number) => {
-    setPin({ latitude, longitude });
-    const near = nearestArea(areas, latitude, longitude);
-    const ok = insideServiceArea(areas, latitude, longitude);
-    setDraft({
-      meetingLat: latitude,
-      meetingLng: longitude,
-      area: ok && near ? (near.area.name as Area) : null,
-    });
-  };
+  const place = React.useCallback(
+    (latitude: number, longitude: number) => {
+      setPin({ latitude, longitude });
+      const ok = insideServiceArea(polygon, latitude, longitude);
+      const near = nearestArea(areas, latitude, longitude);
+      setDraft({
+        meetingLat: latitude,
+        meetingLng: longitude,
+        area: ok && near ? near.area.name : null,
+      });
+    },
+    [areas, polygon, setDraft],
+  );
 
-  const pickArea = (a: GeoArea) => {
-    place(a.lat, a.lng);
-  };
+  // Highlight markers hide while zoomed in past the threshold or while the
+  // user is dragging their pin — the user's own pin always dominates.
+  const [zoomDelta, setZoomDelta] = React.useState(DEFAULT_REGION.latitudeDelta);
+  const [dragging, setDragging] = React.useState(false);
+  const showHighlights = zoomDelta >= HIGHLIGHT_HIDE_DELTA && !dragging;
 
   const mapRef = React.useRef<MapView>(null);
   const initialRegion: Region = pin
     ? { ...DEFAULT_REGION, latitude: pin.latitude, longitude: pin.longitude }
     : DEFAULT_REGION;
 
+  // --- Location permission: priming BEFORE the one-shot OS prompt ---------
+  const [primeVisible, setPrimeVisible] = React.useState(false);
+  const [settingsNudge, setSettingsNudge] = React.useState(false);
+  const [locBusy, setLocBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    // First in-person booking = the moment location genuinely helps, so the
+    // priming fires here (not at registration — see push-prime for the
+    // notifications prompt; they can never appear back to back this way).
+    (async () => {
+      try {
+        if (await wasLocationPrimed()) return;
+        if ((await locationPermissionState()) === 'undetermined') setPrimeVisible(true);
+      } catch {
+        // expo-location missing from this binary (pre-rebuild) — skip.
+      }
+    })();
+  }, []);
+
+  const centerOnDevice = async () => {
+    setLocBusy(true);
+    try {
+      const Location = await import('expo-location');
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const { latitude, longitude } = pos.coords;
+      if (insideServiceArea(polygon, latitude, longitude)) {
+        place(latitude, longitude);
+        mapRef.current?.animateToRegion(
+          { latitude, longitude, latitudeDelta: 0.02, longitudeDelta: 0.016 },
+          400,
+        );
+      } else {
+        // They're outside the region — keep the map on the service area and
+        // let them pick manually; placing an invalid pin helps no one.
+        mapRef.current?.animateToRegion(DEFAULT_REGION, 400);
+      }
+    } catch {
+      // position unavailable — manual placement still works
+    } finally {
+      setLocBusy(false);
+    }
+  };
+
+  const useMyLocation = async () => {
+    if (locBusy) return;
+    setSettingsNudge(false);
+    try {
+      const state = await locationPermissionState();
+      if (state === 'granted') return centerOnDevice();
+      if (state === 'undetermined') return setPrimeVisible(true);
+      setSettingsNudge(true); // denied forever → soft Settings pointer
+    } catch {
+      // expo-location not in this binary — button is a no-op pre-rebuild
+    }
+  };
+
   const canContinue = pin != null && inside && draft.area != null;
 
   return (
     <View style={styles.root}>
-      {/* Fixed header (never scrolls, always clear of the status bar) */}
       <ScreenHeader title="Where should we meet you?" />
 
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <Text style={styles.lead}>
-          Drop the pin where you want to meet — tap the map or drag the marker. We'll match it to
-          the nearest service area.
+          Drop the pin where you want to meet — tap the map or drag the marker. We serve the
+          island's northern region, shown in yellow.
         </Text>
 
-        {/* Real map — coverage circles + draggable pin */}
         <View style={styles.mapWrap}>
           <MapView
             ref={mapRef}
-            provider={PROVIDER_GOOGLE}
+            provider={PROVIDER}
             style={StyleSheet.absoluteFill}
             initialRegion={initialRegion}
+            minZoomLevel={MIN_ZOOM_LEVEL}
+            onMapReady={() => {
+              // Pan constrained to the region. Enforcement differs by
+              // platform: Android blocks the gesture at the edge; iOS
+              // (Google SDK) allows a rubber-band past it, then settles
+              // back inside.
+              mapRef.current?.setMapBoundaries(MAP_BOUNDS.northEast, MAP_BOUNDS.southWest);
+            }}
+            onRegionChangeComplete={(region) => setZoomDelta(region.latitudeDelta)}
             onPress={(e) => {
               const { latitude, longitude } = e.nativeEvent.coordinate;
               place(latitude, longitude);
@@ -95,21 +189,38 @@ export default function Location() {
             toolbarEnabled={false}
             showsPointsOfInterests={false}
           >
-            {areas.map((a) => (
-              <Circle
-                key={a.name}
-                center={{ latitude: a.lat, longitude: a.lng }}
-                radius={a.radius_km * 1000}
-                strokeColor="rgba(185,134,0,0.55)"
-                strokeWidth={1}
-                fillColor="rgba(255,184,0,0.14)"
-              />
-            ))}
+            {/* THE service area — one northern-region polygon (authoritative) */}
+            <Polygon
+              coordinates={polygon.map(([lat, lng]) => ({ latitude: lat, longitude: lng }))}
+              strokeColor="rgba(185,134,0,0.75)"
+              strokeWidth={2}
+              fillColor="rgba(255,184,0,0.14)"
+            />
+
+            {/* 19 highlighted locations — orientation only, logo at 50% */}
+            {showHighlights &&
+              areas.map((a) => (
+                <Marker
+                  key={a.name}
+                  coordinate={{ latitude: a.lat, longitude: a.lng }}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                  tracksViewChanges={false}
+                  zIndex={1}
+                  title={a.name}
+                >
+                  <Image source={LOGO} style={styles.highlightLogo} />
+                </Marker>
+              ))}
+
+            {/* The user's pin — always dominant */}
             {pin && (
               <Marker
                 coordinate={pin}
                 draggable
+                zIndex={10}
+                onDragStart={() => setDragging(true)}
                 onDragEnd={(e) => {
+                  setDragging(false);
                   const { latitude, longitude } = e.nativeEvent.coordinate;
                   place(latitude, longitude);
                 }}
@@ -117,15 +228,29 @@ export default function Location() {
               />
             )}
           </MapView>
-          <View style={styles.mapLegend} pointerEvents="none">
-            <View style={styles.legendRow}>
-              <View style={styles.legendSwatchIn} />
-              <Text style={styles.legendLabel}>Service area</Text>
-            </View>
-          </View>
+
+          <Pressable onPress={useMyLocation} style={styles.locateBtn}>
+            <Svg width={17} height={17} viewBox="0 0 24 24" fill="none">
+              <SvgCircle cx="12" cy="12" r="3" fill={colors.ink} />
+              <SvgCircle cx="12" cy="12" r="7.5" stroke={colors.ink} strokeWidth={1.8} />
+              <Path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3" stroke={colors.ink} strokeWidth={1.8} strokeLinecap="round" />
+            </Svg>
+            <Text style={styles.locateLabel}>{locBusy ? 'Locating…' : 'Use my location'}</Text>
+          </Pressable>
         </View>
 
-        {/* Snapped label / validation state */}
+        {settingsNudge && (
+          <View style={styles.settingsCard}>
+            <Text style={styles.settingsText}>
+              Location is off for Snapt in your phone's settings. No pressure — the map works
+              fine by hand. If you'd like us to find you automatically:
+            </Text>
+            <Pressable onPress={() => Linking.openSettings()}>
+              <Text style={styles.settingsLink}>Open Settings</Text>
+            </Pressable>
+          </View>
+        )}
+
         {pin && inside && snapped && (
           <View style={styles.snapRow}>
             <Svg width={17} height={17} viewBox="0 0 24 24" fill="none">
@@ -138,7 +263,7 @@ export default function Location() {
               <SvgCircle cx="12" cy="10" r="2.3" stroke={colors.yellowDark} strokeWidth={1.8} />
             </Svg>
             <Text style={styles.snapLabel}>
-              Meeting in <Text style={{ color: colors.yellowDark }}>{snapped.area.name}</Text>
+              Meeting near <Text style={{ color: colors.yellowDark }}>{snapped.area.name}</Text>
               {snapped.distanceKm > 0.3 ? ` · ${snapped.distanceKm.toFixed(1)} km from center` : ''}
             </Text>
           </View>
@@ -154,14 +279,12 @@ export default function Location() {
         {!pin && (
           <View style={styles.svcRow}>
             <Text style={styles.svcText}>
-              We currently serve the highlighted areas. Tap the map or pick an area below to place
-              your pin.
+              Tap anywhere inside the yellow zone to place your pin, or jump to a spot below.
             </Text>
           </View>
         )}
 
-        {/* Quick-pick chips re-center the pin on an area */}
-        <Text style={styles.sectionLabel}>Or pick a service area</Text>
+        <Text style={styles.sectionLabel}>Jump to a spot</Text>
         <View style={styles.areaWrap}>
           {areas.map((a) => {
             const active = draft.area === a.name;
@@ -169,9 +292,9 @@ export default function Location() {
               <Pressable
                 key={a.name}
                 onPress={() => {
-                  pickArea(a);
+                  place(a.lat, a.lng);
                   mapRef.current?.animateToRegion(
-                    { latitude: a.lat, longitude: a.lng, latitudeDelta: 0.06, longitudeDelta: 0.05 },
+                    { latitude: a.lat, longitude: a.lng, latitudeDelta: 0.03, longitudeDelta: 0.024 },
                     350,
                   );
                 }}
@@ -183,7 +306,6 @@ export default function Location() {
           })}
         </View>
 
-        {/* Optional directions — carries to the creator's job detail */}
         <Text style={styles.sectionLabel}>Directions for your creator (optional)</Text>
         <TextInput
           value={draft.meetingPoint}
@@ -196,7 +318,6 @@ export default function Location() {
         <View style={{ height: 24 }} />
       </ScrollView>
 
-      {/* Pinned footer — Continue never requires scrolling */}
       <View style={styles.footer}>
         <Button
           title="Continue"
@@ -206,6 +327,14 @@ export default function Location() {
           style={{ flex: 1 }}
         />
       </View>
+
+      <LocationPrimeSheet
+        visible={primeVisible}
+        onDone={(granted) => {
+          setPrimeVisible(false);
+          if (granted) centerOnDevice();
+        }}
+      />
     </View>
   );
 }
@@ -215,30 +344,40 @@ const styles = StyleSheet.create({
   body: { paddingHorizontal: spacing.screenX, paddingTop: 8 },
   lead: { fontSize: 13, color: colors.grey, lineHeight: 19, marginBottom: 12 },
   mapWrap: {
-    height: 260,
+    height: 300,
     borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: '#E5E2DB',
   },
-  mapLegend: {
+  highlightLogo: { width: 30, height: 30, opacity: 0.5 },
+  locateBtn: {
     position: 'absolute',
-    top: 10,
-    left: 10,
-    backgroundColor: 'rgba(255,255,255,0.94)',
-    borderRadius: 10,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
+    right: 10,
+    bottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 11,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
-  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendSwatchIn: {
-    width: 11,
-    height: 11,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255,184,0,0.4)',
-    borderWidth: 1.5,
-    borderColor: colors.yellowDark,
+  locateLabel: { fontSize: 11.5, fontWeight: '800', color: colors.ink },
+  settingsCard: {
+    marginTop: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#EFEDE7',
+    borderRadius: 12,
+    padding: 12,
   },
-  legendLabel: { fontSize: 10.5, fontWeight: '600', color: colors.ink },
+  settingsText: { fontSize: 12, color: colors.grey, lineHeight: 17.5 },
+  settingsLink: { fontSize: 12.5, fontWeight: '800', color: colors.yellowDark, marginTop: 8 },
   snapRow: {
     flexDirection: 'row',
     alignItems: 'center',

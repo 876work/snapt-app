@@ -64,13 +64,42 @@ export async function nearestArea(
 }
 
 /**
- * "Inside the service area" = within radius_km of ANY active area center
- * (circle union). Returns the snapped area when inside, null when outside.
+ * Authoritative service-area boundary: ONE polygon covering the island's
+ * northern region (app_config.service_area_polygon, [lat,lng] vertices,
+ * admin-editable). The named areas are labels/highlights only — validity
+ * depends solely on this polygon.
+ */
+export async function getServicePolygon(): Promise<[number, number][]> {
+  const { getConfig } = await import('./config.js');
+  const config = await getConfig();
+  const raw = config['service_area_polygon'];
+  return Array.isArray(raw) ? (raw as [number, number][]) : [];
+}
+
+/** Ray-casting point-in-polygon on [lat,lng] vertices. */
+export function pointInPolygon(lat: number, lng: number, polygon: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [latI, lngI] = polygon[i];
+    const [latJ, lngJ] = polygon[j];
+    const intersects =
+      lngI > lng !== lngJ > lng &&
+      lat < ((latJ - latI) * (lng - lngI)) / (lngJ - lngI) + latI;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * Inside the service area → the nearest named area (for the label);
+ * outside → null. An empty/missing polygon fails OPEN (no boundary
+ * configured = don't block bookings on a data problem).
  */
 export async function areaContaining(lat: number, lng: number): Promise<ServiceArea | null> {
+  const polygon = await getServicePolygon();
+  if (polygon.length >= 3 && !pointInPolygon(lat, lng, polygon)) return null;
   const nearest = await nearestArea(lat, lng);
-  if (!nearest) return null;
-  return nearest.distanceKm <= nearest.area.radius_km ? nearest.area : null;
+  return nearest?.area ?? null;
 }
 
 /**

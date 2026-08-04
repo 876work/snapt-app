@@ -47,10 +47,14 @@ export default function PushPrime() {
       </View>
       <View style={styles.body}>
         <Text style={styles.title}>Stay in the loop</Text>
-        <Text style={styles.sub}>
-          We'll only notify you about things that matter — booking confirmations, your creator on
-          the way, and your photos arriving. No spam.
-        </Text>
+        <Text style={styles.sub}>Here's exactly what we send — and nothing else:</Text>
+        <View style={styles.list}>
+          <Text style={styles.listItem}>✓  Booking confirmations</Text>
+          <Text style={styles.listItem}>✓  Your creator is on the way</Text>
+          <Text style={styles.listItem}>✓  Your photos & videos are ready</Text>
+          <Text style={styles.listItem}>✓  Session reminders</Text>
+        </View>
+        <Text style={styles.subSmall}>No promotions unless you opt in. No spam, ever.</Text>
         <Button title="Turn on notifications" arrow onPress={enable} />
         <Pressable onPress={finish}>
           <Text style={styles.notNow}>Not now</Text>
@@ -65,7 +69,10 @@ const styles = StyleSheet.create({
   art: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   body: { paddingHorizontal: 24, paddingBottom: 52, gap: 14 },
   title: { fontSize: 28, fontWeight: '800', letterSpacing: -0.8, color: colors.ink },
-  sub: { fontSize: 14.5, lineHeight: 21, color: colors.grey, marginBottom: 10 },
+  sub: { fontSize: 14.5, lineHeight: 21, color: colors.grey },
+  list: { gap: 7, paddingVertical: 4 },
+  listItem: { fontSize: 14.5, lineHeight: 20, color: colors.ink, fontWeight: '600' },
+  subSmall: { fontSize: 12.5, lineHeight: 18, color: colors.greyWarm, marginBottom: 10 },
   notNow: {
     fontSize: 14,
     fontWeight: '700',

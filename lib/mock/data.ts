@@ -56,8 +56,15 @@ export const CREATORS: Creator[] = [
   { id: 'sam', name: 'Sam R.', rating: 4.6, sessions: 42, specialties: ['Social', 'Events'], verified: false, distanceKm: 4.2, tint: '#E8863D', photo: require('../../assets/design/creators/sam.webp'), loc: 'Soufrière' },
 ];
 
-export const AREAS = ['Rodney Bay', 'Castries', 'Gros Islet', 'Marigot Bay', 'Soufrière'] as const;
-export type Area = (typeof AREAS)[number];
+// The 19 final highlighted locations (northern region). Area is a plain
+// string now — the canonical list lives in service_areas / lib/geo.ts.
+export const AREAS = [
+  'Cap Estate', 'Cas en Bas', 'Gros Islet', 'Rodney Bay', 'Monchy', 'Mongiraud',
+  'La Clery', 'Vigie', 'Balata', 'Babonneau', 'Garrand', 'Castries', 'Ciceron',
+  'Grande Riviere', 'Bisee', 'Bonneterre', 'Beausejour Phase 1&2', 'Pigeon Island',
+  'Cap Marquis',
+] as const;
+export type Area = string;
 
 export type BookingStatus =
   | 'pending'

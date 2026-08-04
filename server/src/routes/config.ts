@@ -11,8 +11,8 @@ export function registerConfigRoutes(app: FastifyInstance) {
   // snap + inside-area validation and the area chips. Public.
   app.get('/v1/service-areas', async (_request, reply) => {
     try {
-      const { getServiceAreas } = await import('../geo.js');
-      return { areas: await getServiceAreas() };
+      const { getServiceAreas, getServicePolygon } = await import('../geo.js');
+      return { areas: await getServiceAreas(), polygon: await getServicePolygon() };
     } catch (err) {
       return reply.code(500).send({ error: (err as Error).message });
     }
