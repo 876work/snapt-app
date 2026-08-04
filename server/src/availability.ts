@@ -30,8 +30,11 @@ export interface EligibleCreator {
   specialties: string[];
   verified: boolean;
   base_area: string | null;
+  service_radius_km: number | null;
   availability: Record<string, AvailabilityWindow[]>;
   blocked_dates: string[];
+  /** km from the booking's area/meeting point to the creator's base area. */
+  distance_km?: number | null;
 }
 
 interface BookingInterval {
@@ -53,13 +56,13 @@ function pad(n: number): string {
 export async function eligibleCreators(occasion: string, area?: string): Promise<EligibleCreator[]> {
   const { data, error } = await supabaseAdmin
     .from('creator_profiles')
-    .select('user_id, specialties, verified, base_area, availability, blocked_dates, profiles!inner(full_name, avatar_url)')
+    .select('user_id, specialties, verified, base_area, service_radius_km, availability, blocked_dates, profiles!inner(full_name, avatar_url)')
     .eq('vetting_status', 'approved')
     .eq('is_available', true)
     .contains('specialties', [occasion]);
   if (error) throw new Error(`eligibleCreators: ${error.message}`);
 
-  const creators = (data ?? []).map((row) => {
+  let creators: EligibleCreator[] = (data ?? []).map((row) => {
     const profile = row.profiles as unknown as { full_name: string; avatar_url: string | null };
     return {
       user_id: row.user_id as string,
@@ -68,10 +71,36 @@ export async function eligibleCreators(occasion: string, area?: string): Promise
       specialties: row.specialties as string[],
       verified: row.verified as boolean,
       base_area: row.base_area as string | null,
+      service_radius_km: row.service_radius_km != null ? Number(row.service_radius_km) : null,
       availability: (row.availability ?? {}) as Record<string, AvailabilityWindow[]>,
       blocked_dates: (row.blocked_dates ?? []) as string[],
     };
   });
+
+  // Real distance (seeded area coordinates, no Google calls): booking area →
+  // creator base area. A creator with a service radius set is EXCLUDED when
+  // the meeting area is beyond it (their setting is a promise about how far
+  // they travel); no radius set = no distance exclusion, matching §12's
+  // exclusion-not-ranking rule.
+  if (area) {
+    const { areaByName, haversineKm } = await import('./geo.js');
+    const target = await areaByName(area);
+    if (target) {
+      const areaCoords = new Map(
+        (await (await import('./geo.js')).getServiceAreas()).map((a) => [a.name, a]),
+      );
+      creators = creators.filter((c) => {
+        const home = c.base_area ? areaCoords.get(c.base_area) : undefined;
+        c.distance_km = home
+          ? Math.round(haversineKm(home.lat, home.lng, target.lat, target.lng) * 10) / 10
+          : null;
+        if (c.service_radius_km != null && c.distance_km != null) {
+          return c.distance_km <= c.service_radius_km;
+        }
+        return true;
+      });
+    }
+  }
   // Strike enforcement (§9): suspended/under-review creators are excluded
   // from matching entirely; tier-2 creators are deprioritized (sorted last)
   // for the active window.
@@ -116,6 +145,10 @@ export async function eligibleCreators(occasion: string, area?: string): Promise
     const pa = penalties.get(a.user_id) === 'deprioritized' ? 1 : 0;
     const pb = penalties.get(b.user_id) === 'deprioritized' ? 1 : 0;
     if (pa !== pb) return pa - pb;
+    // Nearest first when distances are known; area match as tiebreak.
+    if (a.distance_km != null && b.distance_km != null && a.distance_km !== b.distance_km) {
+      return a.distance_km - b.distance_km;
+    }
     if (area) return Number(b.base_area === area) - Number(a.base_area === area);
     return 0;
   });

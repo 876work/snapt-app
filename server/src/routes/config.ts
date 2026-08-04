@@ -7,6 +7,17 @@ import { supabaseAdmin } from '../supabase.js';
  * "configurable, admin-editable later" requirement.
  */
 export function registerConfigRoutes(app: FastifyInstance) {
+  // Named service areas with coordinates — drives the meeting-point map's
+  // snap + inside-area validation and the area chips. Public.
+  app.get('/v1/service-areas', async (_request, reply) => {
+    try {
+      const { getServiceAreas } = await import('../geo.js');
+      return { areas: await getServiceAreas() };
+    } catch (err) {
+      return reply.code(500).send({ error: (err as Error).message });
+    }
+  });
+
   app.get('/v1/config', async (_request, reply) => {
     const { data, error } = await supabaseAdmin
       .from('app_config')

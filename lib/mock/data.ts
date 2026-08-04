@@ -74,6 +74,8 @@ export interface Booking {
   creatorId: string | null;
   area: Area | null;
   meetingPoint?: string;
+  meetingLat?: number | null;
+  meetingLng?: number | null;
   scheduledAt: string; // ISO
   durationHours: number;
   mediaKind: MediaKind;

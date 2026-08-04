@@ -55,6 +55,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T | null> {
   }
 }
 
+/** Named service areas with coordinates (drives the meeting-point map). */
+export async function fetchServiceAreas(): Promise<
+  { name: string; lat: number; lng: number; radius_km: number }[] | null
+> {
+  const result = await request<{ areas: { name: string; lat: number; lng: number; radius_km: number }[] }>(
+    '/v1/service-areas',
+  );
+  return result?.areas ?? null;
+}
+
 /**
  * Public business config (no auth). The XCD display peg lives ONLY in the
  * server's app_config (`xcd_per_usd`, admin-editable) — this pulls it at
@@ -110,6 +120,8 @@ interface ServerCreator {
   verified: boolean;
   base_area: string | null;
   avatar_url: string | null;
+  /** Real km from the booking area (eligible endpoint only). */
+  distance_km?: number | null;
 }
 
 /**
@@ -152,7 +164,7 @@ export async function fetchEligibleCreators(occasion: string, area?: string | nu
     sessions: 0,
     specialties: c.specialties,
     verified: c.verified,
-    distanceKm: null,
+    distanceKm: c.distance_km ?? null,
     tint: AVATAR_TINTS[i % AVATAR_TINTS.length],
     photo: c.avatar_url ? { uri: c.avatar_url } : null,
     loc: c.base_area ?? '',
@@ -166,6 +178,8 @@ interface ServerBooking {
   creator_id: string | null;
   area: string | null;
   meeting_point: string | null;
+  meeting_lat: number | null;
+  meeting_lng: number | null;
   scheduled_at: string | null;
   duration_hours: number | null;
   media_kind: Booking['mediaKind'];
@@ -709,6 +723,8 @@ export async function createBookingApi(
         duration_hours: draft.durationHours,
         area: draft.area,
         meeting_point: draft.meetingPoint || undefined,
+        meeting_lat: draft.meetingLat ?? undefined,
+        meeting_lng: draft.meetingLng ?? undefined,
         date: draft.date,
         time: draft.time,
         // A tapped creator (server uuid, from /v1/creators/eligible) is the
@@ -737,6 +753,8 @@ export async function createBookingApi(
         creatorId: b.creator_id ?? draft.creatorId,
         area: (b.area as Booking['area']) ?? draft.area,
         meetingPoint: b.meeting_point ?? undefined,
+        meetingLat: b.meeting_lat,
+        meetingLng: b.meeting_lng,
         scheduledAt: b.scheduled_at ?? new Date().toISOString(),
         durationHours: b.duration_hours ?? draft.durationHours ?? 1,
         mediaKind: b.media_kind,

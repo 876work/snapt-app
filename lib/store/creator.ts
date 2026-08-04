@@ -14,6 +14,11 @@ export interface JobOffer {
   /** ISO expiry of the live offer window (API mode) — drives a ticking countdown. */
   expiresAt?: string;
   type: 'in-person' | 'remote';
+  /** Exact meeting pin (API mode) — drives the job-detail map. */
+  meetingLat?: number | null;
+  meetingLng?: number | null;
+  /** Client's optional directions text ("blue gate by the fish market"). */
+  directions?: string | null;
 }
 
 export const JOB_OFFERS: JobOffer[] = [

@@ -33,6 +33,8 @@ interface CreateBookingBody {
   addons?: { rush?: boolean; extra_photos?: boolean; extra_revisions?: number };
   area?: string;
   meeting_point?: string;
+  meeting_lat?: number;
+  meeting_lng?: number;
   date?: string; // YYYY-MM-DD
   time?: string; // HH:MM
   creator_id?: string;
@@ -179,6 +181,17 @@ export function registerBookingRoutes(app: FastifyInstance) {
       }
     }
 
+    // Server-enforced service-area check: the app validates the pin too,
+    // but the boundary decision is authoritative here (circle-union around
+    // the active service_areas rows).
+    if (type === 'in_person' && body.meeting_lat != null && body.meeting_lng != null) {
+      const { areaContaining } = await import('../geo.js');
+      const inside = await areaContaining(body.meeting_lat, body.meeting_lng);
+      if (!inside) {
+        return reply.code(400).send({ error: 'That meeting point is outside our current service area.' });
+      }
+    }
+
     const config = await getConfig();
     const clientFeeRate = (config['client_service_fee_rate'] as number) ?? 0.08;
     // app_config.xcd_per_usd is the single source of truth for the peg
@@ -199,6 +212,12 @@ export function registerBookingRoutes(app: FastifyInstance) {
         duration_hours: durationHours,
         area: body.area ?? null,
         meeting_point: type === 'in_person' ? body.meeting_point ?? null : null,
+        // Only reference the pin columns when the app sent a pin — keeps
+        // this insert working on a database that hasn't run the
+        // service_areas migration yet (old binaries never send these).
+        ...(type === 'in_person' && body.meeting_lat != null && body.meeting_lng != null
+          ? { meeting_lat: body.meeting_lat, meeting_lng: body.meeting_lng }
+          : {}),
         scheduled_at: scheduledAtIso,
         status: 'pending',
         price_usd: total,

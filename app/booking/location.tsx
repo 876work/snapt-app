@@ -2,50 +2,131 @@ import React from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
-import Svg, { Circle, Path } from 'react-native-svg';
+import MapView, { Circle, Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
+import Svg, { Circle as SvgCircle, Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { Button } from '../../components/ui/Button';
 import { InfoBanner } from '../../components/ui/Misc';
-import { AREAS } from '../../lib/mock/data';
+import { Area } from '../../lib/mock/data';
 import { useBookings } from '../../lib/store';
+import { DEFAULT_REGION, GeoArea, MOCK_AREAS, insideServiceArea, nearestArea } from '../../lib/geo';
 import { colors, spacing, insetBottom } from '../../lib/theme';
+
+// Meeting point: real Google map with a draggable pin. The pin snaps its
+// label to the nearest named service area (pure math on coordinates fetched
+// once from /v1/service-areas — no per-interaction Google requests) and is
+// validated against the coverage circles; the server re-validates at booking
+// creation. The optional directions text rides along as meeting_point and
+// surfaces on the creator's job detail.
 
 export default function Location() {
   const router = useRouter();
   const { draft, setDraft } = useBookings();
-  const [query, setQuery] = React.useState(draft.meetingPoint);
 
-  // Area snapping is simulated: matching text against known service areas.
-  // Real geocoding + polygon check is Phase 1 backend work.
-  const matchedArea = React.useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return null;
-    return AREAS.find((a) => a.toLowerCase().includes(q) || q.includes(a.toLowerCase())) ?? null;
-  }, [query]);
-  const outside = query.trim().length > 3 && !matchedArea && !draft.area;
+  const [areas, setAreas] = React.useState<GeoArea[]>(MOCK_AREAS);
+  React.useEffect(() => {
+    import('../../lib/api').then(({ apiConfigured, fetchServiceAreas }) => {
+      if (!apiConfigured) return;
+      fetchServiceAreas().then((real) => {
+        if (real && real.length > 0) setAreas(real);
+      });
+    });
+  }, []);
+
+  const [pin, setPin] = React.useState<{ latitude: number; longitude: number } | null>(
+    draft.meetingLat != null && draft.meetingLng != null
+      ? { latitude: draft.meetingLat, longitude: draft.meetingLng }
+      : null,
+  );
+
+  const snapped = React.useMemo(
+    () => (pin ? nearestArea(areas, pin.latitude, pin.longitude) : null),
+    [areas, pin],
+  );
+  const inside = React.useMemo(
+    () => (pin ? insideServiceArea(areas, pin.latitude, pin.longitude) : false),
+    [areas, pin],
+  );
+
+  const place = (latitude: number, longitude: number) => {
+    setPin({ latitude, longitude });
+    const near = nearestArea(areas, latitude, longitude);
+    const ok = insideServiceArea(areas, latitude, longitude);
+    setDraft({
+      meetingLat: latitude,
+      meetingLng: longitude,
+      area: ok && near ? (near.area.name as Area) : null,
+    });
+  };
+
+  const pickArea = (a: GeoArea) => {
+    place(a.lat, a.lng);
+  };
+
+  const mapRef = React.useRef<MapView>(null);
+  const initialRegion: Region = pin
+    ? { ...DEFAULT_REGION, latitude: pin.latitude, longitude: pin.longitude }
+    : DEFAULT_REGION;
+
+  const canContinue = pin != null && inside && draft.area != null;
 
   return (
     <View style={styles.root}>
+      {/* Fixed header (never scrolls, always clear of the status bar) */}
       <ScreenHeader title="Where should we meet you?" />
+
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-        <View style={styles.searchRow}>
-          <Svg width={19} height={19} viewBox="0 0 24 24" fill="none">
-            <Circle cx="11" cy="11" r="7" stroke={colors.grey} strokeWidth={1.8} />
-            <Path d="M16 16l4 4" stroke={colors.grey} strokeWidth={1.8} strokeLinecap="round" />
-          </Svg>
-          <TextInput
-            value={query}
-            onChangeText={(t) => {
-              setQuery(t);
-              setDraft({ meetingPoint: t });
+        <Text style={styles.lead}>
+          Drop the pin where you want to meet — tap the map or drag the marker. We'll match it to
+          the nearest service area.
+        </Text>
+
+        {/* Real map — coverage circles + draggable pin */}
+        <View style={styles.mapWrap}>
+          <MapView
+            ref={mapRef}
+            provider={PROVIDER_GOOGLE}
+            style={StyleSheet.absoluteFill}
+            initialRegion={initialRegion}
+            onPress={(e) => {
+              const { latitude, longitude } = e.nativeEvent.coordinate;
+              place(latitude, longitude);
             }}
-            placeholder="Search for an address in your service area."
-            placeholderTextColor="#9A9A9A"
-            style={styles.searchInput}
-          />
+            toolbarEnabled={false}
+            showsPointsOfInterests={false}
+          >
+            {areas.map((a) => (
+              <Circle
+                key={a.name}
+                center={{ latitude: a.lat, longitude: a.lng }}
+                radius={a.radius_km * 1000}
+                strokeColor="rgba(185,134,0,0.55)"
+                strokeWidth={1}
+                fillColor="rgba(255,184,0,0.14)"
+              />
+            ))}
+            {pin && (
+              <Marker
+                coordinate={pin}
+                draggable
+                onDragEnd={(e) => {
+                  const { latitude, longitude } = e.nativeEvent.coordinate;
+                  place(latitude, longitude);
+                }}
+                pinColor={inside ? '#FFB800' : '#D64535'}
+              />
+            )}
+          </MapView>
+          <View style={styles.mapLegend} pointerEvents="none">
+            <View style={styles.legendRow}>
+              <View style={styles.legendSwatchIn} />
+              <Text style={styles.legendLabel}>Service area</Text>
+            </View>
+          </View>
         </View>
 
-        {(matchedArea || draft.area) && (
+        {/* Snapped label / validation state */}
+        {pin && inside && snapped && (
           <View style={styles.snapRow}>
             <Svg width={17} height={17} viewBox="0 0 24 24" fill="none">
               <Path
@@ -54,16 +135,15 @@ export default function Location() {
                 strokeWidth={1.8}
                 strokeLinejoin="round"
               />
-              <Circle cx="12" cy="10" r="2.3" stroke={colors.yellowDark} strokeWidth={1.8} />
+              <SvgCircle cx="12" cy="10" r="2.3" stroke={colors.yellowDark} strokeWidth={1.8} />
             </Svg>
             <Text style={styles.snapLabel}>
-              You've selected:{' '}
-              <Text style={{ color: colors.yellowDark }}>{matchedArea ?? draft.area}</Text>
+              Meeting in <Text style={{ color: colors.yellowDark }}>{snapped.area.name}</Text>
+              {snapped.distanceKm > 0.3 ? ` · ${snapped.distanceKm.toFixed(1)} km from center` : ''}
             </Text>
           </View>
         )}
-
-        {outside && (
+        {pin && !inside && (
           <View style={{ marginTop: 12 }}>
             <InfoBanner
               tone="error"
@@ -71,52 +151,58 @@ export default function Location() {
             />
           </View>
         )}
+        {!pin && (
+          <View style={styles.svcRow}>
+            <Text style={styles.svcText}>
+              We currently serve the highlighted areas. Tap the map or pick an area below to place
+              your pin.
+            </Text>
+          </View>
+        )}
 
-        <View style={styles.svcRow}>
-          <Text style={styles.svcText}>We currently serve select areas nearby. More areas coming soon.</Text>
-        </View>
-
+        {/* Quick-pick chips re-center the pin on an area */}
         <Text style={styles.sectionLabel}>Or pick a service area</Text>
         <View style={styles.areaWrap}>
-          {AREAS.map((a) => {
-            const active = draft.area === a;
+          {areas.map((a) => {
+            const active = draft.area === a.name;
             return (
               <Pressable
-                key={a}
-                onPress={() => setDraft({ area: a })}
+                key={a.name}
+                onPress={() => {
+                  pickArea(a);
+                  mapRef.current?.animateToRegion(
+                    { latitude: a.lat, longitude: a.lng, latitudeDelta: 0.06, longitudeDelta: 0.05 },
+                    350,
+                  );
+                }}
                 style={[styles.areaChip, active && styles.areaChipActive]}
               >
-                <Text style={[styles.areaChipLabel, active && { color: colors.ink }]}>{a}</Text>
+                <Text style={[styles.areaChipLabel, active && { color: colors.ink }]}>{a.name}</Text>
               </Pressable>
             );
           })}
         </View>
 
-        {/* Map placeholder — Google Maps needs a production key (§2) */}
-        <View style={styles.map}>
-          <View style={styles.mapLegend}>
-            <View style={styles.legendRow}>
-              <View style={styles.legendSwatchIn} />
-              <Text style={styles.legendLabel}>Service area</Text>
-            </View>
-            <View style={[styles.legendRow, { marginTop: 3 }]}>
-              <View style={styles.legendSwatchOut} />
-              <Text style={styles.legendLabel}>Outside service area</Text>
-            </View>
-          </View>
-          <Text style={styles.mapNote}>Map preview — production Maps key pending</Text>
-        </View>
+        {/* Optional directions — carries to the creator's job detail */}
+        <Text style={styles.sectionLabel}>Directions for your creator (optional)</Text>
+        <TextInput
+          value={draft.meetingPoint}
+          onChangeText={(t) => setDraft({ meetingPoint: t })}
+          placeholder="e.g. Blue gate opposite the fish market"
+          placeholderTextColor="#9A9A9A"
+          style={styles.directionsInput}
+          multiline
+        />
         <View style={{ height: 24 }} />
       </ScrollView>
+
+      {/* Pinned footer — Continue never requires scrolling */}
       <View style={styles.footer}>
         <Button
           title="Continue"
           arrow
-          disabled={!draft.area && !matchedArea}
-          onPress={() => {
-            if (!draft.area && matchedArea) setDraft({ area: matchedArea });
-            router.push('/booking/creator');
-          }}
+          disabled={!canContinue}
+          onPress={() => router.push('/booking/creator')}
           style={{ flex: 1 }}
         />
       </View>
@@ -127,18 +213,32 @@ export default function Location() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.offWhite },
   body: { paddingHorizontal: spacing.screenX, paddingTop: 8 },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    height: 52,
+  lead: { fontSize: 13, color: colors.grey, lineHeight: 19, marginBottom: 12 },
+  mapWrap: {
+    height: 260,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#E5E2DB',
   },
-  searchInput: { flex: 1, fontSize: 14, color: colors.ink },
+  mapLegend: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+  },
+  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendSwatchIn: {
+    width: 11,
+    height: 11,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,184,0,0.4)',
+    borderWidth: 1.5,
+    borderColor: colors.yellowDark,
+  },
+  legendLabel: { fontSize: 10.5, fontWeight: '600', color: colors.ink },
   snapRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -152,7 +252,7 @@ const styles = StyleSheet.create({
   },
   snapLabel: { fontSize: 12.5, fontWeight: '700', color: colors.ink },
   svcRow: {
-    marginTop: 14,
+    marginTop: 12,
     backgroundColor: colors.yellowSoft,
     borderWidth: 1,
     borderColor: '#F4E7C0',
@@ -181,36 +281,18 @@ const styles = StyleSheet.create({
   },
   areaChipActive: { borderColor: colors.yellow, backgroundColor: colors.yellowSoft },
   areaChipLabel: { fontSize: 12.5, fontWeight: '700', color: colors.grey },
-  map: {
-    height: 240,
-    borderRadius: 16,
-    backgroundColor: '#E5E2DB',
-    marginTop: 16,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
+  directionsInput: {
+    minHeight: 64,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 14,
+    backgroundColor: '#fff',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: colors.ink,
+    textAlignVertical: 'top',
   },
-  mapLegend: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    backgroundColor: 'rgba(255,255,255,0.94)',
-    borderRadius: 10,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-  },
-  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendSwatchIn: {
-    width: 11,
-    height: 11,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255,184,0,0.4)',
-    borderWidth: 1.5,
-    borderColor: colors.yellowDark,
-  },
-  legendSwatchOut: { width: 11, height: 11, borderRadius: 3, backgroundColor: 'rgba(26,26,26,0.28)' },
-  legendLabel: { fontSize: 10.5, fontWeight: '600', color: colors.ink },
-  mapNote: { fontSize: 12, fontWeight: '600', color: colors.greyWarm },
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,

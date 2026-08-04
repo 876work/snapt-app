@@ -75,7 +75,11 @@ export interface BookingDraft {
   durationHours: number | null;
   mediaKind: MediaKind;
   area: Area | null;
+  /** Optional human directions text ("blue gate by the fish market"). */
   meetingPoint: string;
+  /** Exact pin position from the meeting-point map. */
+  meetingLat: number | null;
+  meetingLng: number | null;
   creatorId: string | null;
 }
 
@@ -88,6 +92,8 @@ const emptyDraft: BookingDraft = {
   mediaKind: 'photo',
   area: null,
   meetingPoint: '',
+  meetingLat: null,
+  meetingLng: null,
   creatorId: null,
 };
 

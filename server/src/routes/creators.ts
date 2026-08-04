@@ -285,6 +285,8 @@ export function registerCreatorRoutes(app: FastifyInstance) {
           specialties: c.specialties,
           verified: c.verified,
           base_area: c.base_area,
+          // Real km, booking area → creator base area (seeded coordinates).
+          distance_km: c.distance_km ?? null,
         })),
       };
     },

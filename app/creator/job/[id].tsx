@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
 import { Button } from '../../../components/ui/Button';
+import { MeetingMap } from '../../../components/ui/MeetingMap';
 import { SlideToConfirm } from '../../../components/ui/SlideToConfirm';
 import { useAuth } from '../../../lib/store';
 import { apiConfigured } from '../../../lib/api';
@@ -232,18 +233,21 @@ export default function CreatorJob() {
         )}
 
         {stage === 'onway' && (
-          <View style={styles.map}>
-            <View style={styles.mapLegend}>
-              <View style={styles.legendRow}>
-                <View style={[styles.legendDot, { backgroundColor: colors.ink }]} />
-                <Text style={styles.legendLabel}>You</Text>
-              </View>
-              <View style={[styles.legendRow, { marginTop: 3 }]}>
-                <View style={[styles.legendDot, { backgroundColor: colors.yellow, borderWidth: 1.5, borderColor: colors.ink }]} />
-                <Text style={styles.legendLabel}>Meeting point</Text>
-              </View>
+          <>
+            <View style={{ marginTop: 14 }}>
+              <MeetingMap
+                lat={job.meetingLat}
+                lng={job.meetingLng}
+                label={`Meeting point · ${job.loc}`}
+              />
             </View>
-          </View>
+            {!!job.directions && (
+              <View style={styles.noteCard}>
+                <Text style={styles.noteTitle}>Directions from the client</Text>
+                <Text style={styles.noteBody}>{job.directions}</Text>
+              </View>
+            )}
+          </>
         )}
 
         {stage === 'checkin' && (
