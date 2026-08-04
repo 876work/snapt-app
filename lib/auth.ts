@@ -268,6 +268,15 @@ export async function signOutEverywhere(): Promise<void> {
   } catch {
     // never block sign-out
   }
+  // Clear the Google SDK's cached account too, or the next "Continue with
+  // Google" silently re-authenticates the same user with no account picker
+  // — signing out would look broken and account switching impossible.
+  try {
+    const { GoogleSignin } = await import('@react-native-google-signin/google-signin');
+    await GoogleSignin.signOut();
+  } catch {
+    // not signed in with Google / module unavailable — never block sign-out
+  }
   if (supabase) await supabase.auth.signOut();
   useAuth.getState().signOut();
 }
