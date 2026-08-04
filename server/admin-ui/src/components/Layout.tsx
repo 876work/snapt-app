@@ -1,0 +1,92 @@
+import { useState } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { useAuth, type Role } from '../auth';
+import { GlobalSearch } from './GlobalSearch';
+import { Icon } from './icons';
+import { Pill } from './ui';
+
+interface NavItem {
+  to: string;
+  label: string;
+  icon: string;
+  roles: Role[];
+}
+
+// Sidebar order mirrors how the business is run day to day.
+const NAV: NavItem[] = [
+  { to: '/', label: 'Today', icon: 'today', roles: ['admin', 'support'] },
+  { to: '/bookings', label: 'Bookings', icon: 'bookings', roles: ['admin', 'support'] },
+  { to: '/users', label: 'Users', icon: 'users', roles: ['admin', 'support'] },
+  { to: '/creators', label: 'Creators', icon: 'creators', roles: ['admin', 'support'] },
+  { to: '/payouts', label: 'Payouts', icon: 'payouts', roles: ['admin', 'support'] },
+  { to: '/disputes', label: 'Disputes', icon: 'disputes', roles: ['admin', 'support'] },
+  { to: '/moderation', label: 'Moderation', icon: 'moderation', roles: ['admin', 'moderator'] },
+  { to: '/config', label: 'Config', icon: 'config', roles: ['admin'] },
+  { to: '/legal', label: 'Legal', icon: 'legal', roles: ['admin'] },
+  { to: '/analytics', label: 'Analytics', icon: 'analytics', roles: ['admin', 'support'] },
+  { to: '/audit', label: 'Audit log', icon: 'audit', roles: ['admin', 'support'] },
+];
+
+export function navItemsFor(role: Role): NavItem[] {
+  return NAV.filter((item) => item.roles.includes(role));
+}
+
+export function Layout() {
+  const { identity, logout } = useAuth();
+  const [drawer, setDrawer] = useState(false);
+  const location = useLocation();
+
+  if (!identity) return null;
+  const items = navItemsFor(identity.role);
+
+  return (
+    <div className="shell">
+      <aside className={`sidebar${drawer ? ' open' : ''}`}>
+        <div className="logo">
+          <span className="dot">S</span> Snapt Admin
+        </div>
+        <nav className="nav">
+          {items.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === '/'}
+              className={({ isActive }) => (isActive ? 'active' : '')}
+              onClick={() => setDrawer(false)}
+            >
+              <Icon name={item.icon} />
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+        <div className="foot">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ color: '#f2f2f2', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {identity.name || identity.email || 'Signed in'}
+            </span>
+            <Pill status={identity.role} />
+          </div>
+          <button
+            className="btn ghost"
+            style={{ width: '100%', color: '#c9c9c9', borderColor: 'rgba(255,255,255,0.2)' }}
+            onClick={logout}
+          >
+            Sign out
+          </button>
+        </div>
+      </aside>
+      {drawer && <div className="scrim" onClick={() => setDrawer(false)} />}
+      <div className="main">
+        <header className="topbar">
+          <button className="menu-btn" onClick={() => setDrawer(true)} aria-label="Open menu">
+            <Icon name="menu" />
+          </button>
+          {identity.role !== 'moderator' && <GlobalSearch key={location.pathname} />}
+        </header>
+        <main className="content">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+}

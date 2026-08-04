@@ -350,7 +350,7 @@ export function registerCreatorRoutes(app: FastifyInstance) {
   app.get<{ Params: { userId: string } }>(
     '/v1/admin/creators/:userId/strikes',
     async (request, reply) => {
-      const adminId = await requireAdmin(request, reply);
+      const adminId = await requireAdmin(request, reply, ['admin', 'support']);
       if (!adminId) return;
       const { data, error } = await supabaseAdmin
         .from('strikes')

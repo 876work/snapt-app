@@ -78,7 +78,7 @@ export function registerPolicyRoutes(app: FastifyInstance) {
   // Admin: version history, new draft version, explicit publish (§14 —
   // edits never go live until published).
   app.get('/v1/admin/policies', async (request, reply) => {
-    const adminId = await requireAdmin(request, reply);
+    const adminId = await requireAdmin(request, reply, ['admin', 'support']);
     if (!adminId) return;
     const { data } = await supabaseAdmin
       .from('policy_documents')

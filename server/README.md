@@ -1,4 +1,23 @@
-# Snapt API server (Phase 0)
+# Snapt API server
+
+## Admin portal (rebuild in progress)
+
+The portal is a React SPA in `admin-ui/`, served by this server at `/admin`.
+The pre-rebuild single-page portal remains at `/admin/legacy` while sections
+migrate one at a time; if `admin-ui/dist` is missing at boot, `/admin` falls
+back to the legacy page so the portal never 404s.
+
+- `npm run build` compiles the server **and** builds the UI (Render's build
+  command needs no change).
+- Local dev: `npm run dev` here, plus `npm --prefix admin-ui run dev` for a
+  hot-reloading UI at the Vite port (proxies `/v1` to :4000) — or just rebuild
+  `admin-ui` and use `/admin`.
+- Admin roles (`admin_users.role`, enforced per-route in `admin-auth.ts`):
+  `admin` = everything; `support` = view/refund/notes, no payout release or
+  config; `moderator` = moderation queue only.
+- Safety alerts now carry explicit acknowledgement (`acknowledged_by/at`),
+  separate from resolution.
+
 
 Node/TypeScript base API per handoff §3 Phase 0: Supabase-backed, Stripe +
 Stripe Connect scaffolding, JWT auth. All financially-consequential logic

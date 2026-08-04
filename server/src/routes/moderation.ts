@@ -173,7 +173,7 @@ export function registerModerationRoutes(app: FastifyInstance) {
   app.post<{ Params: { userId: string }; Body: { reason?: string } }>(
     '/v1/admin/users/:userId/unsuspend',
     async (request, reply) => {
-      const adminId = await requireAdmin(request, reply);
+      const adminId = await requireAdmin(request, reply, ['admin', 'moderator']);
       if (!adminId) return;
       const reason = request.body?.reason?.trim();
       if (!reason) return reply.code(400).send({ error: 'reason is required' });
@@ -227,7 +227,7 @@ export function registerModerationRoutes(app: FastifyInstance) {
 
   // Admin moderation queue: severity-sorted reports + pending portfolio.
   app.get('/v1/admin/moderation', async (request, reply) => {
-    const adminId = await requireAdmin(request, reply);
+    const adminId = await requireAdmin(request, reply, ['admin', 'moderator']);
     if (!adminId) return;
     const { data: reports } = await supabaseAdmin
       .from('content_reports')
@@ -263,10 +263,10 @@ export function registerModerationRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Body: { action?: string; severity?: string } }>(
     '/v1/admin/reports/:id',
     async (request, reply) => {
-      const adminId = await requireAdmin(request, reply);
+      const adminId = await requireAdmin(request, reply, ['admin', 'moderator']);
       if (!adminId) return;
       const { action, severity } = request.body ?? {};
-      const patch: Record<string, unknown> = { reviewed_by: adminId === 'bootstrap-token' ? null : adminId, reviewed_at: new Date().toISOString() };
+      const patch: Record<string, unknown> = { reviewed_by: adminId.id === 'bootstrap-token' ? null : adminId.id, reviewed_at: new Date().toISOString() };
       if (severity && ['critical', 'high', 'medium', 'low'].includes(severity)) patch.severity = severity;
       if (action === 'actioned' || action === 'dismissed') patch.status = action;
       await supabaseAdmin.from('content_reports').update(patch).eq('id', request.params.id);
@@ -277,7 +277,7 @@ export function registerModerationRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Body: { decision?: 'approved' | 'rejected' } }>(
     '/v1/admin/portfolio/:id',
     async (request, reply) => {
-      const adminId = await requireAdmin(request, reply);
+      const adminId = await requireAdmin(request, reply, ['admin', 'moderator']);
       if (!adminId) return;
       const decision = request.body?.decision;
       if (decision !== 'approved' && decision !== 'rejected') {
