@@ -161,12 +161,26 @@ export function initAuth(): void {
             });
           }
         });
-      // Creator status is server-authoritative (vetting moved server-side in
-      // Phase 1) — hydrate it so the creator app unlocks for real creators.
+      // Creator status is server-authoritative — fetched on every launch and
+      // sign-in; the client never decides or caches its way into creator
+      // mode. Selected mode persists across relaunches but is demoted to
+      // client whenever the server status is anything but approved.
       import('./api').then(({ apiConfigured, fetchCreatorStatus }) => {
         if (!apiConfigured) return;
-        fetchCreatorStatus().then((status) => {
-          if (status) useAuth.getState().setCreatorStatus(status);
+        Promise.all([
+          fetchCreatorStatus(),
+          import('@react-native-async-storage/async-storage').then(({ default: AsyncStorage }) =>
+            AsyncStorage.getItem('snapt.mode').catch(() => null),
+          ),
+        ]).then(([status, savedMode]) => {
+          const auth = useAuth.getState();
+          if (status) auth.setCreatorStatus(status);
+          const effective = status ?? auth.creatorStatus;
+          if (savedMode === 'creator' && effective === 'approved') {
+            auth.setMode('creator');
+          } else if (auth.mode === 'creator' && effective !== 'approved') {
+            auth.setMode('client');
+          }
         });
       });
       // Keep this device's push token bound to the signed-in account

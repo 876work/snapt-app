@@ -81,21 +81,23 @@ export default function CreatorLayout() {
   const creatorStatus = useAuth((s) => s.creatorStatus);
   const pathname = usePathname();
 
-  // Status gate for the whole creator shell (previously absent — anyone
-  // opening /creator/apply got the full tab bar and could wander into
-  // Jobs/Schedule/Earnings unapproved):
-  //   none    → application flow only
-  //   review  → pending status screen only
-  //   approved → the real creator app (apply/pending bounce to it)
-  const openRoutes = ['/creator/apply', '/creator/pending'];
-  if (creatorStatus !== 'approved' && !openRoutes.includes(pathname)) {
-    return <Redirect href={creatorStatus === 'review' ? '/creator/pending' : '/creator/apply'} />;
-  }
-  if (creatorStatus === 'approved' && openRoutes.includes(pathname)) {
+  // Status gate for the whole creator shell — every route branches off the
+  // single server-side status. Non-approved users only ever see the screen
+  // for their state; approved users get bounced off the status screens.
+  const HOME_FOR: Record<string, string> = {
+    not_applied: '/creator/apply',
+    in_progress: '/creator/apply',
+    pending_review: '/creator/pending',
+    rejected: '/creator/rejected',
+    suspended: '/creator/suspended',
+    approved: '/creator',
+  };
+  const statusHome = HOME_FOR[creatorStatus] ?? '/creator/apply';
+  const openRoutes = ['/creator/apply', '/creator/pending', '/creator/rejected', '/creator/suspended'];
+  if (creatorStatus !== 'approved') {
+    if (pathname !== statusHome) return <Redirect href={statusHome} />;
+  } else if (openRoutes.includes(pathname)) {
     return <Redirect href="/creator" />;
-  }
-  if (creatorStatus === 'none' && pathname === '/creator/pending') {
-    return <Redirect href="/creator/apply" />;
   }
 
   return (
@@ -114,6 +116,8 @@ export default function CreatorLayout() {
       <Tabs.Screen name="portfolio" options={{ href: null }} />
       <Tabs.Screen name="apply" options={{ href: null }} />
       <Tabs.Screen name="pending" options={{ href: null }} />
+      <Tabs.Screen name="rejected" options={{ href: null }} />
+      <Tabs.Screen name="suspended" options={{ href: null }} />
       <Tabs.Screen name="job/[id]" options={{ href: null }} />
     </Tabs>
   );

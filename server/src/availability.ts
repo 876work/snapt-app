@@ -55,6 +55,7 @@ export async function eligibleCreators(occasion: string, area?: string): Promise
     .from('creator_profiles')
     .select('user_id, specialties, verified, base_area, availability, blocked_dates, profiles!inner(full_name, avatar_url)')
     .eq('vetting_status', 'approved')
+    .eq('is_available', true)
     .contains('specialties', [occasion]);
   if (error) throw new Error(`eligibleCreators: ${error.message}`);
 

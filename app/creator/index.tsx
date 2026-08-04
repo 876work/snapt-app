@@ -14,8 +14,30 @@ export default function CreatorHome() {
   const router = useRouter();
   const currency = useAuth((s) => s.currency);
   const name = useAuth((s) => s.name);
-  const { available, toggleAvailable, offers, jobStages, declineOffer, setOffers, setStage } =
+  const { available, toggleAvailable, setAvailable, offers, jobStages, declineOffer, setOffers, setStage } =
     useCreator();
+
+  // Availability is a real matching gate server-side: hydrate on mount,
+  // persist every flip (optimistic; server re-read corrects drift).
+  React.useEffect(() => {
+    import('../../lib/api').then(({ apiConfigured, fetchCreatorMe }) => {
+      if (!apiConfigured) return;
+      fetchCreatorMe().then((me) => {
+        if (me && typeof me.is_available === 'boolean') setAvailable(me.is_available);
+      });
+    });
+  }, [setAvailable]);
+
+  const onToggleAvailable = () => {
+    const next = !available;
+    toggleAvailable();
+    import('../../lib/api').then(({ apiConfigured, updateCreatorSettingsApi }) => {
+      if (!apiConfigured) return;
+      updateCreatorSettingsApi({ is_available: next }).then((r) => {
+        if (!r || 'error' in r) setAvailable(!next); // revert on failure
+      });
+    });
+  };
   const openOffers = offers.filter((o) => !jobStages[o.id] || jobStages[o.id] === 'offer');
 
   // API mode: real bookings replace the mock list. Pending-assigned rows are
@@ -123,7 +145,7 @@ export default function CreatorHome() {
             </View>
           </View>
           <Pressable
-            onPress={toggleAvailable}
+            onPress={onToggleAvailable}
             style={[styles.switchTrack, available && styles.switchTrackOn]}
           >
             <View style={[styles.switchKnob, available && styles.switchKnobOn]} />

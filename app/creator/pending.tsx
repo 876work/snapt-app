@@ -12,12 +12,14 @@ import { colors, insetBottom, insetTop } from '../../lib/theme';
 export default function CreatorPending() {
   const router = useRouter();
   const setCreatorStatus = useAuth((s) => s.setCreatorStatus);
+  const [appliedAt, setAppliedAt] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    import('../../lib/api').then(({ apiConfigured, fetchCreatorStatus }) => {
+    import('../../lib/api').then(({ apiConfigured, fetchCreatorMe }) => {
       if (!apiConfigured) return;
-      fetchCreatorStatus().then((status) => {
-        if (status) setCreatorStatus(status);
+      fetchCreatorMe().then((me) => {
+        if (me?.status) setCreatorStatus(me.status);
+        if (me?.applied_at) setAppliedAt(me.applied_at);
       });
     });
   }, [setCreatorStatus]);
@@ -34,8 +36,22 @@ export default function CreatorPending() {
         <Text style={styles.title}>Application in review</Text>
         <Text style={styles.sub}>
           We're vetting your profile — this usually takes 2–3 days. We'll notify you the moment
-          you're approved, and creator mode will unlock automatically.
+          there's a decision, and creator mode unlocks automatically on approval.
         </Text>
+        {appliedAt && (
+          <Text style={styles.submittedAt}>
+            Submitted {new Date(appliedAt).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+          </Text>
+        )}
+        <View style={styles.nextCard}>
+          <Text style={styles.nextTitle}>What happens next</Text>
+          <Text style={styles.nextItem}>1.  We review your specialties and portfolio.</Text>
+          <Text style={styles.nextItem}>2.  For in-person work, your background check runs.</Text>
+          <Text style={styles.nextItem}>3.  You get an email and notification with the decision.</Text>
+        </View>
+        <Pressable onPress={() => router.push('/help/contact')}>
+          <Text style={styles.supportLink}>Questions? Contact support</Text>
+        </Pressable>
       </View>
       <View style={styles.footer}>
         <Pressable onPress={() => router.replace('/(app)/profile')} style={styles.cta}>
@@ -47,6 +63,20 @@ export default function CreatorPending() {
 }
 
 const styles = StyleSheet.create({
+  submittedAt: { fontSize: 12, fontWeight: '700', color: '#8A7530', marginTop: 14 },
+  nextCard: {
+    alignSelf: 'stretch',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#EFEDE7',
+    padding: 16,
+    marginTop: 18,
+    gap: 7,
+  },
+  nextTitle: { fontSize: 13.5, fontWeight: '800', color: '#1A1A1A', marginBottom: 3 },
+  nextItem: { fontSize: 12.5, color: '#767676', lineHeight: 18 },
+  supportLink: { fontSize: 12.5, fontWeight: '800', color: '#B98600', marginTop: 16, paddingVertical: 6 },
   root: { flex: 1, backgroundColor: colors.offWhite, paddingTop: insetTop },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 34 },
   icon: {

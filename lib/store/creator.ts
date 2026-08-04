@@ -38,6 +38,7 @@ interface CreatorState {
   jobStages: Record<string, JobStage>;
   specialties: Occasion[];
   toggleAvailable: () => void;
+  setAvailable: (available: boolean) => void;
   declineOffer: (id: string) => void;
   setStage: (id: string, s: JobStage) => void;
   setSpecialties: (s: Occasion[]) => void;
@@ -51,6 +52,7 @@ export const useCreator = create<CreatorState>((set) => ({
   jobStages: {},
   specialties: ['Portraits', 'Wedding', 'Events'],
   toggleAvailable: () => set((s) => ({ available: !s.available })),
+  setAvailable: (available: boolean) => set({ available }),
   declineOffer: (id) => set((s) => ({ offers: s.offers.filter((o) => o.id !== id) })),
   setStage: (id, stage) => set((s) => ({ jobStages: { ...s.jobStages, [id]: stage } })),
   setSpecialties: (specialties) => set({ specialties }),

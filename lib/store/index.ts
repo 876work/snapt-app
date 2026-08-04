@@ -11,7 +11,17 @@ import {
 import { Currency } from '../constants/business';
 
 export type AppMode = 'client' | 'creator';
-export type CreatorStatus = 'none' | 'review' | 'approved';
+// Server-authoritative six-state model (creator_profiles.vetting_status via
+// /v1/creator/me). The client stores this value for rendering only — it is
+// re-fetched on launch and after every relevant action, and never derived
+// or unlocked locally.
+export type CreatorStatus =
+  | 'not_applied'
+  | 'in_progress'
+  | 'pending_review'
+  | 'approved'
+  | 'rejected'
+  | 'suspended';
 
 interface AuthState {
   signedIn: boolean;
@@ -40,12 +50,19 @@ export const useAuth = create<AuthState>((set) => ({
   phone: '',
   currency: 'USD',
   mode: 'client',
-  creatorStatus: 'none',
+  creatorStatus: 'not_applied',
   signIn: (name, email) => set({ signedIn: true, name, email }),
-  signOut: () => set({ signedIn: false, name: '', email: '', mode: 'client', creatorStatus: 'none' }),
+  signOut: () => set({ signedIn: false, name: '', email: '', mode: 'client', creatorStatus: 'not_applied' }),
   setHydrated: () => set({ hydrated: true }),
   setCurrency: (currency) => set({ currency }),
-  setMode: (mode) => set({ mode }),
+  // Selected mode persists across relaunches (restored in initAuth) but is
+  // always revalidated against server status — see lib/auth.ts.
+  setMode: (mode) => {
+    set({ mode });
+    import('@react-native-async-storage/async-storage').then(({ default: AsyncStorage }) =>
+      AsyncStorage.setItem('snapt.mode', mode).catch(() => {}),
+    );
+  },
   setCreatorStatus: (creatorStatus) => set({ creatorStatus }),
   setProfile: (patch) => set((s) => ({ ...s, ...patch })),
 }));

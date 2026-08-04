@@ -17,7 +17,58 @@ const REVIEWS = [
   { initial: 'N', name: 'Nia T.', job: 'Wedding session', date: '2 months ago', stars: 4, comment: '' },
 ];
 
+// Real aggregates in API mode: this account's received ratings (as client
+// and, for creators, as creator). Mock values remain the offline preview.
 export default function ClientRatings() {
+  const [real, setReal] = React.useState<import('../../../lib/api').RatingsSummary | null | 'loading'>('loading');
+  React.useEffect(() => {
+    import('../../../lib/api').then(({ apiConfigured, fetchMyRatingsApi }) => {
+      if (!apiConfigured) {
+        setReal(null); // mock preview
+        return;
+      }
+      fetchMyRatingsApi().then((r) => {
+        if (!r) return setReal(null);
+        // Prefer the creator-side summary when it has data.
+        setReal(r.as_creator.count > 0 ? r.as_creator : r.as_client);
+      });
+    });
+  }, []);
+
+  const isReal = real !== null && real !== 'loading';
+  const avg = isReal ? real.average : 4.9;
+  const count = isReal ? real.count : REVIEWS.length;
+  const cats = isReal
+    ? Object.entries(real.categories).map(([k, v]) => ({
+        label: k.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()),
+        val: v,
+      }))
+    : CATS;
+  const reviews = isReal
+    ? real.recent.map((r, i) => ({
+        initial: '★',
+        name: `Review ${i + 1}`,
+        job: '',
+        date: new Date(r.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        stars: Math.round(r.rating),
+        comment: r.comment ?? '',
+      }))
+    : REVIEWS;
+
+  if (isReal && count === 0) {
+    return (
+      <View style={styles.root}>
+        <ScreenHeader title="Your ratings" />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 }}>
+          <Text style={{ fontSize: 16, fontWeight: '800', color: colors.ink }}>No ratings yet</Text>
+          <Text style={{ fontSize: 13, color: colors.grey, textAlign: 'center', marginTop: 8, lineHeight: 19 }}>
+            Ratings appear here after your first completed booking is reviewed.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.root}>
       <ScreenHeader title="Your ratings" />
@@ -25,7 +76,7 @@ export default function ClientRatings() {
         {/* Summary card */}
         <View style={styles.heroCard}>
           <View style={{ alignItems: 'center' }}>
-            <Text style={styles.avg}>4.9</Text>
+            <Text style={styles.avg}>{avg != null ? avg.toFixed(1) : "—"}</Text>
             <Text style={styles.avgStars}>★★★★★</Text>
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
@@ -41,14 +92,14 @@ export default function ClientRatings() {
                 <Text style={styles.trend}>Trending up</Text>
               </View>
             </View>
-            <Text style={styles.heroSub}>From {REVIEWS.length} creators you've booked</Text>
+            <Text style={styles.heroSub}>From {count} completed booking{count === 1 ? "" : "s"}</Text>
           </View>
         </View>
 
         {/* Category breakdown */}
         <Text style={styles.sectionTitle}>Category breakdown</Text>
         <View style={styles.catCard}>
-          {CATS.map((c) => (
+          {cats.map((c) => (
             <View key={c.label}>
               <View style={styles.catHead}>
                 <Text style={styles.catLabel}>{c.label}</Text>
@@ -64,7 +115,7 @@ export default function ClientRatings() {
         {/* Recent reviews */}
         <Text style={styles.sectionTitle}>Recent reviews</Text>
         <View style={{ gap: 12 }}>
-          {REVIEWS.map((r) => (
+          {reviews.map((r) => (
             <View key={r.name} style={styles.reviewCard}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}>
                 <View style={styles.reviewAvatar}>

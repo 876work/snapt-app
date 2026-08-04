@@ -8,6 +8,7 @@ import { useCreator } from '../../lib/store/creator';
 import { formatMoney } from '../../lib/constants/business';
 import { colors, insetTop } from '../../lib/theme';
 import { navShrinkOnScroll } from '../../lib/navShrink';
+import { ScheduleEditor } from '../../components/creator/ScheduleEditor';
 
 const FIXED = [
   { id: 's1', day: 'TODAY', title: 'Golden-hour portraits', time: '5:30 PM · 1.5 hrs', loc: 'Rodney Bay', payUsd: 95.2, status: 'Confirmed' },
@@ -105,6 +106,8 @@ export default function CreatorSchedule() {
           unavailable.
         </Text>
         <View style={{ height: 130 }} />
+        <ScheduleEditor />
+        <View style={{ height: 110 }} />
       </ScrollView>
     </View>
   );

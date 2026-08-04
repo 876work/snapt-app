@@ -18,7 +18,33 @@ export default function Rating() {
 
   const [stars, setStars] = React.useState<Record<string, number>>({});
   const [note, setNote] = React.useState('');
-  const complete = CATEGORIES.every((c) => (stars[c] ?? 0) > 0);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const complete = CATEGORIES.every((c) => (stars[c] ?? 0) > 0) && !busy;
+
+  const submit = async () => {
+    if (!complete) return;
+    setBusy(true);
+    setError(null);
+    const api = await import('../../../lib/api');
+    if (api.apiConfigured && id) {
+      const values = CATEGORIES.map((c) => stars[c] ?? 0);
+      const overall = Math.round((values.reduce((s, v) => s + v, 0) / values.length) * 10) / 10;
+      const categories = Object.fromEntries(
+        CATEGORIES.map((c) => [c.toLowerCase().replace(/ /g, '_'), stars[c] ?? 0]),
+      );
+      const result = await api.submitReviewApi(String(id), overall, categories, note);
+      setBusy(false);
+      if (result && 'error' in result && !result.error.includes('Already')) {
+        setError(result.error);
+        return;
+      }
+    } else {
+      setBusy(false);
+    }
+    router.dismissAll();
+    router.replace('/(app)/home');
+  };
 
   return (
     <View style={styles.root}>
@@ -62,15 +88,13 @@ export default function Rating() {
         <View style={{ height: 24 }} />
       </ScrollView>
       <View style={styles.footer}>
+        {error ? <Text style={{ fontSize: 12.5, fontWeight: '600', color: '#B4442E', marginBottom: 8 }}>{error}</Text> : null}
         <Pressable
           disabled={!complete}
-          onPress={() => {
-            router.dismissAll();
-            router.replace('/(app)/home');
-          }}
+          onPress={submit}
           style={[styles.cta, !complete && { opacity: 0.45 }]}
         >
-          <Text style={styles.ctaLabel}>Submit rating</Text>
+          <Text style={styles.ctaLabel}>{busy ? 'Submitting…' : 'Submit rating'}</Text>
         </Pressable>
       </View>
     </View>

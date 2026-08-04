@@ -39,8 +39,9 @@ const TRIGGERS: Record<string, TriggerSpec> = {
   payout_pending: { category: 'account', push: false, email: false }, // not in doc; routine
   payout_available: { category: 'account', push: false, email: false }, // §4: in-app ONLY
   payout_paid: { category: 'account', push: true, email: true }, // §4: "payout sent"
-  application_submitted: { category: 'account', push: false, email: false }, // §5
+  application_submitted: { category: 'account', push: false, email: true }, // §5 + Don 2026-08-02: confirmation email
   application_approved: { category: 'account', push: true, email: true }, // §5
+  application_rejected: { category: 'account', push: true, email: true }, // §5 outcome w/ reason
   no_show_reported: { category: 'account', push: true, email: true }, // not in doc — flagged
   safety_report_received: { category: 'safety', push: false, email: false }, // §6: NO push (deliberate)
   dispute_opened: { category: 'account', push: true, email: true }, // §6

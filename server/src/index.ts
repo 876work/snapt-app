@@ -16,6 +16,7 @@ import { registerRevisionRoutes } from './routes/revisions.js';
 import { registerPolicyRoutes } from './routes/policies.js';
 import { registerModerationRoutes } from './routes/moderation.js';
 import { registerPushRoutes } from './routes/push.js';
+import { registerReviewRoutes } from './routes/reviews.js';
 import { startScheduler } from './scheduler.js';
 
 // trustProxy: Render terminates TLS at its proxy — without this every
@@ -62,6 +63,7 @@ registerRevisionRoutes(app);
 registerPolicyRoutes(app);
 registerModerationRoutes(app);
 registerPushRoutes(app);
+registerReviewRoutes(app);
 startScheduler();
 
 app.listen({ port: env.port, host: env.host }).catch((err) => {

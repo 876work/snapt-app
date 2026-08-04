@@ -231,19 +231,100 @@ export function reportNoShowApi(id: string, attemptedContact?: boolean) {
 
 import type { CreatorStatus } from './store';
 
-/** Creator application status from the server (authoritative since Phase 1). */
-export async function fetchCreatorStatus(): Promise<CreatorStatus | null> {
-  const result = await request<{ vetting_status: string }>(`/v1/creator/me`);
-  if (!result) return null;
-  return result.vetting_status === 'approved' ? 'approved' : 'review';
+export interface CreatorMe {
+  status: CreatorStatus;
+  specialties?: string[];
+  service_type?: 'remote' | 'in_person' | 'both';
+  base_area?: string | null;
+  service_radius_km?: number | null;
+  availability?: Record<string, { start: string; end: string }[]>;
+  blocked_dates?: string[];
+  is_available?: boolean;
+  applied_at?: string | null;
+  rejection_reason?: string | null;
+  verified?: boolean;
 }
 
-export function applyAsCreator(specialties: string[], baseArea?: string | null) {
-  return authedPost<{ status: string }>(`/v1/creator/apply`, {
-    specialties,
-    base_area: baseArea ?? undefined,
-    consents: { creator_agreement: true, background_check: true },
+/**
+ * The single authoritative creator status (server-derived six-state model).
+ * The client renders this value and never infers or unlocks locally.
+ */
+export async function fetchCreatorMe(): Promise<CreatorMe | null> {
+  const result = await request<CreatorMe>(`/v1/creator/me`);
+  if (!result || !result.status) return null;
+  return result;
+}
+
+/** Back-compat shim: just the status value. */
+export async function fetchCreatorStatus(): Promise<CreatorStatus | null> {
+  const me = await fetchCreatorMe();
+  return me?.status ?? null;
+}
+
+export interface ApplyPayload {
+  specialties: string[];
+  service_type: 'remote' | 'in_person' | 'both';
+  base_area?: string | null;
+  service_radius_km?: number | null;
+  bio?: string | null;
+  consents: { creator_agreement: boolean; background_check?: boolean };
+}
+
+export function applyAsCreator(payload: ApplyPayload) {
+  return authedPost<{ status: string }>(`/v1/creator/apply`, payload);
+}
+
+/** Autosave the in-progress application so users resume where they left off. */
+export function saveCreatorDraftApi(draft: Partial<ApplyPayload>) {
+  return authedPost<{ status: string }>(`/v1/creator/apply/draft`, draft);
+}
+
+export async function updateCreatorSettingsApi(patch: {
+  availability?: Record<string, { start: string; end: string }[]>;
+  blocked_dates?: string[];
+  service_radius_km?: number | null;
+  is_available?: boolean;
+}): Promise<{ updated: boolean } | { error: string } | null> {
+  if (!apiUrl) return null;
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (supabase) {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (token) headers.Authorization = `Bearer ${token}`;
+    }
+    const res = await fetch(`${apiUrl}/v1/creator/settings`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(patch),
+    });
+    const json = (await res.json()) as { updated?: boolean; error?: string };
+    if (!res.ok) return { error: json.error ?? 'Could not save — try again.' };
+    return { updated: true };
+  } catch {
+    return null;
+  }
+}
+
+// --- Two-way ratings.
+
+export function submitReviewApi(bookingId: string, rating: number, categories?: Record<string, number>, comment?: string) {
+  return authedPost<{ reviewed: boolean }>(`/v1/bookings/${bookingId}/review`, {
+    rating,
+    categories,
+    comment,
   });
+}
+
+export interface RatingsSummary {
+  average: number | null;
+  count: number;
+  categories: Record<string, number>;
+  recent: { rating: number; comment: string | null; created_at: string }[];
+}
+
+export async function fetchMyRatingsApi(): Promise<{ as_creator: RatingsSummary; as_client: RatingsSummary } | null> {
+  return request(`/v1/me/ratings`);
 }
 
 export interface ServerBookingListItem extends ServerBooking {

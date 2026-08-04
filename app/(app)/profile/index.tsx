@@ -53,13 +53,13 @@ export default function Profile() {
                 // actually switch; applicants land on the right step of
                 // their journey and the toggle stays on Client.
                 if (m === 'creator') {
+                  // Only approved creators switch modes — every other status
+                  // routes to its status screen and the toggle stays put.
                   if (creatorStatus === 'approved') {
                     setMode(m);
                     router.push('/creator');
-                  } else if (creatorStatus === 'review') {
-                    router.push('/creator/pending');
                   } else {
-                    router.push('/creator/apply');
+                    router.push('/creator');
                   }
                   return;
                 }
@@ -87,8 +87,9 @@ export default function Profile() {
           {chevron}
         </Pressable>
 
-        {/* Creator application status */}
-        {creatorStatus === 'none' && (
+        {/* Creator journey entry — one card per status, branching off the
+            single server-side value. */}
+        {creatorStatus === 'not_applied' && (
           <Pressable onPress={() => router.push('/creator/apply')} style={styles.becomeCard}>
             <View style={styles.becomeIcon}>
               <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
@@ -105,8 +106,24 @@ export default function Profile() {
             </Svg>
           </Pressable>
         )}
-        {creatorStatus === 'review' && (
-          <View style={styles.reviewCard}>
+        {creatorStatus === 'in_progress' && (
+          <Pressable onPress={() => router.push('/creator/apply')} style={styles.reviewCard}>
+            <View style={styles.reviewIcon}>
+              <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+                <Path d="M4 20v-3L15.5 5.5a2.1 2.1 0 013 3L7 20H4z" stroke={colors.yellowDark} strokeWidth={1.8} strokeLinejoin="round" />
+              </Svg>
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.reviewTitle}>Finish your creator application</Text>
+              <Text style={styles.reviewSub}>Your progress is saved — pick up where you left off.</Text>
+            </View>
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+              <Path d="M9 6l6 6-6 6" stroke={colors.yellowDark} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          </Pressable>
+        )}
+        {creatorStatus === 'pending_review' && (
+          <Pressable onPress={() => router.push('/creator/pending')} style={styles.reviewCard}>
             <View style={styles.reviewIcon}>
               <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
                 <Circle cx="12" cy="12" r="9" stroke={colors.yellowDark} strokeWidth={1.8} />
@@ -114,10 +131,38 @@ export default function Profile() {
               </Svg>
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.reviewTitle}>Application in review</Text>
-              <Text style={styles.reviewSub}>We're vetting your profile — usually 2–3 days.</Text>
+              <Text style={styles.reviewTitle}>Application under review</Text>
+              <Text style={styles.reviewSub}>Tap for status, timelines, and support.</Text>
             </View>
-          </View>
+          </Pressable>
+        )}
+        {creatorStatus === 'rejected' && (
+          <Pressable onPress={() => router.push('/creator/rejected')} style={[styles.reviewCard, { backgroundColor: '#FDECEA', borderColor: '#F6D5D2' }]}>
+            <View style={[styles.reviewIcon, { backgroundColor: '#FBE0DD' }]}>
+              <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+                <Circle cx="12" cy="12" r="9" stroke="#B0392B" strokeWidth={1.8} />
+                <Path d="M9 9l6 6M15 9l-6 6" stroke="#B0392B" strokeWidth={1.8} strokeLinecap="round" />
+              </Svg>
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[styles.reviewTitle, { color: '#B0392B' }]}>Application not approved</Text>
+              <Text style={[styles.reviewSub, { color: '#A04A3F' }]}>See why, and how to reapply.</Text>
+            </View>
+          </Pressable>
+        )}
+        {creatorStatus === 'suspended' && (
+          <Pressable onPress={() => router.push('/creator/suspended')} style={[styles.reviewCard, { backgroundColor: '#F1EEE7', borderColor: '#E0DCD2' }]}>
+            <View style={[styles.reviewIcon, { backgroundColor: '#E7E3DA' }]}>
+              <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+                <Rect x="5" y="10.5" width="14" height="9.5" rx="2.5" stroke="#767676" strokeWidth={1.8} />
+                <Path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5" stroke="#767676" strokeWidth={1.8} />
+              </Svg>
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[styles.reviewTitle, { color: '#3D3A34' }]}>Creator account suspended</Text>
+              <Text style={[styles.reviewSub, { color: '#767676' }]}>Creator mode is locked — tap for details.</Text>
+            </View>
+          </Pressable>
         )}
 
         {/* Ratings row */}
