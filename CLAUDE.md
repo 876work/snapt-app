@@ -62,7 +62,7 @@ or comment that contradicts them as the thing that's wrong.
 - Remote pricing by tier: Photos 25/45/65 · Video 70/120/180 · Both 85/150/220
 - Add-ons: rush $25 in person and $20 remote, extra photos $18, extra revision $15
   (one revision round is included free).
-- USD is the base and stored currency. XCD is display-only at a fixed peg of 2.70.
+- USD is the base and stored currency. XCD is display-only at a fixed peg of 2.72 (single source: app_config.xcd_per_usd, admin-editable; client syncs it at launch).
   Always store USD, convert for display.
 - Pricing lives in `app_config` (`pricing_table`, `remote_pricing_table`, add-ons) and
   is mirrored in `lib/mock/data.ts`; the server prices every booking from config.
