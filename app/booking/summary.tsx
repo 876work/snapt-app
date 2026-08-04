@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
@@ -222,7 +222,10 @@ export default function OrderSummary() {
 
       {/* Payment sheet */}
       <Modal visible={payOpen} transparent animationType="slide" onRequestClose={() => setPayOpen(false)}>
-        <View style={styles.sheetBackdrop}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.sheetBackdrop}
+        >
           <Pressable style={{ flex: 1 }} onPress={() => setPayOpen(false)} />
           <View style={styles.sheet}>
             <View style={styles.grabber} />
@@ -335,7 +338,7 @@ export default function OrderSummary() {
               <View style={{ height: 20 }} />
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
