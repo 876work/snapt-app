@@ -1,5 +1,6 @@
 import React from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardScrollView } from '../../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../../lib/text';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { useAuth } from '../../../lib/store';
@@ -97,7 +98,7 @@ export default function Wallet() {
           </Svg>
         </Pressable>
       </View>
-      <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <KeyboardScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {/* Credit card */}
         <View style={styles.creditCard}>
           <View style={styles.creditGlow} />
@@ -204,7 +205,7 @@ export default function Wallet() {
           ))}
         </View>
         <View style={{ height: 130 }} />
-      </ScrollView>
+      </KeyboardScrollView>
 
       {/* Add card sheet */}
       <Modal visible={addOpen} transparent animationType="slide" onRequestClose={() => setAddOpen(false)}>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardScrollView } from '../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
@@ -119,7 +120,7 @@ export default function CashOut() {
   return (
     <View style={styles.root}>
       <ScreenHeader title="Cash out" />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <View style={styles.amountCard}>
           <Text style={styles.amountLabel}>AVAILABLE TO CASH OUT</Text>
           <Text style={styles.amountValue}>{formatMoney(available, currency)}</Text>
@@ -169,7 +170,7 @@ export default function CashOut() {
             );
           })}
         </View>
-      </ScrollView>
+      </KeyboardScrollView>
       <View style={styles.footer}>
         {methodError && configured(method) ? <Text style={styles.footerError}>{methodError}</Text> : null}
         <SlideToConfirm

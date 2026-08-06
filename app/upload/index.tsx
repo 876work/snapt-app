@@ -1,5 +1,6 @@
 import React from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardScrollView } from '../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
@@ -32,7 +33,7 @@ export default function UploadFootage() {
   return (
     <View style={styles.root}>
       <ScreenHeader title="Upload footage" />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <Text style={styles.lead}>
           Send us your raw photos or video and we'll make them shine. Add as many files as you like.
         </Text>
@@ -101,7 +102,7 @@ export default function UploadFootage() {
           style={styles.noteInput}
         />
         <View style={{ height: 24 }} />
-      </ScrollView>
+      </KeyboardScrollView>
       <View style={styles.footer}>
         <Text style={styles.footerCount}>{files.length} files{'\n'}ready</Text>
         <Pressable onPress={() => router.push('/upload/packages')} style={styles.cta}>

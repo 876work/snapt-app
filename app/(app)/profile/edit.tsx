@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardScrollView } from '../../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
@@ -33,7 +34,7 @@ export default function EditProfile() {
   return (
     <View style={styles.root}>
       <ScreenHeader title="Edit profile" />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <View style={{ alignItems: 'center', marginTop: 8, marginBottom: 24 }}>
           <View style={styles.avatar}>
             <Text style={styles.avatarInitial}>{(n || 'Y').charAt(0).toUpperCase()}</Text>
@@ -78,7 +79,7 @@ export default function EditProfile() {
           Your phone number is how we reach you for payout arrangements and booking updates.
         </Text>
         {error && <Text style={styles.error}>{error}</Text>}
-      </ScrollView>
+      </KeyboardScrollView>
       <View style={styles.footer}>
         <Pressable onPress={save} disabled={saving} style={[styles.cta, saving && { opacity: 0.6 }]}>
           <Text style={styles.ctaLabel}>{saving ? 'Saving…' : 'Save changes'}</Text>

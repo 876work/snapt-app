@@ -7,18 +7,27 @@ interface Props extends TextInputProps {
   label?: string;
 }
 
-export function TextField({ label, style, ...rest }: Props) {
-  return (
-    <View style={{ gap: 7 }}>
-      {label ? <Text style={styles.label}>{label}</Text> : null}
-      <TextInput
-        placeholderTextColor="#9A9A9A"
-        style={[styles.input, style]}
-        {...rest}
-      />
-    </View>
-  );
-}
+/**
+ * Shared labelled input. Forwards its ref so multi-field forms can chain
+ * focus: `returnKeyType="next"` + `onSubmitEditing={() => next.current?.focus()}`
+ * walks the form from the keyboard; the app-wide keyboard shell keeps the
+ * focused field visible.
+ */
+export const TextField = React.forwardRef<React.ComponentRef<typeof TextInput>, Props>(
+  function TextField({ label, style, ...rest }, ref) {
+    return (
+      <View style={{ gap: 7 }}>
+        {label ? <Text style={styles.label}>{label}</Text> : null}
+        <TextInput
+          ref={ref}
+          placeholderTextColor="#9A9A9A"
+          style={[styles.input, style]}
+          {...rest}
+        />
+      </View>
+    );
+  },
+);
 
 const styles = StyleSheet.create({
   label: { fontSize: 12.5, fontWeight: '700', color: colors.ink },

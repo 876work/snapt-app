@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardScrollView } from '../../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
@@ -167,7 +168,7 @@ export default function CreatorJob() {
   return (
     <View style={styles.root}>
       <ScreenHeader title={STAGE_TITLES[stage]} />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {/* Job summary card */}
         <View style={styles.card}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
@@ -364,7 +365,7 @@ export default function CreatorJob() {
           </View>
         )}
         <View style={{ height: 24 }} />
-      </ScrollView>
+      </KeyboardScrollView>
 
       <View style={styles.footer}>
         {actionError ? <Text style={styles.actionError}>{actionError}</Text> : null}

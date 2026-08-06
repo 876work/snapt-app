@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardScrollView } from '../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
@@ -147,7 +148,7 @@ export default function CreatorApplication() {
   return (
     <View style={styles.root}>
       <ScreenHeader title="Become a Creator" backFallback="/(app)/profile" />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <Text style={styles.lead}>
           Tell us what you shoot and we'll take it from there. Applications are vetted — most hear back
           in 2–3 days. Your progress saves automatically.
@@ -251,7 +252,7 @@ export default function CreatorApplication() {
         </View>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <View style={{ height: 24 }} />
-      </ScrollView>
+      </KeyboardScrollView>
       <View style={styles.footer}>
         <Button
           title={busy ? 'Submitting…' : 'Submit application'}

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardScrollView } from '../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
@@ -37,6 +38,10 @@ export default function RemoteOrderSummary() {
   const [cardExp, setCardExp] = React.useState('');
   const [cardCvc, setCardCvc] = React.useState('');
   const [saveCard, setSaveCard] = React.useState(true);
+  // Return key walks the card form: name → number → expiry → CVC.
+  const numberRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
+  const expRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
+  const cvcRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
 
   const pkg =
     REMOTE_PACKAGES[mediaKind].find((p) => p.tier === tier) ?? REMOTE_PACKAGES[mediaKind][0];
@@ -98,7 +103,7 @@ export default function RemoteOrderSummary() {
   return (
     <View style={styles.root}>
       <ScreenHeader title="Order summary" />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <View style={styles.card}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <View>
@@ -187,7 +192,7 @@ export default function RemoteOrderSummary() {
           .
         </Text>
         <View style={{ height: 24 }} />
-      </ScrollView>
+      </KeyboardScrollView>
 
       <View style={styles.footer}>
         <Pressable onPress={() => setPayOpen(true)} style={styles.cta}>
@@ -199,7 +204,12 @@ export default function RemoteOrderSummary() {
       </View>
 
       <Modal visible={payOpen} transparent animationType="slide" onRequestClose={() => setPayOpen(false)}>
-        <View style={styles.sheetBackdrop}>
+        {/* Modals render outside the root keyboard shell, so the sheet needs
+            its own avoiding view or the keyboard covers the card fields. */}
+        <KeyboardAvoidingView
+          style={styles.sheetBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
           <Pressable style={{ flex: 1 }} onPress={() => setPayOpen(false)} />
           <View style={styles.sheet}>
             <View style={styles.grabber} />
@@ -211,7 +221,7 @@ export default function RemoteOrderSummary() {
                 </Svg>
               </Pressable>
             </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <KeyboardScrollView showsVerticalScrollIndicator={false}>
               <View style={[styles.card, { paddingVertical: 0, paddingHorizontal: 0 }]}>
                 <View style={styles.fieldRow}>
                   <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
@@ -220,6 +230,8 @@ export default function RemoteOrderSummary() {
                   </Svg>
                   <TextInput
                     value={cardName}
+                    returnKeyType="next"
+                    onSubmitEditing={() => numberRef.current?.focus()}
                     onChangeText={setCardName}
                     placeholder="Cardholder name"
                     placeholderTextColor="#9A9A9A"
@@ -233,7 +245,10 @@ export default function RemoteOrderSummary() {
                     <Path d="M3 10h18" stroke={colors.grey} strokeWidth={1.8} />
                   </Svg>
                   <TextInput
+                    ref={numberRef}
                     value={cardNumber}
+                    returnKeyType="next"
+                    onSubmitEditing={() => expRef.current?.focus()}
                     onChangeText={setCardNumber}
                     placeholder="Card number"
                     placeholderTextColor="#9A9A9A"
@@ -245,7 +260,10 @@ export default function RemoteOrderSummary() {
                 <View style={{ flexDirection: 'row' }}>
                   <View style={{ flex: 1, paddingVertical: 14, paddingLeft: 50, paddingRight: 16 }}>
                     <TextInput
+                      ref={expRef}
                       value={cardExp}
+                      returnKeyType="next"
+                      onSubmitEditing={() => cvcRef.current?.focus()}
                       onChangeText={setCardExp}
                       placeholder="MM / YY"
                       placeholderTextColor="#9A9A9A"
@@ -256,7 +274,9 @@ export default function RemoteOrderSummary() {
                   <View style={{ width: 1, backgroundColor: '#F1F1F1' }} />
                   <View style={{ width: 110, paddingVertical: 14, paddingHorizontal: 16 }}>
                     <TextInput
+                      ref={cvcRef}
                       value={cardCvc}
+                      returnKeyType="done"
                       onChangeText={setCardCvc}
                       placeholder="CVC"
                       placeholderTextColor="#9A9A9A"
@@ -294,9 +314,9 @@ export default function RemoteOrderSummary() {
                 {USD_PROCESSING_NOTE}
               </Text>
               <View style={{ height: 20 }} />
-            </ScrollView>
+            </KeyboardScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardScrollView } from '../../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
@@ -138,7 +139,7 @@ export default function Delivery() {
   return (
     <View style={styles.root}>
       <ScreenHeader title="Your content" />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {allDeleted && (
           <View style={styles.expiredCard}>
             <Text style={styles.expiredTitle}>These files are no longer available</Text>
@@ -229,7 +230,7 @@ export default function Delivery() {
         </View>
         </>)}
         <View style={{ height: 24 }} />
-      </ScrollView>
+      </KeyboardScrollView>
       <View style={styles.footer}>
         {saveNote ? <Text style={styles.saveNote}>{saveNote}</Text> : null}
         {!allDeleted && (

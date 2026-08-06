@@ -1,5 +1,6 @@
 import React from 'react';
 import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardScrollView } from '../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
@@ -50,6 +51,10 @@ export default function OrderSummary() {
   const [cardExp, setCardExp] = React.useState('');
   const [cardCvc, setCardCvc] = React.useState('');
   const [saveCard, setSaveCard] = React.useState(true);
+  // Return key walks the card form: name → number → expiry → CVC.
+  const numberRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
+  const expRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
+  const cvcRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
   const [bookError, setBookError] = React.useState<string | null>(null);
 
   // Display price from the confirmed table (service type × duration); the
@@ -110,7 +115,7 @@ export default function OrderSummary() {
   return (
     <View style={styles.root}>
       <ScreenHeader title="Order summary" />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {/* Booking card */}
         <View style={styles.card}>
           {creator && (
@@ -233,7 +238,7 @@ export default function OrderSummary() {
           .
         </Text>
         <View style={{ height: 24 }} />
-      </ScrollView>
+      </KeyboardScrollView>
 
       <View style={styles.footer}>
         <Button title="Continue to Payment" arrow onPress={() => setPayOpen(true)} style={{ flex: 1 }} />
@@ -256,7 +261,7 @@ export default function OrderSummary() {
                 </Svg>
               </Pressable>
             </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <KeyboardScrollView showsVerticalScrollIndicator={false}>
               <Text style={styles.savedLabel}>Saved cards</Text>
               <View style={styles.noCards}>
                 <View style={styles.cardArt}>
@@ -279,6 +284,8 @@ export default function OrderSummary() {
                 >
                   <TextInput
                     value={cardName}
+                    returnKeyType="next"
+                    onSubmitEditing={() => numberRef.current?.focus()}
                     onChangeText={setCardName}
                     placeholder="Cardholder name"
                     placeholderTextColor="#9A9A9A"
@@ -295,7 +302,10 @@ export default function OrderSummary() {
                   }
                 >
                   <TextInput
+                    ref={numberRef}
                     value={cardNumber}
+                    returnKeyType="next"
+                    onSubmitEditing={() => expRef.current?.focus()}
                     onChangeText={setCardNumber}
                     placeholder="Card number"
                     placeholderTextColor="#9A9A9A"
@@ -307,7 +317,10 @@ export default function OrderSummary() {
                 <View style={{ flexDirection: 'row' }}>
                   <View style={{ flex: 1, paddingVertical: 14, paddingLeft: 50, paddingRight: 16 }}>
                     <TextInput
+                      ref={expRef}
                       value={cardExp}
+                      returnKeyType="next"
+                      onSubmitEditing={() => cvcRef.current?.focus()}
                       onChangeText={setCardExp}
                       placeholder="MM / YY"
                       placeholderTextColor="#9A9A9A"
@@ -318,7 +331,9 @@ export default function OrderSummary() {
                   <View style={{ width: 1, backgroundColor: '#F1F1F1' }} />
                   <View style={{ width: 110, paddingVertical: 14, paddingHorizontal: 16 }}>
                     <TextInput
+                      ref={cvcRef}
                       value={cardCvc}
+                      returnKeyType="done"
                       onChangeText={setCardCvc}
                       placeholder="CVC"
                       placeholderTextColor="#9A9A9A"
@@ -356,7 +371,7 @@ export default function OrderSummary() {
                 {USD_PROCESSING_NOTE}
               </Text>
               <View style={{ height: 20 }} />
-            </ScrollView>
+            </KeyboardScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>

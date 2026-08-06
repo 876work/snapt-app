@@ -1,5 +1,6 @@
 import React from 'react';
 import { Image, Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardScrollView } from '../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import MapView, { Marker, Polygon, Region } from 'react-native-maps';
@@ -155,7 +156,7 @@ export default function Location() {
     <View style={styles.root}>
       <ScreenHeader title="Where should we meet you?" />
 
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <Text style={styles.lead}>
           Drop the pin where you want to meet — tap the map or drag the marker. We serve the
           island's northern region, shown in yellow.
@@ -311,7 +312,7 @@ export default function Location() {
           multiline
         />
         <View style={{ height: 24 }} />
-      </ScrollView>
+      </KeyboardScrollView>
 
       <View style={styles.footer}>
         <Button

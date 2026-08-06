@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from 'react-native';
+import { KeyboardScrollView } from '../../components/ui/KeyboardScrollView';
 import Svg, { Path, Rect } from 'react-native-svg';
 import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
@@ -58,12 +59,17 @@ export default function Signup() {
     router.push({ pathname: '/(auth)/verify', params });
   };
 
+  // Return key walks the form: name → phone → email → password.
+  const phoneRef = React.useRef<RNTextInput>(null);
+  const emailRef = React.useRef<RNTextInput>(null);
+  const passwordRef = React.useRef<RNTextInput>(null);
+
   return (
     <View style={styles.root}>
       <AuthDecor />
-      <ScrollView
+      <KeyboardScrollView
         contentContainerStyle={styles.body}
-        keyboardShouldPersistTaps="handled"
+       
         showsVerticalScrollIndicator={false}
         automaticallyAdjustKeyboardInsets
       >
@@ -79,7 +85,7 @@ export default function Signup() {
         <SocialButtons />
 
         <View style={{ gap: 12, marginTop: 4 }}>
-          <AuthInput icon="person" placeholder="Full name" value={name} onChangeText={setName} autoCapitalize="words" />
+          <AuthInput icon="person" placeholder="Full name" value={name} onChangeText={setName} autoCapitalize="words" returnKeyType="next" onSubmitEditing={() => phoneRef.current?.focus()} />
 
           {/* Country — locked: Snapt is live in Saint Lucia only. */}
           <View style={styles.countryCard}>
@@ -107,21 +113,25 @@ export default function Signup() {
               </Svg>
             </Pressable>
             <View style={{ flex: 1 }}>
-              <AuthInput icon="phone" placeholder="Phone number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+              <AuthInput icon="phone" inputRef={phoneRef} placeholder="Phone number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" returnKeyType="next" onSubmitEditing={() => emailRef.current?.focus()} />
             </View>
           </View>
           <Text style={styles.helper}>{dial.name}</Text>
 
           <AuthInput
             icon="mail"
+            inputRef={emailRef}
             placeholder="Email address"
             value={email}
             onChangeText={setEmail}
             keyboardType="email-address"
             autoCapitalize="none"
+            returnKeyType="next"
+            onSubmitEditing={() => passwordRef.current?.focus()}
           />
           <AuthInput
             icon="lock"
+            inputRef={passwordRef}
             placeholder="Password"
             value={password}
             onChangeText={setPassword}
@@ -157,7 +167,7 @@ export default function Signup() {
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </View>
         <View style={{ height: 20 }} />
-      </ScrollView>
+      </KeyboardScrollView>
 
       <View style={styles.footer}>
         <Pressable

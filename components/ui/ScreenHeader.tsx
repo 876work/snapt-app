@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Keyboard, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
 import Svg, { Path } from 'react-native-svg';
 import { safeBack } from '../../lib/nav';
@@ -18,7 +18,16 @@ export function ScreenHeader({
   backFallback?: string;
 }) {
   return (
-    <View style={styles.row}>
+    // Tapping the header dismisses an open keyboard (blank areas inside the
+    // scroll body already do). Returning false means the touch still reaches
+    // the back button and any right-hand action.
+    <View
+      style={styles.row}
+      onStartShouldSetResponder={() => {
+        Keyboard.dismiss();
+        return false;
+      }}
+    >
       <Pressable
         onPress={onBack ?? (() => safeBack(backFallback))}
         style={({ pressed }) => [styles.back, pressed && { opacity: 0.7 }]}

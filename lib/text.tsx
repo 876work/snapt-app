@@ -38,6 +38,10 @@ export function Text({ style, ...rest }: TextProps) {
   return <RNText {...rest} style={[style, inter(style)]} />;
 }
 
-export function TextInput({ style, ...rest }: TextInputProps) {
-  return <RNTextInput {...rest} style={[style, inter(style)]} />;
-}
+// forwardRef so forms can chain focus across fields (return key → next).
+export const TextInput = React.forwardRef<RNTextInput, TextInputProps>(function TextInput(
+  { style, ...rest },
+  ref,
+) {
+  return <RNTextInput ref={ref} {...rest} style={[style, inter(style)]} />;
+});

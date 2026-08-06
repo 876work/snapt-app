@@ -1,5 +1,6 @@
 import React from 'react';
 import { Image, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardScrollView } from '../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
@@ -176,7 +177,7 @@ export default function SessionDay() {
           ) : undefined
         }
       />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {stage !== 'enroute' && (
         <>
         <View style={styles.headRow}>
@@ -404,7 +405,7 @@ export default function SessionDay() {
           </Pressable>
         )}
         <View style={{ height: 24 }} />
-      </ScrollView>
+      </KeyboardScrollView>
 
       {stage === 'wrapped' && booking && (
         <View style={styles.footer}>
@@ -528,7 +529,7 @@ export default function SessionDay() {
                 </Svg>
               </Pressable>
             </View>
-            <ScrollView style={styles.chatBody}>
+            <KeyboardScrollView style={styles.chatBody}>
               {/* Real chat (Supabase Realtime) when configured; scripted
                   message in mock mode. */}
               {chatMessages === null ? (
@@ -559,7 +560,7 @@ export default function SessionDay() {
                   </View>
                 ))
               )}
-            </ScrollView>
+            </KeyboardScrollView>
             <View style={styles.chatInputWrap}>
               <View style={styles.chatInputRow}>
                 <TextInput

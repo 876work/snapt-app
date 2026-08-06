@@ -1,5 +1,6 @@
 import React from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardScrollView } from '../../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { CreatorAvatar } from '../../../components/ui/CreatorAvatar';
@@ -49,7 +50,7 @@ export default function Rating() {
   return (
     <View style={styles.root}>
       <ScreenHeader title="How did we do?" />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <View style={{ alignItems: 'center' }}>
           {creator && (
             <View style={styles.avatar}>
@@ -86,7 +87,7 @@ export default function Rating() {
           style={styles.noteInput}
         />
         <View style={{ height: 24 }} />
-      </ScrollView>
+      </KeyboardScrollView>
       <View style={styles.footer}>
         {error ? <Text style={{ fontSize: 12.5, fontWeight: '600', color: '#B4442E', marginBottom: 8 }}>{error}</Text> : null}
         <Pressable

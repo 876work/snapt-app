@@ -1,5 +1,6 @@
 import React from 'react';
 import { Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardScrollView } from '../../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
@@ -42,7 +43,7 @@ export default function OrderTracker() {
   return (
     <View style={styles.root}>
       <ScreenHeader title="Your order" />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <View style={styles.metaRow}>
           <View>
             <Text style={styles.orderId}>Order #{String(id).replace('bk-', 'SN-')}</Text>
@@ -159,7 +160,7 @@ export default function OrderTracker() {
           </View>
         </View>
         <View style={{ height: 24 }} />
-      </ScrollView>
+      </KeyboardScrollView>
 
       <View style={styles.footer}>
         {step === 2 && (

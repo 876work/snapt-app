@@ -13,7 +13,7 @@ import {
 } from '@expo-google-fonts/inter';
 import { initAuth } from '../lib/auth';
 import { ApiErrorOverlay } from '../components/ui/ApiErrorOverlay';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '../lib/text';
 
 /**
@@ -84,7 +84,19 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <StatusBar style="dark" />
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#FAFAFA' } }} />
+        {/* ONE keyboard strategy for the whole app: on iOS the router outlet
+            shrinks above the keyboard, so every screen's pinned footer (and
+            its Continue/submit button) stays reachable while typing. Android
+            resizes the window itself (adjustResize) — adding padding there
+            too would double-shift. Per-screen scroll views add
+            keyboardShouldPersistTaps so buttons work on first tap and a tap
+            on empty space dismisses. */}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#FAFAFA' } }} />
+        </KeyboardAvoidingView>
         <ApiErrorOverlay />
       </GestureHandlerRootView>
     </SafeAreaProvider>
