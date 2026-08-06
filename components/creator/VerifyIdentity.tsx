@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import Svg, { Path } from 'react-native-svg';
 import { Text } from '../../lib/text';
@@ -17,6 +17,16 @@ import { colors } from '../../lib/theme';
  * Nothing here blocks the application: Didit unreachable, a decline after
  * the retry, or abandoning halfway all fall through to manual review.
  */
+
+const CALLBACK_URL = 'snapt://creator/verification-complete';
+
+/**
+ * false = hand off to the system browser (Safari), where camera access for
+ * document capture is guaranteed. true = in-app sheet (nicer UX, no context
+ * switch) — only flip this once camera capture is confirmed on a physical
+ * device; the iOS Simulator has no camera at all, so it cannot answer this.
+ */
+const USE_IN_APP_BROWSER = false;
 
 export type DocType = 'ID' | 'DL' | 'P';
 
@@ -38,6 +48,7 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
   const [busy, setBusy] = React.useState(false);
   const [status, setStatus] = React.useState<Status | null>(null);
   const [note, setNote] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
   const refresh = React.useCallback(async () => {
     if (!apiBase) return;
@@ -57,8 +68,13 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
   }, [refresh]);
 
   const start = async () => {
-    if (!doc || busy || !apiBase) return;
+    if (!doc || busy) return;
+    if (!apiBase) {
+      setError("The app isn't connected to the server, so ID checks can't start. Submit your application — our team will verify you manually.");
+      return;
+    }
     setBusy(true);
+    setError(null);
     setNote(null);
     try {
       const res = await fetch(`${apiBase}/v1/creator/verification/session`, {
@@ -67,24 +83,50 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
         body: JSON.stringify({ document_type: doc }),
       });
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        setNote(
-          body.error === 'max_attempts'
-            ? "You've used both attempts — our team will review your application by hand. Nothing else is needed from you."
-            : "We couldn't start verification just now. You can submit anyway — our team will verify you manually.",
-        );
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          didit_status?: number;
+          didit_detail?: string;
+        };
+        if (body.error === 'max_attempts') {
+          setError("You've used both attempts. Submit your application — our team will review your documents by hand. Nothing else is needed from you.");
+        } else {
+          // Always say something concrete. The reason code is for support
+          // and for us; the creator is told exactly what to do next.
+          const code = body.didit_status ? ` (code ${body.didit_status})` : ` (${res.status})`;
+          setError(
+            `ID checks aren't available right now${code}. Submit your application as normal — our team will verify you manually.`,
+          );
+        }
         return;
       }
-      const body = (await res.json()) as { url: string };
-      // In-app browser: the user stays inside Snapt, and the snapt://
-      // callback closes it when Didit finishes.
-      await WebBrowser.openAuthSessionAsync(body.url, 'snapt://creator/verification-complete');
-      // Whatever the browser reported, the webhook is the authority.
-      setNote('Thanks — we\'re checking your documents. This usually takes a minute.');
+      const body = (await res.json()) as { url?: string };
+      if (!body.url) {
+        setError("Verification didn't return a link. Submit your application — our team will verify you manually.");
+        return;
+      }
+      // System browser, NOT an in-app sheet: document capture needs the
+      // camera, and full Safari is the only variant where camera access is
+      // certain. Didit returns the creator via the snapt:// callback, which
+      // has its own route. (Flip USE_IN_APP_BROWSER once the in-app sheet is
+      // camera-verified on a real device.)
+      if (USE_IN_APP_BROWSER) {
+        await WebBrowser.openAuthSessionAsync(body.url, CALLBACK_URL);
+      } else {
+        const opened = await Linking.canOpenURL(body.url);
+        if (!opened) {
+          setError("Couldn't open the verification page. Submit your application — our team will verify you manually.");
+          return;
+        }
+        await Linking.openURL(body.url);
+      }
+      setNote("Thanks — we're checking your documents. This usually takes a minute.");
       setTimeout(refresh, 2500);
       await refresh();
-    } catch {
-      setNote("We couldn't reach verification. You can submit anyway — our team will verify you manually.");
+    } catch (err) {
+      setError(
+        `Couldn't reach verification${err instanceof Error && err.message ? ` (${err.message.slice(0, 60)})` : ''}. Submit your application — our team will verify you manually.`,
+      );
     } finally {
       setBusy(false);
     }
@@ -179,7 +221,10 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
             style={[styles.cta, (!doc || busy) && { opacity: 0.5 }]}
           >
             {busy ? (
-              <ActivityIndicator color={colors.ink} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ActivityIndicator color={colors.ink} />
+                <Text style={styles.ctaLabel}>Starting…</Text>
+              </View>
             ) : (
               <Text style={styles.ctaLabel}>
                 {(status?.attempts ?? 0) > 0 ? 'Try verification again' : 'Verify my identity'}
@@ -193,6 +238,11 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
         </>
       )}
 
+      {error && (
+        <View style={styles.errorCard}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
       {note && <Text style={styles.note}>{note}</Text>}
     </View>
   );
@@ -235,6 +285,15 @@ const styles = StyleSheet.create({
   ctaLabel: { fontSize: 14.5, fontWeight: '800', color: colors.ink },
   privacy: { fontSize: 11.5, color: colors.grey, lineHeight: 17, marginTop: 10 },
   note: { fontSize: 12.5, color: colors.goldText, lineHeight: 18, marginTop: 10 },
+  errorCard: {
+    marginTop: 12,
+    backgroundColor: '#FDECEC',
+    borderWidth: 1,
+    borderColor: '#F5C6C6',
+    borderRadius: 12,
+    padding: 12,
+  },
+  errorText: { fontSize: 12.5, color: '#A32C2C', lineHeight: 18 },
   statusCard: { borderRadius: 14, padding: 14, borderWidth: 1, marginBottom: 12 },
   ok: { backgroundColor: '#E8F6EC', borderColor: '#BFE4C9' },
   pending: { backgroundColor: colors.yellowSoft, borderColor: '#F4E7C0' },
