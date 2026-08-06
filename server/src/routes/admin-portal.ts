@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../supabase.js';
 import { audit, requireAdmin } from '../admin-auth.js';
 import { configNumber } from '../config.js';
 import { suspendUser } from './moderation.js';
+import { creatorStanding } from '../strikes.js';
 
 // Admin Portal rebuild — API surface for the SPA at /admin. Everything here
 // is read-heavy composition over the same data model the apps use; all
@@ -358,6 +359,120 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
       return { suspended: true };
     },
   );
+
+  // Creator management: the roster. In-review applications sort first —
+  // they are the queue — then by most recently applied.
+  app.get<{ Querystring: { status?: string } }>('/v1/admin/creators', async (request, reply) => {
+    const admin = await requireAdmin(request, reply, ['admin', 'support']);
+    if (!admin) return;
+    let query = supabaseAdmin
+      .from('creator_profiles')
+      .select('user_id, vetting_status, background_check_status, verified, is_available, service_type, specialties, base_area, applied_at, created_at')
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (request.query.status) query = query.eq('vetting_status', request.query.status);
+    const { data, error } = await query;
+    if (error) return reply.code(500).send({ error: error.message });
+    const names = await profileMap((data ?? []).map((c) => c.user_id));
+    const rank = (s: string) => (s === 'in_review' ? 0 : 1);
+    const creators = (data ?? [])
+      .map((c) => ({
+        ...c,
+        name: names.get(c.user_id)?.name ?? '',
+        email: names.get(c.user_id)?.email ?? null,
+      }))
+      .sort((a, b) => rank(a.vetting_status) - rank(b.vetting_status));
+    return { creators };
+  });
+
+  // One creator's whole picture: application, standing, money, work.
+  app.get<{ Params: { id: string } }>('/v1/admin/creators/:id', async (request, reply) => {
+    const admin = await requireAdmin(request, reply, ['admin', 'support']);
+    if (!admin) return;
+    const id = request.params.id;
+    const { data: creator, error } = await supabaseAdmin
+      .from('creator_profiles')
+      .select(
+        'user_id, vetting_status, background_check_status, background_check_completed_at, specialties, service_type, service_radius_km, base_area, bio, availability, blocked_dates, verified, promo_fee_rate, is_available, applied_at, rejection_reason, payout_methods, created_at',
+      )
+      .eq('user_id', id)
+      .maybeSingle();
+    if (error) return reply.code(500).send({ error: error.message });
+    if (!creator) return reply.code(404).send({ error: 'No such creator' });
+
+    const [{ data: profile }, { data: strikeRows }, { data: payoutRows }, { data: reviewRows }, { data: portfolioRows }, { data: bookingRows }] =
+      await Promise.all([
+        supabaseAdmin
+          .from('profiles')
+          .select('id, full_name, email, phone, created_at, suspended_at')
+          .eq('id', id)
+          .maybeSingle(),
+        supabaseAdmin.from('strikes').select('*').eq('creator_id', id).order('occurred_at', { ascending: false }).limit(20),
+        supabaseAdmin.from('creator_payouts').select('amount_usd, status').eq('creator_id', id),
+        supabaseAdmin
+          .from('reviews')
+          .select('id, booking_id, client_id, rating, comment, created_at')
+          .eq('creator_id', id)
+          .order('created_at', { ascending: false }),
+        supabaseAdmin
+          .from('portfolio_items')
+          .select('id, caption, status, created_at')
+          .eq('creator_id', id)
+          .order('created_at', { ascending: false })
+          .limit(12),
+        supabaseAdmin
+          .from('bookings')
+          .select('id, status, occasion, type, area, scheduled_at, price_usd, client_id, created_at')
+          .eq('creator_id', id)
+          .order('created_at', { ascending: false })
+          .limit(10),
+      ]);
+
+    // Payout methods stay masked here — the raw details belong to the payout
+    // fulfilment queue, where paying requires them.
+    const pm = (creator.payout_methods ?? {}) as { selected?: string; methods?: Record<string, unknown> };
+    const payout_summary = { selected: pm.selected ?? null, configured: Object.keys(pm.methods ?? {}) };
+    const { payout_methods: _dropped, ...creatorSafe } = creator as Record<string, unknown>;
+
+    const earnings = { pending: 0, available: 0, paid_out: 0 };
+    for (const p of payoutRows ?? []) {
+      const amt = Number(p.amount_usd);
+      if (p.status === 'paid_out') earnings.paid_out += amt;
+      else if (p.status === 'available' || p.status === 'requested') earnings.available += amt;
+      else if (p.status === 'pending' || p.status === 'held') earnings.pending += amt;
+    }
+    for (const k of Object.keys(earnings) as (keyof typeof earnings)[]) {
+      earnings[k] = Math.round(earnings[k] * 100) / 100;
+    }
+
+    const ratingCount = (reviewRows ?? []).length;
+    const ratingAvg = ratingCount
+      ? Math.round(((reviewRows ?? []).reduce((s, r) => s + Number(r.rating), 0) / ratingCount) * 100) / 100
+      : null;
+
+    const names = await profileMap([
+      ...(bookingRows ?? []).map((b) => b.client_id),
+      ...(reviewRows ?? []).slice(0, 5).map((r) => r.client_id),
+    ]);
+
+    return {
+      profile,
+      creator: { ...creatorSafe, payout_summary },
+      standing: await creatorStanding(id),
+      strikes: strikeRows ?? [],
+      earnings,
+      rating: { average: ratingAvg, count: ratingCount },
+      reviews: (reviewRows ?? []).slice(0, 5).map((r) => ({
+        ...r,
+        client_name: names.get(r.client_id)?.name ?? null,
+      })),
+      portfolio: portfolioRows ?? [],
+      bookings: (bookingRows ?? []).map((b) => ({
+        ...b,
+        client_name: names.get(b.client_id)?.name ?? null,
+      })),
+    };
+  });
 
   // Global search: one box for users, creators, and booking references.
   app.get<{ Querystring: { q?: string } }>('/v1/admin/search', async (request, reply) => {
