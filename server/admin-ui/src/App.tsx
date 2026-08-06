@@ -3,7 +3,6 @@ import { useAuth } from './auth';
 import { Layout } from './components/Layout';
 import { Skeleton } from './components/ui';
 import { Login } from './screens/Login';
-import { Placeholder } from './screens/Placeholder';
 import { Today } from './screens/Today';
 import { Users } from './screens/Users';
 import { UserDetail } from './screens/UserDetail';
@@ -14,6 +13,10 @@ import { BookingDetail } from './screens/BookingDetail';
 import { Payouts } from './screens/Payouts';
 import { Disputes } from './screens/Disputes';
 import { Moderation } from './screens/Moderation';
+import { Config } from './screens/Config';
+import { Legal } from './screens/Legal';
+import { Audit } from './screens/Audit';
+import { Analytics } from './screens/Analytics';
 
 export function App() {
   const { identity, restoring } = useAuth();
@@ -47,10 +50,10 @@ export function App() {
         <Route path="/payouts" element={<Payouts />} />
         <Route path="/disputes" element={<Disputes />} />
         <Route path="/moderation" element={<Moderation />} />
-        <Route path="/config" element={<Placeholder title="Config" />} />
-        <Route path="/legal" element={<Placeholder title="Legal" />} />
-        <Route path="/analytics" element={<Placeholder title="Analytics" />} />
-        <Route path="/audit" element={<Placeholder title="Audit log" legacy={false} />} />
+        <Route path="/config" element={<Config />} />
+        <Route path="/legal" element={<Legal />} />
+        <Route path="/analytics" element={<Analytics />} />
+        <Route path="/audit" element={<Audit />} />
         <Route path="*" element={<Navigate to={home} replace />} />
       </Route>
     </Routes>

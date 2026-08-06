@@ -3,9 +3,13 @@
 ## Admin portal (rebuild in progress)
 
 The portal is a React SPA in `admin-ui/`, served by this server at `/admin`.
-The pre-rebuild single-page portal remains at `/admin/legacy` while sections
-migrate one at a time; if `admin-ui/dist` is missing at boot, `/admin` falls
-back to the legacy page so the portal never 404s.
+**All eleven sections are now migrated** (Today, Bookings incl. manual
+dispatch, Users, Creators, Payouts, Disputes, Moderation, Config, Legal,
+Analytics, Audit). The pre-rebuild single-page portal remains at
+`/admin/legacy` as a fallback until the new sections are verified in
+production — delete `legacy-admin-html.ts` after that sign-off. If
+`admin-ui/dist` is missing at boot, `/admin` falls back to the legacy page so
+the portal never 404s.
 
 - `npm run build` compiles the server **and** builds the UI (Render's build
   command needs no change).
