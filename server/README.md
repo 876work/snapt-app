@@ -17,6 +17,16 @@ back to the legacy page so the portal never 404s.
   config; `moderator` = moderation queue only.
 - Safety alerts now carry explicit acknowledgement (`acknowledged_by/at`),
   separate from resolution.
+- Section destinations for every legacy capability (confirmed 2026-08-04, so
+  nothing is lost in migration): **manual dispatch lives in Bookings** — the
+  list gets an Unassigned filter with the Assign action, backed by the
+  existing `GET /v1/admin/unassigned` + `POST /v1/admin/bookings/:id/assign`;
+  Today only surfaces the count and links there. Fee/config key editor →
+  Config; legal document versioning incl. the `requires_reconsent`
+  material-change flag → Legal; moderation approve/reject → Moderation;
+  manual payout fulfilment queue → Payouts; disputes → Disputes; creator
+  applications → Creators. Migration replaces UI only — endpoints are shared
+  with the legacy page and never change with a section move.
 
 
 Node/TypeScript base API per handoff §3 Phase 0: Supabase-backed, Stripe +
