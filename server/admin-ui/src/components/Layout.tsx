@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth, type Role } from '../auth';
+import { CommandPalette } from './CommandPalette';
 import { GlobalSearch } from './GlobalSearch';
 import { Icon } from './icons';
 import { Pill } from './ui';
@@ -25,6 +26,7 @@ const NAV: NavItem[] = [
   { to: '/legal', label: 'Legal', icon: 'legal', roles: ['admin'] },
   { to: '/analytics', label: 'Analytics', icon: 'analytics', roles: ['admin', 'support'] },
   { to: '/audit', label: 'Audit log', icon: 'audit', roles: ['admin', 'support'] },
+  { to: '/team', label: 'Team', icon: 'users', roles: ['admin'] },
 ];
 
 export function navItemsFor(role: Role): NavItem[] {
@@ -88,6 +90,7 @@ export function Layout() {
         <main className="content">
           <Outlet />
         </main>
+        <CommandPalette />
       </div>
     </div>
   );

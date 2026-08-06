@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { NotesThread } from '../components/NotesThread';
 import { EmptyState, Pill, SectionSkeleton, formatMoney, formatWhen } from '../components/ui';
 
 interface UserDetailData {
@@ -94,6 +95,23 @@ export function UserDetail() {
     onError: (e) => setActionError((e as Error).message),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['user', id] }),
   });
+  const [sentFlash, setSentFlash] = useState<string | null>(null);
+  const passwordLink = useMutation({
+    mutationFn: () => api(`/v1/admin/users/${id}/send-password-link`, { method: 'POST' }),
+    onSuccess: () => {
+      setActionError(null);
+      setSentFlash('Set-password email sent.');
+    },
+    onError: (e) => setActionError((e as Error).message),
+  });
+  const nudgeApply = useMutation({
+    mutationFn: () => api(`/v1/admin/users/${id}/nudge-apply`, { method: 'POST' }),
+    onSuccess: () => {
+      setActionError(null);
+      setSentFlash('“Become a creator” email sent.');
+    },
+    onError: (e) => setActionError((e as Error).message),
+  });
 
   if (isLoading) {
     return (
@@ -153,11 +171,38 @@ export function UserDetail() {
               Suspend
             </button>
           ))}
+        <button
+          className="btn ghost"
+          disabled={passwordLink.isPending}
+          onClick={() => {
+            if (window.confirm(`Email ${profile.email ?? 'this user'} a set-password link? It expires in 72 hours.`))
+              passwordLink.mutate();
+          }}
+        >
+          Send password link
+        </button>
+        {!creator && (
+          <button
+            className="btn ghost"
+            disabled={nudgeApply.isPending}
+            onClick={() => {
+              if (window.confirm('Send the “Become a creator” email pointing them at the in-app application?'))
+                nudgeApply.mutate();
+            }}
+          >
+            Invite to apply
+          </button>
+        )}
       </div>
       <p className="page-sub">
         {profile.email ?? 'no email'} · {profile.phone ?? 'no phone'} · joined {formatWhen(profile.created_at)} ·
         prefers {profile.currency}
       </p>
+      {sentFlash && (
+        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--ok)', marginBottom: 12 }}>
+          {sentFlash}
+        </div>
+      )}
       {actionError && (
         <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--danger)', marginBottom: 12 }}>
           {actionError}
@@ -311,6 +356,8 @@ export function UserDetail() {
           </div>
         )}
       </div>
+
+      <NotesThread subjectType="user" subjectId={profile.id} />
 
       <div className="section">
         <h2>Admin history</h2>

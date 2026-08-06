@@ -10,6 +10,16 @@ import {
   formatWhen,
   useNow,
 } from '../components/ui';
+import { Sparkline } from '../components/Sparkline';
+
+/** This week vs last, as a signed % — the only number a sparkline needs. */
+function weekDelta(days14: number[]): number | null {
+  const last = days14.slice(7).reduce((s, v) => s + v, 0);
+  const prev = days14.slice(0, 7).reduce((s, v) => s + v, 0);
+  if (prev === 0 && last === 0) return null;
+  if (prev === 0) return 100;
+  return Math.round(((last - prev) / prev) * 100);
+}
 
 interface BookingLite {
   id: string;
@@ -28,6 +38,7 @@ interface BookingLite {
 interface TodayData {
   server_time: string;
   grace_minutes: number;
+  sparks: { bookings: number[]; revenue: number[] };
   alerts: {
     id: string;
     alert_type: string;
@@ -229,6 +240,32 @@ export function Today() {
                 <div className="label">{t.label}</div>
               </Link>
             ))}
+            {data &&
+              (
+                [
+                  { label: 'bookings · 14 days', points: data.sparks.bookings, money: false },
+                  { label: 'revenue · 14 days', points: data.sparks.revenue, money: true },
+                ] as const
+              ).map((s) => {
+                const delta = weekDelta(s.points);
+                const weekTotal = s.points.slice(7).reduce((a, v) => a + v, 0);
+                return (
+                  <Link key={s.label} to="/analytics" className="card tile spark-tile quiet" style={{ borderStyle: 'solid' }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                      <span className="num" style={{ fontWeight: 800, fontSize: 19, color: 'var(--ink-2)' }}>
+                        {s.money ? formatMoney(Math.round(weekTotal * 100) / 100) : weekTotal}
+                      </span>
+                      {delta != null && (
+                        <span className={`delta num ${delta >= 0 ? 'up' : 'down'}`}>
+                          {delta >= 0 ? '▲' : '▼'} {Math.abs(delta)}%
+                        </span>
+                      )}
+                    </div>
+                    <Sparkline points={s.points} width={120} height={26} stroke={delta != null && delta < 0 ? 'var(--danger)' : 'var(--brand)'} />
+                    <div className="label">{s.label}</div>
+                  </Link>
+                );
+              })}
           </div>
         )}
       </div>

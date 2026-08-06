@@ -3,6 +3,7 @@ import { useAuth } from './auth';
 import { Layout } from './components/Layout';
 import { Skeleton } from './components/ui';
 import { Login } from './screens/Login';
+import { SetPassword } from './screens/SetPassword';
 import { Today } from './screens/Today';
 import { Users } from './screens/Users';
 import { UserDetail } from './screens/UserDetail';
@@ -17,9 +18,13 @@ import { Config } from './screens/Config';
 import { Legal } from './screens/Legal';
 import { Audit } from './screens/Audit';
 import { Analytics } from './screens/Analytics';
+import { Team } from './screens/Team';
 
 export function App() {
   const { identity, restoring } = useAuth();
+
+  // Invite links land here from email — must work with no session at all.
+  if (window.location.pathname.endsWith('/set-password')) return <SetPassword />;
 
   if (restoring) {
     // Validating a stored session — skeleton shell, not a blank page.
@@ -54,6 +59,7 @@ export function App() {
         <Route path="/legal" element={<Legal />} />
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/audit" element={<Audit />} />
+        {identity.role === 'admin' && <Route path="/team" element={<Team />} />}
         <Route path="*" element={<Navigate to={home} replace />} />
       </Route>
     </Routes>

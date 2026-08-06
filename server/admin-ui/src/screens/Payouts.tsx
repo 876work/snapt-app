@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { api } from '../api';
+import { api, downloadFile } from '../api';
 import { useAuth } from '../auth';
 import { EmptyState, SectionSkeleton, formatMoney, formatWhen } from '../components/ui';
 
@@ -43,6 +43,16 @@ export function Payouts() {
     onError: (e) => setActionError((e as Error).message),
     onSettled: refresh,
   });
+  const [sentFlash, setSentFlash] = useState<string | null>(null);
+  const resendNotification = useMutation({
+    mutationFn: (user_id: string) =>
+      api('/v1/admin/resend-email', { method: 'POST', body: JSON.stringify({ kind: 'payout_notification', user_id }) }),
+    onSuccess: () => {
+      setActionError(null);
+      setSentFlash('Payout notification re-sent.');
+    },
+    onError: (e) => setActionError((e as Error).message),
+  });
 
   const total = (data?.requests ?? []).reduce((s, r) => s + r.total, 0);
   const isAdmin = identity?.role === 'admin';
@@ -51,6 +61,16 @@ export function Payouts() {
     <>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
         <h1 className="page-title">Payouts</h1>
+        <button
+          className="btn ghost"
+          onClick={() =>
+            downloadFile('/v1/admin/export/payouts', 'snapt-payouts-all.csv').catch((e) =>
+              setActionError((e as Error).message),
+            )
+          }
+        >
+          Export CSV
+        </button>
         {data && (
           <span className="page-sub num">
             {data.requests.length
@@ -68,6 +88,11 @@ export function Payouts() {
       {actionError && (
         <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--danger)', marginBottom: 12 }}>
           {actionError}
+        </div>
+      )}
+      {sentFlash && (
+        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--ok)', marginBottom: 12 }}>
+          {sentFlash}
         </div>
       )}
 
@@ -100,6 +125,17 @@ export function Payouts() {
                   }}
                 >
                   {r.admin_note ? 'Edit note' : 'Add note'}
+                </button>
+                <button
+                  className="btn ghost"
+                  disabled={resendNotification.isPending}
+                  title="Re-send the last 'payout sent' email to this creator"
+                  onClick={() => {
+                    if (window.confirm('Re-send the most recent payout notification email to this creator?'))
+                      resendNotification.mutate(r.creator_id);
+                  }}
+                >
+                  ✉ Resend
                 </button>
                 {isAdmin && (
                   <button

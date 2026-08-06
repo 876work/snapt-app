@@ -664,6 +664,175 @@ button {
   margin: 4px 0 0;
 }
 
+/* spark tiles — direction at a glance inside the decision strip */
+.tile.spark {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tile.spark .meta .value {
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.tile.spark .meta .label {
+  font-size: 11.5px;
+}
+
+/* command palette */
+.palette-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 20, 20, 0.45);
+  z-index: 60;
+  display: grid;
+  justify-items: center;
+  align-items: start;
+  padding-top: 14vh;
+}
+
+.palette {
+  width: min(560px, calc(100vw - 32px));
+  background: var(--card);
+  border-radius: 16px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.palette-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  padding: 16px 18px;
+  font: inherit;
+  font-size: 15px;
+  border-bottom: 1px solid var(--line);
+}
+
+.palette-list {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.palette-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.palette-row.selected {
+  background: var(--brand-soft);
+}
+
+.palette-empty {
+  padding: 18px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
+}
+
+.palette-hint {
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+.kbd-hint {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 3px 7px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--card);
+  white-space: nowrap;
+}
+
+/* command palette (⌘K) */
+.palette-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 16, 16, 0.45);
+  z-index: 60;
+  display: grid;
+  justify-items: center;
+  align-items: start;
+  padding-top: 12vh;
+}
+
+.palette {
+  width: min(560px, calc(100vw - 32px));
+  background: var(--card);
+  border-radius: 16px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.palette-input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  padding: 16px 18px;
+  font: inherit;
+  font-size: 15px;
+  outline: none;
+}
+
+.palette-list {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.palette-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  background: none;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.palette-row.selected {
+  background: var(--brand-soft);
+}
+
+.palette-row .grow { flex: 1; min-width: 0; }
+
+.palette-empty {
+  padding: 18px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
+}
+
+.palette-hint {
+  border-top: 1px solid var(--line);
+  padding: 8px 14px;
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+/* spark tiles on Today — direction only, no chart furniture */
+.tile.spark-tile .label { margin-top: 4px; }
+.tile.spark-tile .delta { font-size: 12px; font-weight: 700; }
+.tile.spark-tile .delta.up { color: var(--ok); }
+.tile.spark-tile .delta.down { color: var(--danger); }
+
 /* login — the front door: dark canvas, one warm light source, one card. */
 .login-wrap {
   min-height: 100vh;

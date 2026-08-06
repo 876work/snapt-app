@@ -25,6 +25,28 @@ export class ApiError extends Error {
 /** Fired when the API says our token is no longer good. */
 export const sessionExpired = new EventTarget();
 
+/** Authenticated file download (CSV exports) — bearer token, blob, save-as. */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const res = await fetch(path, { headers: { Authorization: `Bearer ${getToken() ?? ''}` } });
+  if (!res.ok) {
+    let message = `Export failed (${res.status})`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body.error) message = body.error;
+    } catch {
+      /* non-JSON */
+    }
+    throw new ApiError(res.status, message);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { NotesThread } from '../components/NotesThread';
 import { EmptyState, Pill, SectionSkeleton, formatMoney, formatWhen } from '../components/ui';
 
 interface BookingDetailData {
@@ -82,6 +83,16 @@ export function BookingDetail() {
     onError: (e) => setActionError((e as Error).message),
     onSettled: refresh,
   });
+  const [sentFlash, setSentFlash] = useState<string | null>(null);
+  const resend = useMutation({
+    mutationFn: (kind: 'booking_confirmation' | 'refund_notice') =>
+      api('/v1/admin/resend-email', { method: 'POST', body: JSON.stringify({ kind, booking_id: id }) }),
+    onSuccess: (_res, kind) => {
+      setActionError(null);
+      setSentFlash(kind === 'booking_confirmation' ? 'Confirmation email re-sent to the client.' : 'Refund notice re-sent to the client.');
+    },
+    onError: (e) => setActionError((e as Error).message),
+  });
 
   if (isLoading) {
     return (
@@ -143,6 +154,35 @@ export function BookingDetail() {
         {b.id} · created {formatWhen(b.created_at)}
         {b.reschedule_count > 0 ? ` · rescheduled ×${b.reschedule_count}` : ''}
       </p>
+      <div className="toolbar" style={{ marginBottom: 10 }}>
+        {['confirmed', 'completed', 'disputed'].includes(b.status) && (
+          <button
+            className="chip"
+            disabled={resend.isPending}
+            onClick={() => {
+              if (window.confirm('Re-send the booking confirmation email to the client?')) resend.mutate('booking_confirmation');
+            }}
+          >
+            ✉ Resend confirmation
+          </button>
+        )}
+        {data.transactions.some((t) => t.type === 'refund') && (
+          <button
+            className="chip"
+            disabled={resend.isPending}
+            onClick={() => {
+              if (window.confirm('Re-send the refund notice email to the client?')) resend.mutate('refund_notice');
+            }}
+          >
+            ✉ Resend refund notice
+          </button>
+        )}
+      </div>
+      {sentFlash && (
+        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--ok)', marginBottom: 12 }}>
+          {sentFlash}
+        </div>
+      )}
       {actionError && (
         <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--danger)', marginBottom: 12 }}>
           {actionError}
@@ -342,6 +382,8 @@ export function BookingDetail() {
           </div>
         </div>
       </div>
+
+      <NotesThread subjectType="booking" subjectId={b.id} />
 
       {data.admin_history.length > 0 && (
         <div className="section">

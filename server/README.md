@@ -18,7 +18,15 @@ the portal never 404s.
   `admin-ui` and use `/admin`.
 - Admin roles (`admin_users.role`, enforced per-route in `admin-auth.ts`):
   `admin` = everything; `support` = view/refund/notes, no payout release or
-  config; `moderator` = moderation queue only.
+  config; `moderator` = moderation queue only. Accounts are managed from the
+  portal's Team section (admin-only): invites set passwords via emailed
+  single-use expiring links (never from the portal), no self-deactivation/
+  demotion, never zero active admins, deactivation bites on the next request.
+  Deactivation is SOFT only so `admin_actions` keeps attributing history.
+- Deploy prerequisites for the portal branch: apply migrations
+  `20260804180000_admin_portal_roles.sql` AND `20260805090000_portal_team.sql`
+  to production Supabase, and set `PORTAL_BASE_URL` on Render (used in
+  emailed invite links).
 - Safety alerts now carry explicit acknowledgement (`acknowledged_by/at`),
   separate from resolution.
 - Section destinations for every legacy capability (confirmed 2026-08-04, so

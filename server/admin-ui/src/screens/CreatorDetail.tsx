@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { NotesThread } from '../components/NotesThread';
 import { EmptyState, Pill, SectionSkeleton, formatMoney, formatWhen } from '../components/ui';
 
 interface CreatorDetailData {
@@ -306,6 +307,8 @@ export function CreatorDetail() {
           </div>
         )}
       </div>
+
+      <NotesThread subjectType="creator" subjectId={creator.user_id} />
 
       {data.reviews.length > 0 && (
         <div className="section">

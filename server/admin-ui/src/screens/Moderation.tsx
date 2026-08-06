@@ -38,6 +38,15 @@ const SEVERITY_TONE: Record<string, 'danger' | 'warn' | 'info' | 'neutral'> = {
 export function Moderation() {
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
+  const [selReports, setSelReports] = useState<Set<string>>(new Set());
+  const [selPortfolio, setSelPortfolio] = useState<Set<string>>(new Set());
+
+  const toggle = (set: Set<string>, id: string, apply: (s: Set<string>) => void) => {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    apply(next);
+  };
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['moderation'],
@@ -61,6 +70,32 @@ export function Moderation() {
     onError: (e) => setActionError((e as Error).message),
     onSettled: refresh,
   });
+  const bulkReports = useMutation({
+    mutationFn: async (action: 'actioned' | 'dismissed') => {
+      await Promise.all(
+        [...selReports].map((id) => api(`/v1/admin/reports/${id}`, { method: 'POST', body: JSON.stringify({ action }) })),
+      );
+    },
+    onSuccess: () => {
+      setActionError(null);
+      setSelReports(new Set());
+    },
+    onError: (e) => setActionError((e as Error).message),
+    onSettled: refresh,
+  });
+  const bulkPortfolio = useMutation({
+    mutationFn: async (decision: 'approved' | 'rejected') => {
+      await Promise.all(
+        [...selPortfolio].map((id) => api(`/v1/admin/portfolio/${id}`, { method: 'POST', body: JSON.stringify({ decision }) })),
+      );
+    },
+    onSuccess: () => {
+      setActionError(null);
+      setSelPortfolio(new Set());
+    },
+    onError: (e) => setActionError((e as Error).message),
+    onSettled: refresh,
+  });
 
   return (
     <>
@@ -80,6 +115,44 @@ export function Moderation() {
         <h2>
           Reports <span className="count num">{data?.reports.length || ''}</span>
         </h2>
+        {(data?.reports.length ?? 0) > 1 && (
+          <div className="toolbar" style={{ marginBottom: 10 }}>
+            <button
+              className="chip"
+              onClick={() =>
+                setSelReports(
+                  selReports.size === data!.reports.length ? new Set() : new Set(data!.reports.map((r) => r.id)),
+                )
+              }
+            >
+              {selReports.size === data!.reports.length ? 'Clear selection' : 'Select all'}
+            </button>
+            {selReports.size > 0 && (
+              <>
+                <button
+                  className="btn"
+                  disabled={bulkReports.isPending}
+                  onClick={() => {
+                    if (window.confirm(`Mark ${selReports.size} report${selReports.size === 1 ? '' : 's'} ACTIONED?`))
+                      bulkReports.mutate('actioned');
+                  }}
+                >
+                  Action {selReports.size}
+                </button>
+                <button
+                  className="btn ghost"
+                  disabled={bulkReports.isPending}
+                  onClick={() => {
+                    if (window.confirm(`Dismiss ${selReports.size} report${selReports.size === 1 ? '' : 's'}?`))
+                      bulkReports.mutate('dismissed');
+                  }}
+                >
+                  Dismiss {selReports.size}
+                </button>
+              </>
+            )}
+          </div>
+        )}
         {isLoading ? (
           <SectionSkeleton rows={4} />
         ) : isError ? (
@@ -91,6 +164,12 @@ export function Moderation() {
             {data!.reports.map((r) => (
               <div key={r.id} className="card" style={{ padding: 14, display: 'grid', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <input
+                    type="checkbox"
+                    checked={selReports.has(r.id)}
+                    onChange={() => toggle(selReports, r.id, setSelReports)}
+                    aria-label="Select report"
+                  />
                   <Pill tone={SEVERITY_TONE[r.severity] ?? 'neutral'}>{r.severity}</Pill>
                   <span style={{ fontWeight: 700 }}>{r.category.replace(/_/g, ' ')}</span>
                   {r.law_enforcement_referral && <Pill tone="danger">LE referral</Pill>}
@@ -156,6 +235,46 @@ export function Moderation() {
         <h2>
           Portfolio queue <span className="count num">{data?.portfolio_pending.length || ''}</span>
         </h2>
+        {(data?.portfolio_pending.length ?? 0) > 1 && (
+          <div className="toolbar" style={{ marginBottom: 10 }}>
+            <button
+              className="chip"
+              onClick={() =>
+                setSelPortfolio(
+                  selPortfolio.size === data!.portfolio_pending.length
+                    ? new Set()
+                    : new Set(data!.portfolio_pending.map((p) => p.id)),
+                )
+              }
+            >
+              {selPortfolio.size === data!.portfolio_pending.length ? 'Clear selection' : 'Select all'}
+            </button>
+            {selPortfolio.size > 0 && (
+              <>
+                <button
+                  className="btn"
+                  disabled={bulkPortfolio.isPending}
+                  onClick={() => {
+                    if (window.confirm(`Approve ${selPortfolio.size} portfolio item${selPortfolio.size === 1 ? '' : 's'}?`))
+                      bulkPortfolio.mutate('approved');
+                  }}
+                >
+                  Approve {selPortfolio.size}
+                </button>
+                <button
+                  className="btn ghost"
+                  disabled={bulkPortfolio.isPending}
+                  onClick={() => {
+                    if (window.confirm(`Reject ${selPortfolio.size} portfolio item${selPortfolio.size === 1 ? '' : 's'}?`))
+                      bulkPortfolio.mutate('rejected');
+                  }}
+                >
+                  Reject {selPortfolio.size}
+                </button>
+              </>
+            )}
+          </div>
+        )}
         {isLoading ? (
           <SectionSkeleton rows={2} />
         ) : (data?.portfolio_pending ?? []).length === 0 ? (
@@ -164,6 +283,12 @@ export function Moderation() {
           <div className="card row-list">
             {data!.portfolio_pending.map((p) => (
               <div key={p.id} className="row">
+                <input
+                  type="checkbox"
+                  checked={selPortfolio.has(p.id)}
+                  onChange={() => toggle(selPortfolio, p.id, setSelPortfolio)}
+                  aria-label="Select portfolio item"
+                />
                 <div className="who grow">
                   <div className="name">
                     {p.creator_name ?? 'creator'} · {p.caption || '(no caption)'}

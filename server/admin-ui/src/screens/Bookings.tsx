@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { api } from '../api';
+import { api, downloadFile } from '../api';
+import { SavedViews } from '../components/SavedViews';
 import { EmptyState, Pill, SectionSkeleton, formatMoney, formatWhen } from '../components/ui';
 
 interface BookingRow {
@@ -63,6 +64,17 @@ export function Bookings() {
             </button>
           ))}
         </div>
+        <SavedViews screen="bookings" current={filter} onApply={setFilter} />
+        <button
+          className="btn ghost"
+          onClick={() =>
+            downloadFile('/v1/admin/export/bookings', 'snapt-bookings-all.csv').catch((e) =>
+              window.alert((e as Error).message),
+            )
+          }
+        >
+          Export CSV
+        </button>
       </div>
 
       {isLoading ? (

@@ -142,9 +142,30 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
       creator_name: row.creator_id ? names.get(row.creator_id)?.name ?? null : null,
     });
 
+    // 14-day sparklines for the decision strip: direction, not analysis.
+    const spark14 = (rows: { created_at: string; amount?: number }[]) => {
+      const days: number[] = Array(14).fill(0);
+      const start = now - 13 * 86400_000;
+      for (const r of rows) {
+        const idx = Math.floor((Date.parse(r.created_at) - start) / 86400_000);
+        if (idx >= 0 && idx < 14) days[idx] += r.amount ?? 1;
+      }
+      return days.map((v) => Math.round(v * 100) / 100);
+    };
+    const since14 = new Date(now - 13 * 86400_000).toISOString();
+    const [{ data: recentBookings }, { data: recentCharges }] = await Promise.all([
+      supabaseAdmin.from('bookings').select('created_at').gte('created_at', since14),
+      supabaseAdmin.from('transactions').select('created_at, amount_usd').eq('type', 'charge').eq('status', 'succeeded').gte('created_at', since14),
+    ]);
+    const sparks = {
+      bookings: spark14(recentBookings ?? []),
+      revenue: spark14((recentCharges ?? []).map((t) => ({ created_at: t.created_at, amount: Number(t.amount_usd) }))),
+    };
+
     return {
       server_time: nowIso,
       grace_minutes: graceMinutes,
+      sparks,
       alerts: alerts.map((a) => ({
         ...a,
         acknowledged_by_name: a.acknowledged_by ? names.get(a.acknowledged_by)?.name ?? null : null,
@@ -561,6 +582,154 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
       })),
     };
   });
+
+  // Analytics series: every chart's data for a date range in one response.
+  // Volumes are small (single-island marketplace) — query then bucket in TS.
+  app.get<{ Querystring: { from?: string; to?: string } }>(
+    '/v1/admin/analytics/series',
+    async (request, reply) => {
+      const admin = await requireAdmin(request, reply, ['admin', 'support']);
+      if (!admin) return;
+      const toMs = request.query.to ? Date.parse(`${request.query.to}T23:59:59.999Z`) : Date.now();
+      const fromMs = request.query.from
+        ? Date.parse(`${request.query.from}T00:00:00.000Z`)
+        : toMs - 29 * 86400_000;
+      if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs > toMs) {
+        return reply.code(400).send({ error: 'Invalid date range' });
+      }
+      const fromIso = new Date(fromMs).toISOString();
+      const toIso = new Date(toMs).toISOString();
+      const dayOf = (iso: string) => iso.slice(0, 10);
+      const days: string[] = [];
+      for (let t = fromMs; t <= toMs; t += 86400_000) days.push(new Date(t).toISOString().slice(0, 10));
+
+      const [{ data: bookings }, { data: txs }, { data: payouts }, { data: reviews }, { data: creators }] =
+        await Promise.all([
+          supabaseAdmin
+            .from('bookings')
+            .select('type, status, area, price_usd, created_at, cancelled_at, scheduled_at')
+            .gte('created_at', fromIso)
+            .lte('created_at', toIso),
+          supabaseAdmin
+            .from('transactions')
+            .select('type, status, amount_usd, created_at')
+            .gte('created_at', fromIso)
+            .lte('created_at', toIso),
+          supabaseAdmin
+            .from('creator_payouts')
+            .select('creator_id, amount_usd, fee_rate_applied, created_at')
+            .gte('created_at', fromIso)
+            .lte('created_at', toIso),
+          supabaseAdmin
+            .from('reviews')
+            .select('rating, direction, created_at')
+            .gte('created_at', fromIso)
+            .lte('created_at', toIso),
+          supabaseAdmin
+            .from('creator_profiles')
+            .select('user_id, vetting_status')
+            .eq('vetting_status', 'approved'),
+        ]);
+
+      // Bookings per day, split by type.
+      const bookingSeries = days.map((d) => ({ date: d, in_person: 0, remote: 0 }));
+      const byDay = new Map(bookingSeries.map((r) => [r.date, r]));
+      for (const b of bookings ?? []) {
+        const row = byDay.get(dayOf(b.created_at));
+        if (row) row[b.type === 'remote' ? 'remote' : 'in_person'] += 1;
+      }
+
+      // Revenue per day: gross charges + the platform's cut. Fees =
+      // payout-derived platform share (session price × rate, computed from
+      // the payout snapshot) plus cancellation/no-show fees kept outright.
+      const revenueSeries = days.map((d) => ({ date: d, charged: 0, fees: 0 }));
+      const revByDay = new Map(revenueSeries.map((r) => [r.date, r]));
+      for (const t of txs ?? []) {
+        const row = revByDay.get(dayOf(t.created_at));
+        if (!row || t.status === 'failed') continue;
+        const amt = Number(t.amount_usd);
+        if (t.type === 'charge') row.charged += amt;
+        if (t.type === 'refund') row.charged -= amt;
+        if (t.type === 'cancellation_fee' || t.type === 'no_show_charge') row.fees += amt;
+      }
+      for (const p of payouts ?? []) {
+        const row = revByDay.get(dayOf(p.created_at));
+        if (!row) continue;
+        const rate = Number(p.fee_rate_applied);
+        if (rate > 0 && rate < 1) row.fees += Number(p.amount_usd) * (rate / (1 - rate));
+      }
+      for (const r of revenueSeries) {
+        r.charged = Math.round(r.charged * 100) / 100;
+        r.fees = Math.round(r.fees * 100) / 100;
+      }
+
+      // Cancellations by notice tier — where money leaks.
+      const cancellations = { gt48h: 0, h24_48: 0, lt24h: 0, unscheduled: 0 };
+      for (const b of bookings ?? []) {
+        if (!b.cancelled_at) continue;
+        if (!b.scheduled_at) {
+          cancellations.unscheduled += 1;
+          continue;
+        }
+        const notice = Date.parse(b.scheduled_at) - Date.parse(b.cancelled_at);
+        if (notice > 48 * 3600_000) cancellations.gt48h += 1;
+        else if (notice > 24 * 3600_000) cancellations.h24_48 += 1;
+        else cancellations.lt24h += 1;
+      }
+
+      // Creator utilisation: completed jobs per approved creator in range.
+      const { data: completed } = await supabaseAdmin
+        .from('bookings')
+        .select('creator_id')
+        .eq('status', 'completed')
+        .not('creator_id', 'is', null)
+        .gte('updated_at', fromIso)
+        .lte('updated_at', toIso);
+      const jobsByCreator = new Map<string, number>();
+      for (const b of completed ?? []) {
+        jobsByCreator.set(b.creator_id!, (jobsByCreator.get(b.creator_id!) ?? 0) + 1);
+      }
+      const creatorIds = (creators ?? []).map((c) => c.user_id);
+      const names = await profileMap(creatorIds);
+      const utilisation = creatorIds
+        .map((id) => ({ name: names.get(id)?.name ?? id.slice(0, 8), jobs: jobsByCreator.get(id) ?? 0 }))
+        .sort((a, b) => b.jobs - a.jobs)
+        .slice(0, 20);
+
+      // Booking distribution across service areas.
+      const areaCount = new Map<string, number>();
+      for (const b of bookings ?? []) {
+        const key = b.type === 'remote' ? 'Remote' : b.area ?? 'Unknown';
+        areaCount.set(key, (areaCount.get(key) ?? 0) + 1);
+      }
+      const areas = [...areaCount.entries()]
+        .map(([area, count]) => ({ area, count }))
+        .sort((a, b) => b.count - a.count);
+
+      // Rating distribution, both directions.
+      const ratings = {
+        client_to_creator: [0, 0, 0, 0, 0],
+        creator_to_client: [0, 0, 0, 0, 0],
+      };
+      for (const r of reviews ?? []) {
+        const idx = Math.min(4, Math.max(0, Math.round(Number(r.rating)) - 1));
+        const dir = r.direction === 'creator_to_client' ? 'creator_to_client' : 'client_to_creator';
+        ratings[dir][idx] += 1;
+      }
+
+      return {
+        from: fromIso.slice(0, 10),
+        to: toIso.slice(0, 10),
+        bookings: bookingSeries,
+        revenue: revenueSeries,
+        cancellations,
+        utilisation,
+        active_creators: creatorIds.length,
+        areas,
+        ratings,
+      };
+    },
+  );
 
   // Global search: one box for users, creators, and booking references.
   app.get<{ Querystring: { q?: string } }>('/v1/admin/search', async (request, reply) => {

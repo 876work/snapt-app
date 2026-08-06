@@ -31,10 +31,12 @@ export async function requireAdmin(
     if (user) {
       const { data } = await supabaseAdmin
         .from('admin_users')
-        .select('user_id, role')
+        .select('user_id, role, active')
         .eq('user_id', user.id)
         .maybeSingle();
-      if (data) identity = { id: user.id, role: data.role as AdminRole };
+      // Checked on EVERY request, so deactivation invalidates the session
+      // immediately — not at next login.
+      if (data && data.active !== false) identity = { id: user.id, role: data.role as AdminRole };
     }
   }
   if (!identity && env.adminApiToken && request.headers['x-admin-token'] === env.adminApiToken) {
