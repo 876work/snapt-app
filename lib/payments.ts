@@ -105,7 +105,7 @@ export async function payForBooking(bookingId: string, clientName?: string): Pro
   }
 
   const init = await initPaymentSheet({
-    merchantDisplayName: 'Snapt',
+    merchantDisplayName: 'Snapt App',
     paymentIntentClientSecret: intent.client_secret,
     customerId: intent.customer_id,
     customerEphemeralKeySecret: intent.ephemeral_key,
