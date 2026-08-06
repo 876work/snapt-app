@@ -193,29 +193,83 @@ export function registerVerificationRoutes(app: FastifyInstance) {
           });
         }
         const body = (await res.json()) as { session_id: string; url: string };
-        const { data: session, error } = await supabaseAdmin
+
+        // Didit RESUMES rather than recreates: asking for a session while the
+        // caller already has an open one returns that same session_id. So a
+        // create is not proof of a new attempt, and inserting blindly hits the
+        // unique index on didit_session_id (a 500 the creator sees as a dead
+        // "ID checks aren't available" screen).
+        //
+        // A resumed session is the SAME attempt — reusing the row keeps the
+        // attempt counter honest, so a creator can reopen a half-finished
+        // check without burning their one retry.
+        const { data: existing } = await supabaseAdmin
           .from('verification_sessions')
-          .insert({
-            user_id: user.id,
-            didit_session_id: body.session_id,
-            document_type: documentType,
-            status: 'Not Started',
-            attempt: attempts + 1,
-          })
-          .select()
-          .single();
-        if (error) return reply.code(500).send({ error: error.message });
+          .select('id, user_id, attempt, document_type')
+          .eq('didit_session_id', body.session_id)
+          .maybeSingle();
+
+        if (existing && existing.user_id !== user.id) {
+          // vendor_data is the user id, so this should be impossible. Refuse
+          // rather than attach another person's check to this account.
+          request.log.error(
+            { sessionId: body.session_id, owner: existing.user_id, caller: user.id },
+            'didit returned a session belonging to another user',
+          );
+          return reply.code(409).send({ error: 'verification_unavailable' });
+        }
+
+        let sessionRowId = existing?.id ?? null;
+        let attempt = existing?.attempt ?? attempts + 1;
+
+        if (!existing) {
+          const { data: inserted, error } = await supabaseAdmin
+            .from('verification_sessions')
+            .insert({
+              user_id: user.id,
+              didit_session_id: body.session_id,
+              document_type: documentType,
+              status: 'Not Started',
+              attempt,
+            })
+            .select('id')
+            .single();
+          // 23505 = another request inserted the same session between our
+          // lookup and this insert. That is a resume too, not a failure.
+          if (error && error.code === '23505') {
+            const { data: raced } = await supabaseAdmin
+              .from('verification_sessions')
+              .select('id, attempt')
+              .eq('didit_session_id', body.session_id)
+              .maybeSingle();
+            sessionRowId = raced?.id ?? null;
+            attempt = raced?.attempt ?? attempt;
+          } else if (error) {
+            request.log.error({ err: error }, 'verification session insert failed');
+            return reply.code(500).send({ error: error.message });
+          } else {
+            sessionRowId = inserted.id;
+          }
+        } else if (existing.document_type !== documentType) {
+          // They reopened the flow and picked a different document. Didit
+          // still resumes the same session, so keep our record in step.
+          await supabaseAdmin
+            .from('verification_sessions')
+            .update({ document_type: documentType })
+            .eq('id', existing.id);
+        }
 
         await supabaseAdmin
           .from('creator_profiles')
           .update({
             verification_status: 'in_progress',
-            verification_session_id: session.id,
-            verification_attempts: attempts + 1,
+            verification_session_id: sessionRowId,
+            // Only a genuinely new session consumes an attempt.
+            verification_attempts: attempt,
           })
           .eq('user_id', user.id);
 
-        return { url: body.url, session_id: body.session_id, attempt: attempts + 1 };
+        return { url: body.url, session_id: body.session_id, attempt, resumed: Boolean(existing) };
       } catch (err) {
         request.log.error({ err }, 'didit unreachable');
         return reply.code(503).send({ error: 'verification_unavailable' });
