@@ -165,6 +165,9 @@ export function CreatorDetail() {
         </div>
       )}
 
+      {/* Notes lead: what the team knows before the application facts. */}
+      <NotesThread subjectType="creator" subjectId={creator.user_id} />
+
       <div className="section">
         <h2>Application</h2>
         <div className="card kv">
@@ -307,8 +310,6 @@ export function CreatorDetail() {
           </div>
         )}
       </div>
-
-      <NotesThread subjectType="creator" subjectId={creator.user_id} />
 
       {data.reviews.length > 0 && (
         <div className="section">

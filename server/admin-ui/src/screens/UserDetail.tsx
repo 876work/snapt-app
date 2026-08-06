@@ -209,6 +209,9 @@ export function UserDetail() {
         </div>
       )}
 
+      {/* Notes lead: support reads context before acting on the account. */}
+      <NotesThread subjectType="user" subjectId={profile.id} />
+
       <div className="section">
         <div className="tiles">
           <div className="card tile">
@@ -356,8 +359,6 @@ export function UserDetail() {
           </div>
         )}
       </div>
-
-      <NotesThread subjectType="user" subjectId={profile.id} />
 
       <div className="section">
         <h2>Admin history</h2>

@@ -758,6 +758,26 @@ button {
   white-space: nowrap;
 }
 
+/* keycap chip — quiet, reads as a shortcut */
+.kbd {
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  background: var(--card);
+  border-radius: 7px;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.kbd:hover {
+  color: var(--ink);
+  border-color: var(--brand);
+}
+
 /* command palette (⌘K) */
 .palette-scrim {
   position: fixed;

@@ -21,6 +21,11 @@ export function CommandPalette() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    const openFresh = () => {
+      setOpen(true);
+      setTerm('');
+      setSelected(0);
+    };
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
@@ -30,8 +35,13 @@ export function CommandPalette() {
       }
       if (e.key === 'Escape') setOpen(false);
     };
+    // The header's ⌘K keycap opens it too (discoverability for mouse users).
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('snapt:open-palette', openFresh);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('snapt:open-palette', openFresh);
+    };
   }, []);
 
   useEffect(() => {
@@ -41,14 +51,19 @@ export function CommandPalette() {
   const { data } = useQuery({
     queryKey: ['palette-search', term],
     queryFn: () => api<SearchResults>(`/v1/admin/search?q=${encodeURIComponent(term.trim())}`),
-    enabled: open && term.trim().length >= 2,
+    // Moderators can't call /v1/admin/search — don't fire a doomed request.
+    enabled: open && term.trim().length >= 2 && identity?.role !== 'moderator',
     staleTime: 30_000,
   });
 
+  // Sections come from the sidebar NAV only — one source of truth, already
+  // role-filtered, deduped by path in case entries ever overlap.
   const sections = useMemo(() => {
     if (!identity) return [];
-    const items = navItemsFor(identity.role).map((n) => ({ label: n.label, to: n.to }));
-    if (identity.role === 'admin') items.push({ label: 'Team', to: '/team' });
+    const seen = new Set<string>();
+    const items = navItemsFor(identity.role)
+      .filter((n) => (seen.has(n.to) ? false : (seen.add(n.to), true)))
+      .map((n) => ({ label: n.label, to: n.to }));
     const t = term.trim().toLowerCase();
     return t ? items.filter((i) => i.label.toLowerCase().includes(t)) : items;
   }, [identity, term]);

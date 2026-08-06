@@ -183,6 +183,9 @@ export function BookingDetail() {
           {sentFlash}
         </div>
       )}
+
+      {/* Notes lead: the case context before the case facts. */}
+      <NotesThread subjectType="booking" subjectId={b.id} />
       {actionError && (
         <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--danger)', marginBottom: 12 }}>
           {actionError}
@@ -382,8 +385,6 @@ export function BookingDetail() {
           </div>
         </div>
       </div>
-
-      <NotesThread subjectType="booking" subjectId={b.id} />
 
       {data.admin_history.length > 0 && (
         <div className="section">

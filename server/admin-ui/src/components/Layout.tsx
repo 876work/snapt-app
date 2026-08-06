@@ -33,6 +33,20 @@ export function navItemsFor(role: Role): NavItem[] {
   return NAV.filter((item) => item.roles.includes(role));
 }
 
+/** Keycap hint for the command palette — a shortcut chip, not a sentence. */
+function PaletteKey() {
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  return (
+    <button
+      className="kbd"
+      title="Command palette"
+      onClick={() => window.dispatchEvent(new Event('snapt:open-palette'))}
+    >
+      {isMac ? '⌘K' : 'Ctrl+K'}
+    </button>
+  );
+}
+
 export function Layout() {
   const { identity, logout } = useAuth();
   const [drawer, setDrawer] = useState(false);
@@ -86,6 +100,7 @@ export function Layout() {
             <Icon name="menu" />
           </button>
           {identity.role !== 'moderator' && <GlobalSearch key={location.pathname} />}
+          <PaletteKey />
         </header>
         <main className="content">
           <Outlet />
