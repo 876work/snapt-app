@@ -8,6 +8,7 @@ import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { SlideToConfirm } from '../../components/ui/SlideToConfirm';
 import { EDIT_STYLES, REMOTE_PACKAGES, useUpload } from '../../lib/store/upload';
 import { useAuth, useBookings } from '../../lib/store';
+import { abandonBooking, payForBooking, waitForCharge } from '../../lib/payments';
 import {
   CLIENT_SERVICE_FEE_RATE,
   formatMoney,
@@ -33,15 +34,6 @@ export default function RemoteOrderSummary() {
 
   const [addons, setAddons] = React.useState<string[]>([]);
   const [payOpen, setPayOpen] = React.useState(false);
-  const [cardName, setCardName] = React.useState('');
-  const [cardNumber, setCardNumber] = React.useState('');
-  const [cardExp, setCardExp] = React.useState('');
-  const [cardCvc, setCardCvc] = React.useState('');
-  const [saveCard, setSaveCard] = React.useState(true);
-  // Return key walks the card form: name → number → expiry → CVC.
-  const numberRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
-  const expRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
-  const cvcRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
 
   const pkg =
     REMOTE_PACKAGES[mediaKind].find((p) => p.tier === tier) ?? REMOTE_PACKAGES[mediaKind][0];
@@ -50,11 +42,6 @@ export default function RemoteOrderSummary() {
   const serviceFee = (pkg.priceUsd + addonsTotal) * CLIENT_SERVICE_FEE_RATE;
   const total = pkg.priceUsd + addonsTotal + serviceFee;
 
-  const cardValid =
-    cardName.trim().length > 1 &&
-    cardNumber.replace(/\D/g, '').length >= 15 &&
-    /^\d{2}\s*\/?\s*\d{2}$/.test(cardExp.trim()) &&
-    cardCvc.replace(/\D/g, '').length >= 3;
 
   const placeOrder = async () => {
     const { apiConfigured, createRemoteOrderApi } = await import('../../lib/api');
@@ -66,6 +53,18 @@ export default function RemoteOrderSummary() {
         extraRevisions: addons.includes('revision') ? 1 : 0,
       });
       if (result && 'booking' in result) {
+        // Unpaid until Stripe's webhook confirms. Sheet handles card + 3DS.
+        const outcome = await payForBooking(result.booking.id);
+        if (!outcome.ok) {
+          await abandonBooking(result.booking.id);
+          setOrderError(
+            outcome.reason === 'cancelled'
+              ? 'Payment cancelled — nothing was charged.'
+              : outcome.message ?? 'Payment failed — no charge was made. Please try again.',
+          );
+          return false; // slider unlocks for a retry
+        }
+        await waitForCharge(result.booking.id);
         // Upload the picked source files as raw footage (creator/editor-side
         // only — clients can never read raw back).
         for (const f of files) {
@@ -222,89 +221,25 @@ export default function RemoteOrderSummary() {
               </Pressable>
             </View>
             <KeyboardScrollView showsVerticalScrollIndicator={false}>
-              <View style={[styles.card, { paddingVertical: 0, paddingHorizontal: 0 }]}>
-                <View style={styles.fieldRow}>
-                  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-                    <Circle cx="12" cy="8.5" r="3.6" stroke={colors.grey} strokeWidth={1.8} />
-                    <Path d="M5 19.5c1.2-3.4 4-5 7-5s5.8 1.6 7 5" stroke={colors.grey} strokeWidth={1.8} strokeLinecap="round" />
-                  </Svg>
-                  <TextInput
-                    value={cardName}
-                    returnKeyType="next"
-                    onSubmitEditing={() => numberRef.current?.focus()}
-                    onChangeText={setCardName}
-                    placeholder="Cardholder name"
-                    placeholderTextColor="#9A9A9A"
-                    style={styles.input}
-                  />
-                </View>
-                <View style={styles.fieldDiv} />
-                <View style={styles.fieldRow}>
-                  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-                    <Rect x="3" y="6" width="18" height="12.5" rx="3" stroke={colors.grey} strokeWidth={1.8} />
-                    <Path d="M3 10h18" stroke={colors.grey} strokeWidth={1.8} />
-                  </Svg>
-                  <TextInput
-                    ref={numberRef}
-                    value={cardNumber}
-                    returnKeyType="next"
-                    onSubmitEditing={() => expRef.current?.focus()}
-                    onChangeText={setCardNumber}
-                    placeholder="Card number"
-                    placeholderTextColor="#9A9A9A"
-                    keyboardType="number-pad"
-                    style={styles.input}
-                  />
-                </View>
-                <View style={styles.fieldDiv} />
-                <View style={{ flexDirection: 'row' }}>
-                  <View style={{ flex: 1, paddingVertical: 14, paddingLeft: 50, paddingRight: 16 }}>
-                    <TextInput
-                      ref={expRef}
-                      value={cardExp}
-                      returnKeyType="next"
-                      onSubmitEditing={() => cvcRef.current?.focus()}
-                      onChangeText={setCardExp}
-                      placeholder="MM / YY"
-                      placeholderTextColor="#9A9A9A"
-                      keyboardType="number-pad"
-                      style={styles.input}
-                    />
-                  </View>
-                  <View style={{ width: 1, backgroundColor: '#F1F1F1' }} />
-                  <View style={{ width: 110, paddingVertical: 14, paddingHorizontal: 16 }}>
-                    <TextInput
-                      ref={cvcRef}
-                      value={cardCvc}
-                      returnKeyType="done"
-                      onChangeText={setCardCvc}
-                      placeholder="CVC"
-                      placeholderTextColor="#9A9A9A"
-                      keyboardType="number-pad"
-                      style={styles.input}
-                    />
-                  </View>
-                </View>
+              <View style={styles.sheetSummary}>
+                <Text style={styles.sheetSummaryLabel}>Total to pay</Text>
+                <Text style={styles.sheetSummaryValue}>{formatMoney(total, 'USD')} USD</Text>
+                {currency === 'XCD' && (
+                  <Text style={styles.sheetSummaryApprox}>≈ {formatMoney(total, 'XCD')} — approximate</Text>
+                )}
               </View>
-              <Pressable onPress={() => setSaveCard(!saveCard)} style={styles.saveRow}>
-                <View style={[styles.checkbox, saveCard && styles.checkboxOn]}>
-                  {saveCard && (
-                    <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
-                      <Path d="M5 12.5l4 4L19 7" stroke={colors.ink} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
-                    </Svg>
-                  )}
-                </View>
-                <Text style={styles.saveLabel}>Save this card for next time</Text>
-              </Pressable>
-              <View style={{ marginTop: 18 }} />
-              {orderError ? (
-                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.error, marginBottom: 10 }}>
-                  {orderError}
+              <View style={styles.securedRow}>
+                <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+                  <Rect x="5" y="10.5" width="14" height="9.5" rx="2.5" stroke={colors.grey} strokeWidth={1.8} />
+                  <Path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5" stroke={colors.grey} strokeWidth={1.8} />
+                </Svg>
+                <Text style={styles.securedText}>
+                  Card details are entered in Stripe's secure sheet and never touch Snapt's servers.
+                  Saved cards appear there for next time.
                 </Text>
-              ) : null}
+              </View>
               <SlideToConfirm
-                label={cardValid ? 'Slide to confirm & pay' : 'Enter card details to pay'}
-                disabled={!cardValid}
+                label="Slide to confirm & pay"
                 value={formatMoney(total, 'USD')}
                 valueLabel="You're paying (USD)"
                 onConfirm={placeOrder}
@@ -332,6 +267,18 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
+  sheetSummary: {
+    backgroundColor: '#FAFAFA',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  sheetSummaryLabel: { fontSize: 12.5, fontWeight: '700', color: '#6F6F6F', letterSpacing: 0.02 },
+  sheetSummaryValue: { fontSize: 28, fontWeight: '800', color: colors.ink, marginTop: 4, letterSpacing: -0.02 },
+  sheetSummaryApprox: { fontSize: 12.5, color: '#9A9A9A', marginTop: 2 },
+  securedRow: { flexDirection: 'row', gap: 9, alignItems: 'flex-start', marginBottom: 18, paddingHorizontal: 2 },
+  securedText: { flex: 1, fontSize: 12, color: '#6F6F6F', lineHeight: 17.5 },
   root: { flex: 1, backgroundColor: colors.offWhite },
   body: { paddingHorizontal: 22, paddingTop: 8 },
   card: {

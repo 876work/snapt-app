@@ -14,6 +14,7 @@ import {
 import { initAuth } from '../lib/auth';
 import { ApiErrorOverlay } from '../components/ui/ApiErrorOverlay';
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { StripeProvider } from '@stripe/stripe-react-native';
 import { Text } from '../lib/text';
 
 /**
@@ -95,7 +96,14 @@ export default function RootLayout() {
           style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#FAFAFA' } }} />
+          {/* Publishable key only — it is safe on-device by design; the
+              secret key never leaves the server. */}
+          <StripeProvider
+            publishableKey={process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ''}
+            urlScheme="snapt"
+          >
+            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#FAFAFA' } }} />
+          </StripeProvider>
         </KeyboardAvoidingView>
         <ApiErrorOverlay />
       </GestureHandlerRootView>

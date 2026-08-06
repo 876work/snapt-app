@@ -9,7 +9,6 @@ import {
   remoteAddonPrices,
   remotePriceUsd,
 } from '../config.js';
-import { recordBookingCharge } from '../payments.js';
 import { stripeConfigured } from '../env.js';
 import { expireStaleOffer, offerWindowMs, reassignBooking } from '../offers.js';
 import { notify } from '../notify.js';
@@ -38,6 +37,10 @@ interface CreateBookingBody {
   date?: string; // YYYY-MM-DD
   time?: string; // HH:MM
   creator_id?: string;
+  /** 'sheet' = the client pays via PaymentSheet; the charge is ledgered by
+   * the Stripe webhook, not here. Older builds omit this and keep the
+   * legacy simulated-charge-at-creation behavior. */
+  payment_flow?: 'sheet';
 }
 
 export function registerBookingRoutes(app: FastifyInstance) {
@@ -239,11 +242,10 @@ export function registerBookingRoutes(app: FastifyInstance) {
       .single();
     if (error) return reply.code(500).send({ error: error.message });
 
-    // Charge at booking — real test-mode Stripe when keys are set,
-    // simulated ledger otherwise. The booking stays PENDING until the
-    // assigned creator accepts within the offer window.
-    await recordBookingCharge(booking);
-    await notify(user.id, 'payment_charged', 'Payment received', `Your payment of $${total.toFixed(2)} for this booking went through — receipt in your wallet.`);
+    // NO server-side charging: the client pays through Stripe PaymentSheet
+    // and the webhook ledgers the charge (and sends the receipt). The
+    // booking is created unpaid and stays PENDING; if the client abandons
+    // the sheet, /v1/payments/abandon withdraws it.
     if (assignedCreatorId) {
       const expires = new Date(Date.now() + (await offerWindowMs())).toISOString();
       await supabaseAdmin

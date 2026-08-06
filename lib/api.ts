@@ -32,6 +32,19 @@ function reportApiReachable(): void {
   if (useApiStatus.getState().unreachable) useApiStatus.getState().setUnreachable(false);
 }
 
+/** Bearer headers for authenticated calls made outside `request`. */
+export async function authHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (supabase) {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+export const apiBase = apiUrl;
+
 async function request<T>(path: string, init?: RequestInit): Promise<T | null> {
   if (!apiUrl) return null;
   try {
@@ -442,6 +455,7 @@ export async function createRemoteOrderApi(
     media_kind: mediaKind,
     remote_tier: tier,
     addons: { rush: addons?.rush ?? false, extra_revisions: addons?.extraRevisions ?? 0 },
+    payment_flow: 'sheet',
   });
   if (!result) return null;
   if ('error' in result) return result;
@@ -725,6 +739,7 @@ export async function createBookingApi(
         area: draft.area,
         meeting_point: draft.meetingPoint || undefined,
         meeting_lat: draft.meetingLat ?? undefined,
+        payment_flow: 'sheet',
         meeting_lng: draft.meetingLng ?? undefined,
         date: draft.date,
         time: draft.time,

@@ -35,25 +35,27 @@ async function paymentIntentIdFor(bookingId: string): Promise<string | null> {
 }
 
 /**
- * Charge the booking. With Stripe configured (test keys now, live at
- * Phase 7) this creates+confirms a real PaymentIntent using Stripe's test
- * payment method server-side — real charge/refund objects, no card UI yet
- * (the in-app payment sheet arrives with the publishable key at Phase 7).
- * Without keys, the ledger row is simulated as before.
+ * Ledger a charge that ALREADY happened on a rematched booking, carrying the
+ * original booking's PaymentIntent forward.
+ *
+ * There is no server-side card charging any more: clients pay through
+ * Stripe PaymentSheet on-device and the webhook ledgers it. A rematch
+ * (creator declined → reassigned) must not re-charge the client, so the new
+ * booking simply inherits the money already taken.
  */
-export async function recordBookingCharge(booking: BookingRow): Promise<void> {
-  let intentId: string | null = null;
-  if (stripe) {
-    const intent = await stripe.paymentIntents.create({
-      amount: Math.round(booking.price_usd * 100),
-      currency: 'usd',
-      payment_method: 'pm_card_visa', // Stripe test method; real cards at Phase 7
-      confirm: true,
-      automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
-      metadata: { booking_id: booking.id, client_id: booking.client_id },
-    });
-    intentId = intent.id;
-  }
+export async function carryChargeToRematch(
+  booking: BookingRow,
+  originalBookingId: string,
+): Promise<void> {
+  const { data: existing } = await supabaseAdmin
+    .from('transactions')
+    .select('id')
+    .eq('booking_id', booking.id)
+    .eq('type', 'charge')
+    .limit(1)
+    .maybeSingle();
+  if (existing) return;
+  const intentId = await paymentIntentIdFor(originalBookingId);
   await supabaseAdmin.from('transactions').insert({
     booking_id: booking.id,
     user_id: booking.client_id,
@@ -61,7 +63,7 @@ export async function recordBookingCharge(booking: BookingRow): Promise<void> {
     status: 'succeeded',
     amount_usd: booking.price_usd,
     stripe_payment_intent_id: intentId,
-    fees: booking.pricing_snapshot,
+    fees: { ...(booking.pricing_snapshot as object), carried_from: originalBookingId },
   });
 }
 

@@ -12,6 +12,7 @@ import { DURATIONS, packagePrice } from '../../lib/mock/data';
 import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { creatorById, useAuth, useBookings } from '../../lib/store';
 import { apiConfigured, createBookingApi } from '../../lib/api';
+import { abandonBooking, payForBooking, waitForCharge } from '../../lib/payments';
 import {
   CANCEL_FULL_REFUND_HOURS,
   CLIENT_SERVICE_FEE_RATE,
@@ -46,15 +47,6 @@ export default function OrderSummary() {
 
   const [addons, setAddons] = React.useState<string[]>([]);
   const [payOpen, setPayOpen] = React.useState(false);
-  const [cardName, setCardName] = React.useState('');
-  const [cardNumber, setCardNumber] = React.useState('');
-  const [cardExp, setCardExp] = React.useState('');
-  const [cardCvc, setCardCvc] = React.useState('');
-  const [saveCard, setSaveCard] = React.useState(true);
-  // Return key walks the card form: name → number → expiry → CVC.
-  const numberRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
-  const expRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
-  const cvcRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
   const [bookError, setBookError] = React.useState<string | null>(null);
 
   // Display price from the confirmed table (service type × duration); the
@@ -66,11 +58,6 @@ export default function OrderSummary() {
   const serviceFee = (base + addonsTotal) * CLIENT_SERVICE_FEE_RATE;
   const total = base + addonsTotal + serviceFee;
 
-  const cardValid =
-    cardName.trim().length > 1 &&
-    cardNumber.replace(/\D/g, '').length >= 15 &&
-    /^\d{2}\s*\/?\s*\d{2}$/.test(cardExp.trim()) &&
-    cardCvc.replace(/\D/g, '').length >= 3;
 
   const when =
     draft.date && draft.time
@@ -93,6 +80,23 @@ export default function OrderSummary() {
         extraRevisions: addons.includes('revision') ? 1 : 0,
       });
       if (result && 'booking' in result) {
+        // Booking exists but is UNPAID until Stripe's webhook says otherwise.
+        // The sheet collects the card (and runs any 3DS challenge) on-device.
+        const outcome = await payForBooking(result.booking.id);
+        if (!outcome.ok) {
+          if (outcome.reason === 'cancelled') {
+            // Withdraw the unpaid booking so no offer runs for it.
+            await abandonBooking(result.booking.id);
+            setBookError('Payment cancelled — nothing was charged.');
+          } else {
+            await abandonBooking(result.booking.id);
+            setBookError(outcome.message ?? 'Payment failed — no charge was made. Please try again.');
+          }
+          return false; // slider unlocks for a retry
+        }
+        // Paid: wait for the webhook to ledger it. If it's slow the booking
+        // is still good — the webhook finishes the job either way.
+        await waitForCharge(result.booking.id);
         useBookings.getState().addServerBooking(result.booking);
         setPayOpen(false);
         router.dismissAll();
@@ -262,106 +266,25 @@ export default function OrderSummary() {
               </Pressable>
             </View>
             <KeyboardScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.savedLabel}>Saved cards</Text>
-              <View style={styles.noCards}>
-                <View style={styles.cardArt}>
-                  <View style={styles.cardChip} />
-                </View>
-                <Text style={styles.noCardsTitle}>No cards saved yet</Text>
-                <Text style={styles.noCardsSub}>
-                  Add one below and checkout will be a single tap next time.
+              <View style={styles.sheetSummary}>
+                <Text style={styles.sheetSummaryLabel}>Total to pay</Text>
+                <Text style={styles.sheetSummaryValue}>{formatMoney(total, 'USD')} USD</Text>
+                {currency === 'XCD' && (
+                  <Text style={styles.sheetSummaryApprox}>≈ {formatMoney(total, 'XCD')} — approximate</Text>
+                )}
+              </View>
+              <View style={styles.securedRow}>
+                <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+                  <Rect x="5" y="10.5" width="14" height="9.5" rx="2.5" stroke={colors.grey} strokeWidth={1.8} />
+                  <Path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5" stroke={colors.grey} strokeWidth={1.8} />
+                </Svg>
+                <Text style={styles.securedText}>
+                  Card details are entered in Stripe's secure sheet and never touch Snapt's servers.
+                  Saved cards appear there for next time.
                 </Text>
               </View>
-              <Text style={styles.addCardTitle}>Add new card</Text>
-              <View style={[styles.card, { paddingVertical: 0, paddingHorizontal: 0 }]}>
-                <FieldRow
-                  icon={
-                    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-                      <Circle cx="12" cy="8.5" r="3.6" stroke={colors.grey} strokeWidth={1.8} />
-                      <Path d="M5 19.5c1.2-3.4 4-5 7-5s5.8 1.6 7 5" stroke={colors.grey} strokeWidth={1.8} strokeLinecap="round" />
-                    </Svg>
-                  }
-                >
-                  <TextInput
-                    value={cardName}
-                    returnKeyType="next"
-                    onSubmitEditing={() => numberRef.current?.focus()}
-                    onChangeText={setCardName}
-                    placeholder="Cardholder name"
-                    placeholderTextColor="#9A9A9A"
-                    style={styles.input}
-                  />
-                </FieldRow>
-                <View style={styles.fieldDiv} />
-                <FieldRow
-                  icon={
-                    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-                      <Rect x="3" y="6" width="18" height="12.5" rx="3" stroke={colors.grey} strokeWidth={1.8} />
-                      <Path d="M3 10h18" stroke={colors.grey} strokeWidth={1.8} />
-                    </Svg>
-                  }
-                >
-                  <TextInput
-                    ref={numberRef}
-                    value={cardNumber}
-                    returnKeyType="next"
-                    onSubmitEditing={() => expRef.current?.focus()}
-                    onChangeText={setCardNumber}
-                    placeholder="Card number"
-                    placeholderTextColor="#9A9A9A"
-                    keyboardType="number-pad"
-                    style={styles.input}
-                  />
-                </FieldRow>
-                <View style={styles.fieldDiv} />
-                <View style={{ flexDirection: 'row' }}>
-                  <View style={{ flex: 1, paddingVertical: 14, paddingLeft: 50, paddingRight: 16 }}>
-                    <TextInput
-                      ref={expRef}
-                      value={cardExp}
-                      returnKeyType="next"
-                      onSubmitEditing={() => cvcRef.current?.focus()}
-                      onChangeText={setCardExp}
-                      placeholder="MM / YY"
-                      placeholderTextColor="#9A9A9A"
-                      keyboardType="number-pad"
-                      style={styles.input}
-                    />
-                  </View>
-                  <View style={{ width: 1, backgroundColor: '#F1F1F1' }} />
-                  <View style={{ width: 110, paddingVertical: 14, paddingHorizontal: 16 }}>
-                    <TextInput
-                      ref={cvcRef}
-                      value={cardCvc}
-                      returnKeyType="done"
-                      onChangeText={setCardCvc}
-                      placeholder="CVC"
-                      placeholderTextColor="#9A9A9A"
-                      keyboardType="number-pad"
-                      style={styles.input}
-                    />
-                  </View>
-                </View>
-              </View>
-              <Pressable onPress={() => setSaveCard(!saveCard)} style={styles.saveRow}>
-                <View style={[styles.checkbox, saveCard && styles.checkboxOn]}>
-                  {saveCard && (
-                    <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
-                      <Path d="M5 12.5l4 4L19 7" stroke={colors.ink} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
-                    </Svg>
-                  )}
-                </View>
-                <Text style={styles.saveLabel}>Save this card for next time</Text>
-              </Pressable>
-              <View style={{ marginTop: 18 }} />
-              {bookError ? (
-                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.error, marginBottom: 10 }}>
-                  {bookError}
-                </Text>
-              ) : null}
               <SlideToConfirm
-                label={cardValid ? 'Slide to confirm & pay' : 'Enter card details to pay'}
-                disabled={!cardValid}
+                label="Slide to confirm & pay"
                 value={formatMoney(total, 'USD')}
                 valueLabel="You're paying (USD)"
                 onConfirm={book}
@@ -414,6 +337,18 @@ function FieldRow({ icon, children }: { icon: React.ReactNode; children: React.R
 }
 
 const styles = StyleSheet.create({
+  sheetSummary: {
+    backgroundColor: '#FAFAFA',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  sheetSummaryLabel: { fontSize: 12.5, fontWeight: '700', color: '#6F6F6F', letterSpacing: 0.02 },
+  sheetSummaryValue: { fontSize: 28, fontWeight: '800', color: colors.ink, marginTop: 4, letterSpacing: -0.02 },
+  sheetSummaryApprox: { fontSize: 12.5, color: '#9A9A9A', marginTop: 2 },
+  securedRow: { flexDirection: 'row', gap: 9, alignItems: 'flex-start', marginBottom: 18, paddingHorizontal: 2 },
+  securedText: { flex: 1, fontSize: 12, color: '#6F6F6F', lineHeight: 17.5 },
   root: { flex: 1, backgroundColor: colors.offWhite },
   body: { paddingHorizontal: spacing.screenX, paddingTop: 8 },
   card: {

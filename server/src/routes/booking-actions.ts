@@ -3,7 +3,7 @@ import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
 import { getConfig } from '../config.js';
 import { cancelQuote, hoursUntil, rescheduleQuote } from '../fees.js';
-import { createPayoutForBooking, recordBookingCharge, recordFee, refundClient } from '../payments.js';
+import { carryChargeToRematch, createPayoutForBooking, recordFee, refundClient } from '../payments.js';
 import { recordStrike } from '../strikes.js';
 import { dayAvailability } from '../availability.js';
 import { offerWindowMs } from '../offers.js';
@@ -400,7 +400,8 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
       .select()
       .single();
     if (error) return reply.code(500).send({ error: error.message });
-    await recordBookingCharge(booking as BookingRow);
+    // Client already paid for the original booking — carry it, never re-charge.
+    await carryChargeToRematch(booking as BookingRow, original.id);
     return reply.code(201).send({ booking });
   });
 }
