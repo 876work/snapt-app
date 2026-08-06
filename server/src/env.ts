@@ -29,6 +29,12 @@ export const env = {
   resendApiKey: process.env.RESEND_API_KEY ?? null,
   resendFrom: process.env.RESEND_FROM ?? 'Snapt <notifications@snapt.example>',
 
+  // Didit identity verification (hosted sessions). Without a key the
+  // verification step degrades to manual review — it never blocks signup.
+  diditApiKey: process.env.DIDIT_API_KEY ?? null,
+  diditWorkflowId: process.env.DIDIT_WORKFLOW_ID ?? null,
+  diditWebhookSecret: process.env.DIDIT_WEBHOOK_SECRET ?? null,
+
   // Absolute origin used in emailed links (set-password invites). Falls back
   // to the local dev server; MUST be set to the Render URL in production.
   portalBaseUrl: process.env.PORTAL_BASE_URL ?? `http://127.0.0.1:${Number(process.env.PORT ?? 4000)}`,

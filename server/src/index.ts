@@ -14,6 +14,7 @@ import { registerDisputeRoutes } from './routes/disputes.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerAdminPortalRoutes } from './routes/admin-portal.js';
 import { registerAdminTeamRoutes } from './routes/admin-team.js';
+import { registerVerificationRoutes } from './routes/verification.js';
 import { registerAdminUi } from './admin-ui.js';
 import { registerRevisionRoutes } from './routes/revisions.js';
 import { registerPolicyRoutes } from './routes/policies.js';
@@ -26,8 +27,8 @@ import { startScheduler } from './scheduler.js';
 // request.ip is the proxy's address and per-IP throttling is meaningless.
 const app = Fastify({ logger: true, trustProxy: true });
 
-// Stripe webhooks need the raw body for signature verification; keep JSON
-// parsing for everything else.
+// Stripe AND Didit webhooks need the raw body for signature verification;
+// keep JSON parsing for everything else.
 app.addContentTypeParser(
   'application/json',
   { parseAs: 'buffer' },
@@ -64,6 +65,7 @@ registerDisputeRoutes(app);
 registerAdminRoutes(app);
 registerAdminPortalRoutes(app);
 registerAdminTeamRoutes(app);
+registerVerificationRoutes(app);
 registerAdminUi(app);
 registerRevisionRoutes(app);
 registerPolicyRoutes(app);

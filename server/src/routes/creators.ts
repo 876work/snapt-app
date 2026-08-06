@@ -300,9 +300,20 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       const adminId = await requireAdmin(request, reply);
       if (!adminId) return;
       const passed = request.body?.background_check_passed ?? false;
+      // Record WHO decided and whether they agreed with Didit — the
+      // verification informs the decision, a human makes it.
+      const { data: vp } = await supabaseAdmin
+        .from('creator_profiles')
+        .select('verification_status')
+        .eq('user_id', request.params.userId)
+        .maybeSingle();
+      const agreed = vp ? vp.verification_status === 'approved' : null;
       const { error } = await supabaseAdmin
         .from('creator_profiles')
         .update({
+          vetting_decided_by: adminId.id === 'bootstrap-token' ? null : adminId.id,
+          vetting_decided_at: new Date().toISOString(),
+          vetting_agreed_with_didit: agreed,
           vetting_status: 'approved',
           ...(passed
             ? {
@@ -315,7 +326,10 @@ export function registerCreatorRoutes(app: FastifyInstance) {
         .eq('user_id', request.params.userId);
       if (error) return reply.code(500).send({ error: error.message });
       await notify(request.params.userId, 'application_approved', 'You\'re approved!', 'Welcome to Snapt — you can now receive bookings. Set your availability to go live.');
-      await audit(adminId, 'creator_approved', request.params.userId);
+      await audit(adminId, 'creator_approved', request.params.userId, {
+        verification_status: vp?.verification_status ?? 'unknown',
+        agreed_with_didit: agreed,
+      });
       return { status: 'approved' };
     },
   );
@@ -329,9 +343,22 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       if (!adminId) return;
       const reason = request.body?.reason?.trim();
       if (!reason) return reply.code(400).send({ error: 'A rejection reason is required' });
+      const { data: vpr } = await supabaseAdmin
+        .from('creator_profiles')
+        .select('verification_status')
+        .eq('user_id', request.params.userId)
+        .maybeSingle();
+      // Agreement = we rejected AND Didit did not approve.
+      const agreedR = vpr ? vpr.verification_status !== 'approved' : null;
       const { error } = await supabaseAdmin
         .from('creator_profiles')
-        .update({ vetting_status: 'rejected', rejection_reason: reason })
+        .update({
+          vetting_status: 'rejected',
+          rejection_reason: reason,
+          vetting_decided_by: adminId.id === 'bootstrap-token' ? null : adminId.id,
+          vetting_decided_at: new Date().toISOString(),
+          vetting_agreed_with_didit: agreedR,
+        })
         .eq('user_id', request.params.userId);
       if (error) return reply.code(500).send({ error: error.message });
       await notify(
@@ -340,7 +367,11 @@ export function registerCreatorRoutes(app: FastifyInstance) {
         'About your creator application',
         `We weren't able to approve your application this time. Reason: ${reason}. You're welcome to apply again once this is addressed.`,
       );
-      await audit(adminId, 'creator_rejected', request.params.userId, { reason });
+      await audit(adminId, 'creator_rejected', request.params.userId, {
+        reason,
+        verification_status: vpr?.verification_status ?? 'unknown',
+        agreed_with_didit: agreedR,
+      });
       return { status: 'rejected' };
     },
   );

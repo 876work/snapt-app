@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { NotesThread } from '../components/NotesThread';
+import { VerificationPanel } from '../components/VerificationPanel';
 import { EmptyState, Pill, SectionSkeleton, formatMoney, formatWhen } from '../components/ui';
 
 interface CreatorDetailData {
@@ -166,6 +167,8 @@ export function CreatorDetail() {
       )}
 
       {/* Notes lead: what the team knows before the application facts. */}
+      <VerificationPanel creatorId={creator.user_id} />
+
       <NotesThread subjectType="creator" subjectId={creator.user_id} />
 
       <div className="section">

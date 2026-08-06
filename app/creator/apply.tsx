@@ -5,6 +5,8 @@ import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
+import { VerifyIdentity } from '../../components/creator/VerifyIdentity';
+import { PoliceCertificate } from '../../components/creator/PoliceCertificate';
 import { Button } from '../../components/ui/Button';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { OccasionIcon } from '../../components/ui/Icons';
@@ -219,6 +221,15 @@ export default function CreatorApplication() {
                 ))}
               </View>
             )}
+          </>
+        )}
+
+        {needsBgCheck && (
+          <>
+            <Text style={styles.sectionLabel}>IDENTITY</Text>
+            <VerifyIdentity />
+            <Text style={styles.sectionLabel}>POLICE CERTIFICATE</Text>
+            <PoliceCertificate />
           </>
         )}
 
