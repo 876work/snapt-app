@@ -24,7 +24,7 @@ const SEVERITY: Record<string, string> = {
 
 const ONCALL = (process.env.ONCALL_EMAILS ?? '').split(',').map((s: string) => s.trim()).filter(Boolean);
 
-async function suspendUser(userId: string, reason: string): Promise<void> {
+export async function suspendUser(userId: string, reason: string): Promise<void> {
   await supabaseAdmin.from('profiles').update({ suspended_at: new Date().toISOString() }).eq('id', userId);
   // Creators additionally drop out of matching via vetting_status.
   await supabaseAdmin.from('creator_profiles').update({ vetting_status: 'suspended' }).eq('user_id', userId);
@@ -173,7 +173,7 @@ export function registerModerationRoutes(app: FastifyInstance) {
   app.post<{ Params: { userId: string }; Body: { reason?: string } }>(
     '/v1/admin/users/:userId/unsuspend',
     async (request, reply) => {
-      const adminId = await requireAdmin(request, reply);
+      const adminId = await requireAdmin(request, reply, ['admin', 'moderator']);
       if (!adminId) return;
       const reason = request.body?.reason?.trim();
       if (!reason) return reply.code(400).send({ error: 'reason is required' });
@@ -227,7 +227,7 @@ export function registerModerationRoutes(app: FastifyInstance) {
 
   // Admin moderation queue: severity-sorted reports + pending portfolio.
   app.get('/v1/admin/moderation', async (request, reply) => {
-    const adminId = await requireAdmin(request, reply);
+    const adminId = await requireAdmin(request, reply, ['admin', 'moderator']);
     if (!adminId) return;
     const { data: reports } = await supabaseAdmin
       .from('content_reports')
@@ -245,28 +245,44 @@ export function registerModerationRoutes(app: FastifyInstance) {
         .in('id', reporterIds);
       for (const p of reporters ?? []) counts.set(p.id, p.false_report_count ?? 0);
     }
-    const enriched = (reports ?? []).map((r) => ({
-      ...r,
-      reporter_false_report_count: counts.get(r.reporter_id) ?? 0,
-    }));
     const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
     const { data: portfolio } = await supabaseAdmin
       .from('portfolio_items')
       .select('id, creator_id, caption, created_at')
       .eq('status', 'pending')
       .order('created_at', { ascending: true });
+    // Additive name enrichment for the SPA; the legacy page ignores it.
+    const personIds = [
+      ...new Set(
+        [
+          ...(reports ?? []).flatMap((r) => [r.reporter_id, r.target_user_id ?? '']),
+          ...(portfolio ?? []).map((p) => p.creator_id),
+        ].filter(Boolean),
+      ),
+    ];
+    const nameOf = new Map<string, string>();
+    if (personIds.length) {
+      const { data: profs } = await supabaseAdmin.from('profiles').select('id, full_name').in('id', personIds);
+      for (const p of profs ?? []) nameOf.set(p.id, p.full_name);
+    }
+    const enriched = (reports ?? []).map((r) => ({
+      ...r,
+      reporter_false_report_count: counts.get(r.reporter_id) ?? 0,
+      reporter_name: nameOf.get(r.reporter_id) ?? null,
+      target_name: r.target_user_id ? nameOf.get(r.target_user_id) ?? null : null,
+    }));
     return {
       reports: enriched.sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9)),
-      portfolio_pending: portfolio ?? [],
+      portfolio_pending: (portfolio ?? []).map((p) => ({ ...p, creator_name: nameOf.get(p.creator_id) ?? null })),
     };
   });
   app.post<{ Params: { id: string }; Body: { action?: string; severity?: string } }>(
     '/v1/admin/reports/:id',
     async (request, reply) => {
-      const adminId = await requireAdmin(request, reply);
+      const adminId = await requireAdmin(request, reply, ['admin', 'moderator']);
       if (!adminId) return;
       const { action, severity } = request.body ?? {};
-      const patch: Record<string, unknown> = { reviewed_by: adminId === 'bootstrap-token' ? null : adminId, reviewed_at: new Date().toISOString() };
+      const patch: Record<string, unknown> = { reviewed_by: adminId.id === 'bootstrap-token' ? null : adminId.id, reviewed_at: new Date().toISOString() };
       if (severity && ['critical', 'high', 'medium', 'low'].includes(severity)) patch.severity = severity;
       if (action === 'actioned' || action === 'dismissed') patch.status = action;
       await supabaseAdmin.from('content_reports').update(patch).eq('id', request.params.id);
@@ -277,7 +293,7 @@ export function registerModerationRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Body: { decision?: 'approved' | 'rejected' } }>(
     '/v1/admin/portfolio/:id',
     async (request, reply) => {
-      const adminId = await requireAdmin(request, reply);
+      const adminId = await requireAdmin(request, reply, ['admin', 'moderator']);
       if (!adminId) return;
       const decision = request.body?.decision;
       if (decision !== 'approved' && decision !== 'rejected') {

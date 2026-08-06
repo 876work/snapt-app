@@ -78,7 +78,7 @@ export function registerPolicyRoutes(app: FastifyInstance) {
   // Admin: version history, new draft version, explicit publish (§14 —
   // edits never go live until published).
   app.get('/v1/admin/policies', async (request, reply) => {
-    const adminId = await requireAdmin(request, reply);
+    const adminId = await requireAdmin(request, reply, ['admin', 'support']);
     if (!adminId) return;
     const { data } = await supabaseAdmin
       .from('policy_documents')
@@ -87,6 +87,21 @@ export function registerPolicyRoutes(app: FastifyInstance) {
       .order('version', { ascending: false });
     return { policies: data ?? [] };
   });
+  // Full row (content included) for one version — the SPA's editor loads
+  // the latest version of a slug through this before drafting the next.
+  app.get<{ Params: { id: string } }>('/v1/admin/policies/:id', async (request, reply) => {
+    const adminId = await requireAdmin(request, reply, ['admin', 'support']);
+    if (!adminId) return;
+    const { data, error } = await supabaseAdmin
+      .from('policy_documents')
+      .select('*')
+      .eq('id', request.params.id)
+      .maybeSingle();
+    if (error) return reply.code(500).send({ error: error.message });
+    if (!data) return reply.code(404).send({ error: 'Not found' });
+    return { policy: data };
+  });
+
   app.post<{ Params: { slug: string }; Body: { title?: string; content?: string; requires_reconsent?: boolean } }>(
     '/v1/admin/policies/:slug',
     async (request, reply) => {

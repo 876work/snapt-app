@@ -1,4 +1,45 @@
-# Snapt API server (Phase 0)
+# Snapt API server
+
+## Admin portal (rebuild in progress)
+
+The portal is a React SPA in `admin-ui/`, served by this server at `/admin`.
+**All eleven sections are now migrated** (Today, Bookings incl. manual
+dispatch, Users, Creators, Payouts, Disputes, Moderation, Config, Legal,
+Analytics, Audit). The pre-rebuild single-page portal remains at
+`/admin/legacy` as a fallback until the new sections are verified in
+production — delete `legacy-admin-html.ts` after that sign-off. If
+`admin-ui/dist` is missing at boot, `/admin` falls back to the legacy page so
+the portal never 404s.
+
+- `npm run build` compiles the server **and** builds the UI (Render's build
+  command needs no change).
+- Local dev: `npm run dev` here, plus `npm --prefix admin-ui run dev` for a
+  hot-reloading UI at the Vite port (proxies `/v1` to :4000) — or just rebuild
+  `admin-ui` and use `/admin`.
+- Admin roles (`admin_users.role`, enforced per-route in `admin-auth.ts`):
+  `admin` = everything; `support` = view/refund/notes, no payout release or
+  config; `moderator` = moderation queue only. Accounts are managed from the
+  portal's Team section (admin-only): invites set passwords via emailed
+  single-use expiring links (never from the portal), no self-deactivation/
+  demotion, never zero active admins, deactivation bites on the next request.
+  Deactivation is SOFT only so `admin_actions` keeps attributing history.
+- Deploy prerequisites for the portal branch: apply migrations
+  `20260804180000_admin_portal_roles.sql` AND `20260805090000_portal_team.sql`
+  to production Supabase, and set `PORTAL_BASE_URL` on Render (used in
+  emailed invite links).
+- Safety alerts now carry explicit acknowledgement (`acknowledged_by/at`),
+  separate from resolution.
+- Section destinations for every legacy capability (confirmed 2026-08-04, so
+  nothing is lost in migration): **manual dispatch lives in Bookings** — the
+  list gets an Unassigned filter with the Assign action, backed by the
+  existing `GET /v1/admin/unassigned` + `POST /v1/admin/bookings/:id/assign`;
+  Today only surfaces the count and links there. Fee/config key editor →
+  Config; legal document versioning incl. the `requires_reconsent`
+  material-change flag → Legal; moderation approve/reject → Moderation;
+  manual payout fulfilment queue → Payouts; disputes → Disputes; creator
+  applications → Creators. Migration replaces UI only — endpoints are shared
+  with the legacy page and never change with a section move.
+
 
 Node/TypeScript base API per handoff §3 Phase 0: Supabase-backed, Stripe +
 Stripe Connect scaffolding, JWT auth. All financially-consequential logic

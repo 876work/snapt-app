@@ -6,12 +6,13 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "build": "tsc",
+    "build": "tsc && npm --prefix admin-ui ci && npm --prefix admin-ui run build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1095.0",
     "@aws-sdk/s3-request-presigner": "^3.1095.0",
+    "@fastify/static": "^8.3.0",
     "@supabase/supabase-js": "^2.49.0",
     "fastify": "^5.2.0",
     "stripe": "^18.0.0"
