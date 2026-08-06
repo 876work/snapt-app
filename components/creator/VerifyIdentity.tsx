@@ -80,6 +80,63 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
     refresh();
   }, [refresh]);
 
+  /**
+   * Fetch the rolled-up status directly. Used by the polling loop, which
+   * needs the value rather than the state update it triggers.
+   */
+  const fetchStatus = React.useCallback(async (): Promise<string | null> => {
+    if (!apiBase) return null;
+    try {
+      const res = await fetch(`${apiBase}/v1/creator/verification`, { headers: await authHeaders() });
+      if (!res.ok) return null;
+      const body = (await res.json()) as Status;
+      setStatus(body);
+      onStatus?.(body.status);
+      return body.status;
+    } catch {
+      return null;
+    }
+  }, [onStatus]);
+
+  /** Settled = the webhook has decided. Anything else is still in flight. */
+  const settled = (s: string | null) =>
+    s === 'approved' || s === 'declined' || s === 'in_review' || s === 'failed_underage';
+
+  /** Poll until the webhook lands a decision, or we run out of patience. */
+  const waitForDecision = React.useCallback(
+    async (timeoutMs = 150_000): Promise<boolean> => {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 2500));
+        if (settled(await fetchStatus())) return true;
+      }
+      return false;
+    },
+    [fetchStatus],
+  );
+
+  /**
+   * Recovery for the creator who closes the sheet by hand — which is exactly
+   * what someone does when a page looks finished. The decision arrives by
+   * webhook regardless, so keep checking for a few minutes and let the screen
+   * resolve itself instead of stranding the application on "checking".
+   */
+  React.useEffect(() => {
+    if (status?.status !== 'in_progress') return;
+    let stop = false;
+    const started = Date.now();
+    const tick = async () => {
+      if (stop || Date.now() - started > 300_000) return;
+      if (settled(await fetchStatus())) return;
+      if (!stop) timer = setTimeout(tick, 4000);
+    };
+    let timer = setTimeout(tick, 4000);
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+  }, [status?.status, fetchStatus]);
+
   const start = async () => {
     if (!doc || busy) return;
     if (!apiBase) {
@@ -124,13 +181,25 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
       // has its own route. (Flip USE_IN_APP_BROWSER once the in-app sheet is
       // camera-verified on a real device.)
       if (USE_IN_APP_BROWSER) {
-        // SFSafariViewController, NOT the auth session — see USE_IN_APP_BROWSER.
-        // Resolves when the creator closes the sheet; the callback route
-        // dismisses it when Didit finishes.
-        await WebBrowser.openBrowserAsync(body.url, {
+        // WE own the return path, not Didit's "Continue" button.
+        //
+        // SFSafariViewController does not follow custom URL schemes, so
+        // snapt://creator/verification-complete can never bring the creator
+        // back from inside the sheet — the button looks inert and the sheet
+        // just sits on "You've been verified!". Rather than depend on that,
+        // poll our own webhook-backed status while the sheet is open and
+        // close it ourselves the moment the result lands.
+        const sheet = WebBrowser.openBrowserAsync(body.url, {
           presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
           dismissButtonStyle: 'close',
         });
+        const landed = await waitForDecision();
+        if (landed) {
+          await WebBrowser.dismissBrowser().catch(() => {
+            /* they closed it first — fine, the status is already in hand */
+          });
+        }
+        await sheet;
       } else {
         const opened = await Linking.canOpenURL(body.url);
         if (!opened) {

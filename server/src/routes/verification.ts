@@ -353,16 +353,62 @@ export function registerVerificationRoutes(app: FastifyInstance) {
       if (dupe) return { received: true, duplicate: true };
     }
 
-    const sessionId: string | undefined = payload.session_id;
-    const status: string = payload.status ?? 'Unknown';
-    if (!sessionId) return { received: true };
+    const status: string = payload.status ?? payload.session?.status ?? 'Unknown';
 
-    const { data: session } = await supabaseAdmin
-      .from('verification_sessions')
-      .select('id, user_id, attempt')
-      .eq('didit_session_id', sessionId)
-      .maybeSingle();
-    if (!session) return { received: true }; // not one of ours
+    // Resolve the session DEFENSIVELY. Didit's create response and its webhook
+    // do not necessarily agree on where the id lives, and a webhook we cannot
+    // match is a verification that silently never lands — the creator waits
+    // forever on a result we were told about and dropped.
+    const sessionId: string | undefined =
+      payload.session_id ?? payload.session?.session_id ?? payload.data?.session_id ?? payload.id;
+    // vendor_data is OUR user id — we set it on every session we create, so it
+    // is the one identifier we can always resolve, whatever Didit renames.
+    const vendorData: string | undefined =
+      payload.vendor_data ?? payload.session?.vendor_data ?? payload.data?.vendor_data;
+
+    let session: { id: string; user_id: string; attempt: number } | null = null;
+    if (sessionId) {
+      const { data } = await supabaseAdmin
+        .from('verification_sessions')
+        .select('id, user_id, attempt')
+        .eq('didit_session_id', sessionId)
+        .maybeSingle();
+      session = data ?? null;
+    }
+    if (!session && vendorData) {
+      const { data } = await supabaseAdmin
+        .from('verification_sessions')
+        .select('id, user_id, attempt')
+        .eq('user_id', vendorData)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      session = data ?? null;
+      // Keep our copy of the id in step with whatever Didit actually reports.
+      if (session && sessionId) {
+        await supabaseAdmin
+          .from('verification_sessions')
+          .update({ didit_session_id: sessionId })
+          .eq('id', session.id);
+      }
+    }
+    if (!session) {
+      // Record the SHAPE of what arrived — key names only, no identity data —
+      // so an unmatched delivery is visible instead of silently discarded.
+      await supabaseAdmin.from('admin_alerts').insert({
+        alert_type: 'didit_webhook_unmatched',
+        detail: {
+          top_level_keys: Object.keys(payload),
+          session_keys: payload.session ? Object.keys(payload.session) : null,
+          data_keys: payload.data ? Object.keys(payload.data) : null,
+          had_session_id: Boolean(sessionId),
+          had_vendor_data: Boolean(vendorData),
+          status,
+        },
+      });
+      request.log.error({ keys: Object.keys(payload), status }, 'didit webhook did not match a session');
+      return { received: true };
+    }
 
     const patch: Record<string, unknown> = { status, decided_at: new Date().toISOString() };
     let is18: boolean | null = null;
