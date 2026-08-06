@@ -4,6 +4,7 @@ import { audit, requireAdmin } from '../admin-auth.js';
 import { configNumber } from '../config.js';
 import { suspendUser } from './moderation.js';
 import { creatorStanding } from '../strikes.js';
+import { eligibleCreators } from '../availability.js';
 
 // Admin Portal rebuild — API surface for the SPA at /admin. Everything here
 // is read-heavy composition over the same data model the apps use; all
@@ -207,6 +208,93 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
       };
     },
   );
+
+  // Bookings: the full ledger. `unassigned=true` is the manual-dispatch
+  // queue (pending, no creator) — the Assign action lives on the detail.
+  app.get<{ Querystring: { status?: string; unassigned?: string; before?: string; limit?: string } }>(
+    '/v1/admin/bookings',
+    async (request, reply) => {
+      const admin = await requireAdmin(request, reply, ['admin', 'support']);
+      if (!admin) return;
+      const limit = Math.min(Math.max(Number(request.query.limit) || 40, 1), 100);
+      let query = supabaseAdmin
+        .from('bookings')
+        .select('id, status, occasion, type, area, scheduled_at, duration_hours, price_usd, client_id, creator_id, legal_hold, created_at')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      if (request.query.unassigned === 'true') {
+        query = query.eq('status', 'pending').is('creator_id', null);
+      } else if (request.query.status) {
+        query = query.eq('status', request.query.status);
+      }
+      if (request.query.before) query = query.lt('created_at', request.query.before);
+      const { data, error } = await query;
+      if (error) return reply.code(500).send({ error: error.message });
+      const names = await profileMap((data ?? []).flatMap((b) => [b.client_id, b.creator_id ?? '']));
+      return {
+        bookings: (data ?? []).map((b) => ({
+          ...b,
+          client_name: names.get(b.client_id)?.name ?? null,
+          creator_name: b.creator_id ? names.get(b.creator_id)?.name ?? null : null,
+        })),
+      };
+    },
+  );
+
+  // One booking's full story. When it's dispatchable, the eligible-creator
+  // list rides along so Assign needs no second request.
+  app.get<{ Params: { id: string } }>('/v1/admin/bookings/:id', async (request, reply) => {
+    const admin = await requireAdmin(request, reply, ['admin', 'support']);
+    if (!admin) return;
+    const id = request.params.id;
+    const { data: booking, error } = await supabaseAdmin.from('bookings').select('*').eq('id', id).maybeSingle();
+    if (error) return reply.code(500).send({ error: error.message });
+    if (!booking) return reply.code(404).send({ error: 'No such booking' });
+
+    const [{ data: session }, { data: txRows }, { data: disputeRows }, { data: mediaRows }, { data: revisionRows }, { data: actionRows }] =
+      await Promise.all([
+        supabaseAdmin.from('sessions').select('*').eq('booking_id', id).maybeSingle(),
+        supabaseAdmin.from('transactions').select('id, user_id, type, status, amount_usd, created_at').eq('booking_id', id).order('created_at', { ascending: true }),
+        supabaseAdmin.from('disputes').select('id, opened_by, category, status, resolution, created_at, resolved_at').eq('booking_id', id),
+        supabaseAdmin.from('booking_media').select('id, kind, content_type, deleted_at, created_at').eq('booking_id', id),
+        supabaseAdmin.from('revision_requests').select('id, status, notes, created_at').eq('booking_id', id).order('created_at', { ascending: true }),
+        supabaseAdmin.from('admin_actions').select('id, admin_id, action, detail, created_at').eq('target', id).order('created_at', { ascending: false }).limit(20),
+      ]);
+
+    const dispatchable = booking.status === 'pending' && !booking.creator_id;
+    const eligible = dispatchable
+      ? (await eligibleCreators(booking.occasion, booking.area ?? undefined)).slice(0, 25)
+      : [];
+
+    const media_summary = {
+      total: (mediaRows ?? []).length,
+      deliverables: (mediaRows ?? []).filter((m) => m.kind === 'deliverable' && !m.deleted_at).length,
+      deleted: (mediaRows ?? []).filter((m) => m.deleted_at).length,
+    };
+
+    const names = await profileMap([
+      booking.client_id,
+      booking.creator_id ?? '',
+      ...(disputeRows ?? []).map((d) => d.opened_by),
+      ...(actionRows ?? []).map((a) => a.admin_id),
+      ...(booking.declined_creator_ids ?? []),
+    ]);
+    return {
+      booking: {
+        ...booking,
+        client_name: names.get(booking.client_id)?.name ?? null,
+        creator_name: booking.creator_id ? names.get(booking.creator_id)?.name ?? null : null,
+        declined_creators: (booking.declined_creator_ids ?? []).map((cid: string) => names.get(cid)?.name ?? cid.slice(0, 8)),
+      },
+      session: session ?? null,
+      transactions: txRows ?? [],
+      disputes: (disputeRows ?? []).map((d) => ({ ...d, opened_by_name: names.get(d.opened_by)?.name ?? null })),
+      media_summary,
+      revisions: revisionRows ?? [],
+      admin_history: (actionRows ?? []).map((a) => ({ ...a, admin_name: names.get(a.admin_id)?.name ?? null })),
+      eligible_creators: eligible,
+    };
+  });
 
   // Customer lookup: list/search. Default view is recent signups; a query
   // searches name/email/phone the same way global search does.

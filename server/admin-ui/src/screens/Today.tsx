@@ -135,7 +135,7 @@ export function Today() {
         },
         { to: '/creators', value: data.decisions.applications, label: 'applications to review', urgent: data.decisions.applications > 0 },
         { to: '/disputes', value: data.decisions.open_disputes, label: 'open disputes', urgent: data.decisions.open_disputes > 0 },
-        { to: '/bookings', value: data.decisions.unassigned_bookings, label: 'unassigned bookings', urgent: data.decisions.unassigned_bookings > 0 },
+        { to: '/bookings?filter=unassigned', value: data.decisions.unassigned_bookings, label: 'unassigned bookings', urgent: data.decisions.unassigned_bookings > 0 },
         { to: '/moderation', value: data.decisions.moderation_reports + data.decisions.portfolio_pending, label: 'moderation queue', urgent: data.decisions.moderation_reports > 0 },
       ]
     : [];

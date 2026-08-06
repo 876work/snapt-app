@@ -9,6 +9,8 @@ import { Users } from './screens/Users';
 import { UserDetail } from './screens/UserDetail';
 import { Creators } from './screens/Creators';
 import { CreatorDetail } from './screens/CreatorDetail';
+import { Bookings } from './screens/Bookings';
+import { BookingDetail } from './screens/BookingDetail';
 
 export function App() {
   const { identity, restoring } = useAuth();
@@ -33,8 +35,8 @@ export function App() {
     <Routes>
       <Route element={<Layout />}>
         {identity.role !== 'moderator' && <Route index element={<Today />} />}
-        <Route path="/bookings" element={<Placeholder title="Bookings" />} />
-        <Route path="/bookings/:id" element={<Placeholder title="Booking" legacy={false} />} />
+        <Route path="/bookings" element={<Bookings />} />
+        <Route path="/bookings/:id" element={<BookingDetail />} />
         <Route path="/users" element={<Users />} />
         <Route path="/users/:id" element={<UserDetail />} />
         <Route path="/creators" element={<Creators />} />
