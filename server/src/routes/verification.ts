@@ -127,8 +127,16 @@ export function registerVerificationRoutes(app: FastifyInstance) {
           }),
         });
         if (!res.ok) {
-          request.log.error({ status: res.status }, 'didit session create failed');
-          return reply.code(503).send({ error: 'verification_unavailable' });
+          // Surface WHY. A bare 'unavailable' cost real testing rounds: the
+          // caller (and the log) now get Didit's own complaint, which is
+          // validation text, not a secret.
+          const detail = (await res.text()).slice(0, 400);
+          request.log.error({ status: res.status, detail }, 'didit session create failed');
+          return reply.code(503).send({
+            error: 'verification_unavailable',
+            didit_status: res.status,
+            didit_detail: detail,
+          });
         }
         const body = (await res.json()) as { session_id: string; url: string };
         const { data: session, error } = await supabaseAdmin
