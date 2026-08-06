@@ -55,6 +55,18 @@ export default function RemoteOrderSummary() {
         // Unpaid until Stripe's webhook confirms. Sheet handles card + 3DS.
         const outcome = await payForBooking(result.booking.id);
         if (!outcome.ok) {
+          // NEVER claim "nothing was charged" without checking. A 3DS
+          // challenge can succeed while the sheet reports cancelled (e.g.
+          // the user closes the browser themselves) — money moved, and the
+          // webhook is the authority. Ask the server before deciding.
+          const alreadyPaid = await waitForCharge(result.booking.id, 6000);
+          if (alreadyPaid) {
+            addServerBooking(result.booking);
+            reset();
+            router.dismissAll();
+            router.replace(`/bookings/${result.booking.id}`);
+            return true;
+          }
           await abandonBooking(result.booking.id);
           setOrderError(
             outcome.reason === 'cancelled'

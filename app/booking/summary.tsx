@@ -83,14 +83,23 @@ export default function OrderSummary() {
         // The sheet collects the card (and runs any 3DS challenge) on-device.
         const outcome = await payForBooking(result.booking.id);
         if (!outcome.ok) {
-          if (outcome.reason === 'cancelled') {
-            // Withdraw the unpaid booking so no offer runs for it.
-            await abandonBooking(result.booking.id);
-            setBookError('Payment cancelled — nothing was charged.');
-          } else {
-            await abandonBooking(result.booking.id);
-            setBookError(outcome.message ?? 'Payment failed — no charge was made. Please try again.');
+          // NEVER claim "nothing was charged" without checking. A 3DS
+          // challenge can succeed while the sheet reports cancelled (e.g.
+          // the user closes the browser themselves) — money moved, and the
+          // webhook is the authority. Ask the server before deciding.
+          const alreadyPaid = await waitForCharge(result.booking.id, 6000);
+          if (alreadyPaid) {
+            useBookings.getState().addServerBooking(result.booking);
+            router.dismissAll();
+            router.replace(`/bookings/${result.booking.id}`);
+            return true;
           }
+          await abandonBooking(result.booking.id);
+          setBookError(
+            outcome.reason === 'cancelled'
+              ? 'Payment cancelled — nothing was charged.'
+              : outcome.message ?? 'Payment failed — no charge was made. Please try again.',
+          );
           return false; // slider unlocks for a retry
         }
         // Paid: wait for the webhook to ledger it. If it's slow the booking
