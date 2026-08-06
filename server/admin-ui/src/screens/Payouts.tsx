@@ -15,6 +15,13 @@ interface PayoutRequest {
   method: string | null;
   admin_note: string | null;
   payout_details: string | null;
+  payout_name_check: {
+    state: 'ok' | 'minor' | 'mismatch' | 'unverified';
+    holder_name: string;
+    legal_name: string | null;
+    reasons?: string[];
+    note?: string;
+  } | null;
 }
 
 export function Payouts() {
@@ -157,6 +164,43 @@ export function Payouts() {
               <div className="sub" style={{ fontSize: 13 }}>
                 {r.payout_details ?? 'No payout method on file — contact the creator.'}
               </div>
+              {/* §6 Payout name check — surfaced, never blocking. A joint or
+                  business account is legitimate; this is a prompt to ask, not
+                  a reason to withhold someone's money. */}
+              {r.payout_name_check && r.payout_name_check.state !== 'ok' && (
+                <div
+                  className="sub"
+                  style={{
+                    fontSize: 12.5,
+                    marginTop: 6,
+                    padding: '7px 10px',
+                    borderRadius: 8,
+                    borderLeft: `3px solid ${
+                      r.payout_name_check.state === 'mismatch' ? 'var(--danger)' : 'var(--warn)'
+                    }`,
+                    background: 'var(--bg)',
+                  }}
+                >
+                  {r.payout_name_check.state === 'unverified' ? (
+                    <>Account name “{r.payout_name_check.holder_name}” — no verified legal name to check it against yet.</>
+                  ) : r.payout_name_check.state === 'mismatch' ? (
+                    <>
+                      <strong>Payout name doesn't match.</strong> Money is going to “
+                      {r.payout_name_check.holder_name}”, but the verified legal name is “
+                      {r.payout_name_check.legal_name}”. Confirm before paying.
+                    </>
+                  ) : (
+                    <>
+                      Payout name “{r.payout_name_check.holder_name}” differs slightly from “
+                      {r.payout_name_check.legal_name}”
+                      {r.payout_name_check.reasons?.length
+                        ? ` (${r.payout_name_check.reasons.join(', ')})`
+                        : ''}
+                      .
+                    </>
+                  )}
+                </div>
+              )}
               {r.admin_note && (
                 <div className="sub" style={{ fontSize: 12.5, color: 'var(--muted)' }}>Note: {r.admin_note}</div>
               )}

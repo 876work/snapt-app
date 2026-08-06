@@ -5,6 +5,7 @@ import { reassignBooking, offerWindowMs } from '../offers.js';
 import { notify } from '../notify.js';
 import { decryptField } from '../crypto.js';
 import { sendEmail } from '../email.js';
+import { reconcileNames } from '../name-match.js';
 
 // Admin Portal (handoff §15) — original Phase 5 endpoints. Sits on the SAME
 // backend and data model as the apps (§15 mandate). The portal UI is now the
@@ -272,7 +273,7 @@ export function registerAdminRoutes(app: FastifyInstance) {
         .filter('detail->>creator_id', 'eq', e.creator_id)
         .limit(1)
         .maybeSingle();
-      const { data: cp } = await supabaseAdmin.from('creator_profiles').select('payout_methods').eq('user_id', e.creator_id).single();
+      const { data: cp } = await supabaseAdmin.from('creator_profiles').select('payout_methods, legal_name').eq('user_id', e.creator_id).single();
       const pm = (cp?.payout_methods ?? {}) as { selected?: string; methods?: Record<string, Record<string, string>> };
       const sel = pm.selected;
       const det = sel ? pm.methods?.[sel] : undefined;
@@ -291,6 +292,40 @@ export function registerAdminRoutes(app: FastifyInstance) {
         : sel && shown
           ? `${sel}: ${Object.entries(shown).map(([k, v]) => k + '=' + v).join(', ')}`
           : null;
+      // §6 Payout name check: the name on the receiving account against the
+      // VERIFIED legal name. Catches a typo and catches money being routed to
+      // someone else's account. Surfaced, never blocking — plenty of these
+      // are legitimate (a joint account, a business name) and that is a
+      // conversation, not a rejection.
+      const holderName = (shown?.holder_name as string | undefined) ?? null;
+      let payoutNameCheck: Record<string, unknown> | null = null;
+      if (sel && sel !== 'cash' && holderName) {
+        if (!cp?.legal_name) {
+          payoutNameCheck = {
+            state: 'unverified',
+            holder_name: holderName,
+            legal_name: null,
+            note: 'No verified legal name yet — nothing to compare against.',
+          };
+        } else {
+          const cmp = reconcileNames({
+            idFullName: cp.legal_name,
+            idLastName: null,
+            signupName: holderName,
+          });
+          payoutNameCheck = {
+            state:
+              cmp.verdict === 'match'
+                ? 'ok'
+                : cmp.verdict === 'minor_variance'
+                  ? 'minor'
+                  : 'mismatch',
+            holder_name: holderName,
+            legal_name: cp.legal_name,
+            reasons: cmp.reasons,
+          };
+        }
+      }
       requests.push({
         ...e,
         name: prof?.full_name,
@@ -301,6 +336,7 @@ export function registerAdminRoutes(app: FastifyInstance) {
         method: sel ?? null,
         admin_note: (alert?.detail as { admin_note?: string } | null)?.admin_note ?? null,
         payout_details: label,
+        payout_name_check: payoutNameCheck,
       });
     }
     return { requests };

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, getToken } from '../api';
 import { EmptyState, Pill, SectionSkeleton, formatWhen } from './ui';
 
@@ -18,6 +19,18 @@ interface Session {
   decided_at: string | null;
 }
 
+interface Reconciliation {
+  verdict: 'match' | 'minor_variance' | 'substantial_mismatch' | 'unknown';
+  detail: { reasons?: string[]; compared_with?: string | null; account_name?: string | null };
+  review_required: boolean;
+  id_name: string | null;
+  display_name: string | null;
+  declared_legal_name: string | null;
+  face_match_score: number | null;
+  signal: { level: 'ok' | 'note' | 'caution' | 'alert'; headline: string; detail: string };
+  auto_applied: boolean;
+}
+
 interface VerificationData {
   profile: {
     verification_status: string;
@@ -26,7 +39,12 @@ interface VerificationData {
     vetting_decided_by: string | null;
     vetting_decided_at: string | null;
     vetting_agreed_with_didit: boolean | null;
+    legal_name: string | null;
+    legal_name_source: 'didit' | 'admin' | null;
+    legal_name_set_at: string | null;
+    declared_legal_name: string | null;
   } | null;
+  reconciliation: Reconciliation | null;
   sessions: Session[];
   image_endpoint: string;
   configured: boolean;
@@ -141,6 +159,15 @@ export function VerificationPanel({ creatorId }: { creatorId: string }) {
             </div>
           </div>
 
+          {data.reconciliation && (
+            <NameReconciliation
+              creatorId={creatorId}
+              rec={data.reconciliation}
+              legalName={data.profile?.legal_name ?? null}
+              legalNameSource={data.profile?.legal_name_source ?? null}
+            />
+          )}
+
           {Object.values(latest.extracted ?? {}).some(Boolean) && (
             <div className="card kv" style={{ marginTop: 10 }}>
               {Object.entries(latest.extracted)
@@ -198,6 +225,181 @@ export function VerificationPanel({ creatorId }: { creatorId: string }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+const VERDICT_LABEL: Record<string, string> = {
+  match: 'Names match',
+  minor_variance: 'Minor variance',
+  substantial_mismatch: 'Substantial mismatch',
+  unknown: 'Could not compare',
+};
+
+const SIGNAL_COLOUR: Record<string, string> = {
+  ok: 'var(--ok)',
+  note: 'var(--gold, #C9A227)',
+  caution: 'var(--warn)',
+  alert: 'var(--danger)',
+};
+
+/**
+ * ID name against account name, read TOGETHER with the face match.
+ *
+ * Two separate numbers make an admin do the correlation in their head, and
+ * the correlation is the whole point: a different name with a strong face
+ * match is usually a nickname, while the same difference with a weak face
+ * match is what a borrowed document looks like. So the combined verdict is
+ * the headline and the raw numbers sit underneath it.
+ */
+function NameReconciliation({
+  creatorId,
+  rec,
+  legalName,
+  legalNameSource,
+}: {
+  creatorId: string;
+  rec: Reconciliation;
+  legalName: string | null;
+  legalNameSource: 'didit' | 'admin' | null;
+}) {
+  const qc = useQueryClient();
+  const [note, setNote] = useState('');
+  const decide = useMutation({
+    mutationFn: (action: 'accept_id_name' | 'keep_display_name') =>
+      api(`/v1/admin/creators/${creatorId}/legal-name`, {
+        method: 'POST',
+        body: JSON.stringify({ action, note: note.trim() || undefined }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['verification', creatorId] });
+      qc.invalidateQueries({ queryKey: ['creator', creatorId] });
+    },
+  });
+
+  const blocked = rec.verdict === 'substantial_mismatch';
+  const reasons = rec.detail?.reasons ?? [];
+
+  return (
+    <div
+      className="card"
+      style={{
+        marginTop: 10,
+        padding: 14,
+        borderLeft: `4px solid ${SIGNAL_COLOUR[rec.signal.level] ?? 'var(--border)'}`,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: 14 }}>{rec.signal.headline}</strong>
+        <Pill
+          tone={
+            rec.verdict === 'match' ? 'ok' : rec.verdict === 'minor_variance' ? 'warn' : 'danger'
+          }
+        >
+          {VERDICT_LABEL[rec.verdict]}
+        </Pill>
+        <Pill tone="neutral">
+          face {rec.face_match_score != null ? `${rec.face_match_score.toFixed(1)}%` : '—'}
+        </Pill>
+      </div>
+      <p style={{ fontSize: 13, lineHeight: '20px', margin: '8px 0 0', color: 'var(--text-dim)' }}>
+        {rec.signal.detail}
+      </p>
+
+      <div className="kv" style={{ marginTop: 12 }}>
+        <div>
+          <div className="k">Name on the ID</div>
+          <div className="v">{rec.id_name ?? '—'}</div>
+        </div>
+        <div>
+          <div className="k">Name clients see</div>
+          <div className="v">{rec.display_name ?? '—'}</div>
+        </div>
+        <div>
+          <div className="k">Legal name they declared</div>
+          <div className="v">{rec.declared_legal_name ?? <span style={{ opacity: 0.6 }}>not given</span>}</div>
+        </div>
+        <div>
+          <div className="k">Verified legal name</div>
+          <div className="v">
+            {legalName ? (
+              <>
+                {legalName}{' '}
+                <Pill tone="neutral">
+                  {legalNameSource === 'admin' ? 'set by admin' : 'from ID'}
+                </Pill>
+              </>
+            ) : (
+              <span style={{ opacity: 0.6 }}>not set</span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {reasons.length > 0 && (
+        <p style={{ fontSize: 12.5, margin: '10px 0 0', color: 'var(--text-dim)' }}>
+          Matched after: {reasons.join(', ')}
+          {rec.detail?.compared_with
+            ? ` · compared with the ${rec.detail.compared_with.replace(/_/g, ' ')}`
+            : ''}
+        </p>
+      )}
+
+      {blocked ? (
+        <>
+          <div
+            style={{
+              marginTop: 12,
+              padding: 10,
+              borderRadius: 8,
+              background: 'var(--bg)',
+              fontSize: 12.5,
+              lineHeight: '19px',
+            }}
+          >
+            <strong>Nothing has been applied to this account.</strong> A substantial mismatch is
+            never written automatically — the discrepancy is evidence, and overwriting it would
+            destroy it. The display name is untouched either way.
+          </div>
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Why you're deciding this way (recorded in the audit log)"
+            style={{ marginTop: 10, width: '100%' }}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            <button
+              className="btn primary"
+              disabled={decide.isPending || !rec.id_name}
+              onClick={() => decide.mutate('accept_id_name')}
+            >
+              Accept the ID name as legal name
+            </button>
+            <button
+              className="btn"
+              disabled={decide.isPending}
+              onClick={() => decide.mutate('keep_display_name')}
+            >
+              Leave it — keep display name only
+            </button>
+          </div>
+          <p className="page-sub" style={{ marginTop: 8 }}>
+            To turn the application down, use Reject on the application itself — a name query
+            isn't automatically a rejection.
+          </p>
+        </>
+      ) : (
+        <p className="page-sub" style={{ marginTop: 10 }}>
+          {rec.auto_applied
+            ? 'Applied automatically as the verified legal name. The display name was not changed, and the creator has been emailed.'
+            : 'No legal name has been set from this session.'}
+        </p>
+      )}
+      {decide.isError && (
+        <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 8 }}>
+          {(decide.error as Error).message}
+        </p>
+      )}
     </div>
   );
 }

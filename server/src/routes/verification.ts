@@ -4,6 +4,8 @@ import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
 import { audit, requireAdmin } from '../admin-auth.js';
 import { env } from '../env.js';
+import { autoAppliable, combinedSignal, reconcileNames } from '../name-match.js';
+import { sendEmail } from '../email.js';
 
 /**
  * Didit identity verification — HOSTED sessions.
@@ -55,6 +57,58 @@ function ageFrom(dob: string): number | null {
   const monthDiff = now.getUTCMonth() - born.getUTCMonth();
   if (monthDiff < 0 || (monthDiff === 0 && now.getUTCDate() < born.getUTCDate())) age -= 1;
   return age;
+}
+
+/**
+ * Nothing about someone's identity changes on their account silently.
+ * Sent whenever a verified legal name is set or changed, by the webhook or
+ * by an admin. Says plainly where the name came from and that the name
+ * clients see has not moved.
+ */
+async function notifyLegalNameSet(
+  email: string,
+  legalName: string,
+  displayName: string,
+  verdict: string,
+): Promise<void> {
+  const varied = verdict !== 'match';
+  await sendEmail(
+    email,
+    'Your verified name on Snapt',
+    `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:520px;color:#191919">
+      <h2 style="font-size:19px;margin:0 0 14px">Your verified name has been recorded</h2>
+      <p style="font-size:14px;line-height:22px">
+        Your ID check is complete. We've recorded the name exactly as it appears on your
+        document, and we use it only where a legal name is required — payouts, disputes,
+        and our own records.
+      </p>
+      <table style="font-size:14px;line-height:22px;border-collapse:collapse;margin:16px 0">
+        <tr><td style="padding:4px 16px 4px 0;color:#6F6F6F">Verified legal name</td>
+            <td style="padding:4px 0;font-weight:700">${escapeHtml(legalName)}</td></tr>
+        <tr><td style="padding:4px 16px 4px 0;color:#6F6F6F">Name clients see</td>
+            <td style="padding:4px 0;font-weight:700">${escapeHtml(displayName)} <span style="font-weight:400;color:#6F6F6F">(unchanged)</span></td></tr>
+      </table>
+      <p style="font-size:14px;line-height:22px">
+        ${
+          varied
+            ? 'Your document writes your name slightly differently from your profile — that is completely normal, and we have not altered your profile name.'
+            : 'Your profile name already matched your document.'
+        }
+        You can still edit the name clients see at any time in your profile. The verified
+        name comes from your ID, so it can only be changed by our team.
+      </p>
+      <p style="font-size:13px;line-height:20px;color:#6F6F6F">
+        If this isn't your name or you think something is wrong, reply to this email or
+        contact hello@snaptcarib.app straight away.
+      </p>
+    </div>`,
+  );
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string,
+  );
 }
 
 /** Pull the fields we keep out of Didit's decision payload. */
@@ -272,8 +326,6 @@ export function registerVerificationRoutes(app: FastifyInstance) {
         patch.is_18_plus = is18;
       }
     }
-    await supabaseAdmin.from('verification_sessions').update(patch).eq('id', session.id);
-
     // Roll up to the application. Under-18 is a hard fail regardless of what
     // Didit concluded; everything else still goes to a human.
     let rollup = 'in_review';
@@ -282,10 +334,59 @@ export function registerVerificationRoutes(app: FastifyInstance) {
     else if (status === 'Declined') rollup = 'declined';
     else if (status === 'In Review') rollup = 'in_review';
     else if (status === 'Abandoned' || status === 'Expired') rollup = 'in_progress';
-    await supabaseAdmin
-      .from('creator_profiles')
-      .update({ verification_status: rollup, verification_session_id: session.id })
-      .eq('user_id', session.user_id);
+
+    const profilePatch: Record<string, unknown> = {
+      verification_status: rollup,
+      verification_session_id: session.id,
+    };
+
+    // Name reconciliation. Only on a document we actually trust: a declined
+    // or abandoned session's extracted name is not evidence of anything.
+    if (rollup === 'approved' && patch.extracted) {
+      const extracted = patch.extracted as Record<string, string | null>;
+      const { data: account } = await supabaseAdmin
+        .from('profiles')
+        .select('full_name, email')
+        .eq('id', session.user_id)
+        .maybeSingle();
+      const { data: creator } = await supabaseAdmin
+        .from('creator_profiles')
+        .select('declared_legal_name, legal_name')
+        .eq('user_id', session.user_id)
+        .maybeSingle();
+
+      const comparison = reconcileNames({
+        idFullName: extracted.full_name,
+        idFirstName: extracted.first_name,
+        idLastName: extracted.last_name,
+        signupName: account?.full_name ?? null,
+        declaredLegalName: creator?.declared_legal_name ?? null,
+      });
+
+      patch.name_verdict = comparison.verdict;
+      patch.name_detail = { ...comparison, face_match_score: patch.face_match_score ?? null };
+      // A substantial mismatch is PARKED, never applied. The discrepancy is
+      // the evidence — overwriting it would destroy the signal.
+      patch.name_review_required = comparison.verdict === 'substantial_mismatch';
+
+      if (autoAppliable(comparison.verdict) && comparison.id_name) {
+        profilePatch.legal_name = comparison.id_name;
+        profilePatch.legal_name_source = 'didit';
+        profilePatch.legal_name_set_at = new Date().toISOString();
+        // The DISPLAY name (profiles.full_name) is deliberately untouched.
+        if (account?.email && creator?.legal_name !== comparison.id_name) {
+          await notifyLegalNameSet(
+            account.email,
+            comparison.id_name,
+            account.full_name ?? '',
+            comparison.verdict,
+          ).catch((err) => request.log.error({ err }, 'legal name email failed'));
+        }
+      }
+    }
+
+    await supabaseAdmin.from('verification_sessions').update(patch).eq('id', session.id);
+    await supabaseAdmin.from('creator_profiles').update(profilePatch).eq('user_id', session.user_id);
 
     return { received: true };
   });
@@ -309,19 +410,127 @@ export function registerVerificationRoutes(app: FastifyInstance) {
       const { data: profile } = await supabaseAdmin
         .from('creator_profiles')
         .select(
-          'verification_status, verification_attempts, police_certificate_path, vetting_decided_by, vetting_decided_at, vetting_agreed_with_didit',
+          'verification_status, verification_attempts, police_certificate_path, vetting_decided_by, vetting_decided_at, vetting_agreed_with_didit, legal_name, legal_name_source, legal_name_set_at, declared_legal_name',
         )
         .eq('user_id', request.params.id)
         .maybeSingle();
+      const { data: account } = await supabaseAdmin
+        .from('profiles')
+        .select('full_name')
+        .eq('id', request.params.id)
+        .maybeSingle();
+
+      // The name reconciliation, read TOGETHER with the face match — §3. The
+      // panel shows one verdict, not two unrelated numbers.
+      const latest = (sessions ?? [])[0];
+      const reconciliation = latest
+        ? {
+            verdict: (latest.name_verdict as string | null) ?? 'unknown',
+            detail: latest.name_detail ?? {},
+            review_required: Boolean(latest.name_review_required),
+            id_name:
+              (latest.name_detail as Record<string, unknown> | null)?.id_name ??
+              (latest.extracted as Record<string, string> | null)?.full_name ??
+              null,
+            display_name: account?.full_name ?? null,
+            declared_legal_name: profile?.declared_legal_name ?? null,
+            face_match_score: latest.face_match_score ?? null,
+            signal: combinedSignal(
+              ((latest.name_verdict as string | null) ?? 'unknown') as never,
+              latest.face_match_score as number | null,
+            ),
+            /** Applied without a human? Never true for a substantial mismatch. */
+            auto_applied:
+              profile?.legal_name_source === 'didit' && Boolean(profile?.legal_name),
+          }
+        : null;
+
       await audit(admin, 'verification_viewed', request.params.id);
       return {
         profile: profile ?? null,
+        reconciliation,
         sessions: sessions ?? [],
         // Images stay with Didit; the portal streams them through
         // /image below rather than copying them into our storage.
         image_endpoint: `/v1/admin/creators/${request.params.id}/verification/image`,
         configured: diditConfigured,
       };
+    },
+  );
+
+  /**
+   * Admin decision on the name reconciliation (§4).
+   *
+   * `accept_id_name`  — write the document's name as the verified legal name.
+   * `keep_display_name` — acknowledge the difference, leave the legal name
+   *                       unset. The display name is untouched either way;
+   *                       this records that a human looked and chose.
+   *
+   * Rejecting the application is the existing vetting endpoint — a name
+   * dispute is not special-cased into a rejection here.
+   */
+  app.post<{ Params: { id: string }; Body: { action?: string; note?: string } }>(
+    '/v1/admin/creators/:id/legal-name',
+    async (request, reply) => {
+      const admin = await requireAdmin(request, reply, ['admin']);
+      if (!admin) return;
+      const action = request.body?.action;
+      if (action !== 'accept_id_name' && action !== 'keep_display_name') {
+        return reply.code(400).send({ error: 'action must be accept_id_name or keep_display_name' });
+      }
+
+      const { data: session } = await supabaseAdmin
+        .from('verification_sessions')
+        .select('id, name_verdict, name_detail, extracted, face_match_score')
+        .eq('user_id', request.params.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!session) return reply.code(404).send({ error: 'No verification session' });
+
+      const detail = (session.name_detail ?? {}) as Record<string, unknown>;
+      const idName =
+        (detail.id_name as string | null) ??
+        (session.extracted as Record<string, string> | null)?.full_name ??
+        null;
+
+      if (action === 'accept_id_name') {
+        if (!idName) return reply.code(409).send({ error: 'No name was read from the document' });
+        const { data: account } = await supabaseAdmin
+          .from('profiles')
+          .select('full_name, email')
+          .eq('id', request.params.id)
+          .maybeSingle();
+        await supabaseAdmin
+          .from('creator_profiles')
+          .update({
+            legal_name: idName,
+            legal_name_source: 'admin',
+            legal_name_set_at: new Date().toISOString(),
+          })
+          .eq('user_id', request.params.id);
+        if (account?.email) {
+          await notifyLegalNameSet(
+            account.email,
+            idName,
+            account.full_name ?? '',
+            (session.name_verdict as string) ?? 'unknown',
+          ).catch((err) => request.log.error({ err }, 'legal name email failed'));
+        }
+      }
+
+      await supabaseAdmin
+        .from('verification_sessions')
+        .update({ name_review_required: false })
+        .eq('id', session.id);
+
+      await audit(admin, `legal_name_${action}`, request.params.id, {
+        id_name: idName,
+        verdict: session.name_verdict,
+        face_match_score: session.face_match_score,
+        note: request.body?.note ?? null,
+      });
+      return { ok: true, legal_name: action === 'accept_id_name' ? idName : null };
     },
   );
 

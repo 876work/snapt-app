@@ -40,6 +40,7 @@ export default function CreatorApplication() {
   const { setSpecialties } = useCreator();
   const [serviceType, setServiceType] = React.useState<ServiceType>('both');
   const [portfolio, setPortfolio] = React.useState('');
+  const [legalName, setLegalName] = React.useState('');
   const [sel, setSel] = React.useState<Occasion[]>([]);
   const [baseArea, setBaseArea] = React.useState<Area | null>(null);
   const [areaOpen, setAreaOpen] = React.useState(false);
@@ -52,6 +53,7 @@ export default function CreatorApplication() {
   const needsBgCheck = serviceType !== 'remote';
   const canSubmit =
     sel.length > 0 &&
+    legalName.trim().length >= 3 &&
     agreementAccepted &&
     (!needsBgCheck || (bgCheckConsent && baseArea != null)) &&
     !busy;
@@ -126,6 +128,7 @@ export default function CreatorApplication() {
         specialties: sel,
         service_type: serviceType,
         base_area: baseArea,
+        declared_legal_name: legalName.trim(),
         consents: {
           creator_agreement: true,
           ...(needsBgCheck ? { background_check: true } : {}),
@@ -170,6 +173,21 @@ export default function CreatorApplication() {
           {serviceType === 'remote'
             ? 'Edit footage clients send in — no shoots, no background check needed.'
             : 'In-person sessions require a background check before you go live.'}
+        </Text>
+
+        <Text style={styles.sectionLabel}>FULL LEGAL NAME</Text>
+        <TextInput
+          value={legalName}
+          onChangeText={setLegalName}
+          placeholder="Exactly as printed on your ID"
+          placeholderTextColor="#9A9A9A"
+          autoCapitalize="words"
+          autoComplete="name"
+          style={styles.input}
+        />
+        <Text style={styles.hint}>
+          We check this against your ID. It's used for payouts and our records only — clients
+          always see your profile name, and this never changes it.
         </Text>
 
         <Text style={styles.sectionLabel}>PORTFOLIO LINK</Text>

@@ -15,6 +15,9 @@ interface ApplyBody {
   service_radius_km?: number;
   bio?: string;
   portfolio_link?: string;
+  /** "Full legal name, exactly as printed on your ID" — compared against the
+   *  document after verification. Never shown to clients. */
+  declared_legal_name?: string;
   availability?: Record<string, { start: string; end: string }[]>;
   // §14: the Creator Agreement consent is always required; the Background
   // Check & Vetting Disclosure applies only to in-person work (never Remote).
@@ -61,6 +64,7 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       base_area: body.base_area ?? null,
       service_radius_km: body.service_radius_km ?? null,
       bio: body.bio ?? null,
+      declared_legal_name: body.declared_legal_name?.trim() || null,
     };
     const { error } = await supabaseAdmin
       .from('creator_profiles')
@@ -86,6 +90,11 @@ export function registerCreatorRoutes(app: FastifyInstance) {
     }
     if (needsBackgroundCheck && !body.base_area?.trim()) {
       return reply.code(400).send({ error: 'A base area is required for in-person work' });
+    }
+    if (!body.declared_legal_name?.trim() || body.declared_legal_name.trim().length < 3) {
+      return reply.code(400).send({
+        error: 'Your full legal name, exactly as printed on your ID, is required',
+      });
     }
     if (!body.consents?.creator_agreement) {
       return reply.code(400).send({ error: 'The Creator Agreement consent is required (§14)' });
@@ -134,6 +143,7 @@ export function registerCreatorRoutes(app: FastifyInstance) {
         base_area: body.base_area ?? null,
         service_radius_km: needsBackgroundCheck ? (body.service_radius_km ?? null) : null,
         bio: body.bio ?? null,
+        declared_legal_name: body.declared_legal_name?.trim() || null,
         // Default weekly template until the creator edits it in Schedule —
         // without one an approved creator can never be booked.
         availability: body.availability ?? {

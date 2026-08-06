@@ -309,6 +309,8 @@ export interface ApplyPayload {
   base_area?: string | null;
   service_radius_km?: number | null;
   bio?: string | null;
+  /** Full legal name as printed on the ID — reconciled after verification. */
+  declared_legal_name?: string;
   consents: { creator_agreement: boolean; background_check?: boolean };
 }
 
