@@ -111,7 +111,11 @@ export async function payForBooking(bookingId: string, clientName?: string): Pro
     customerEphemeralKeySecret: intent.ephemeral_key,
     // Saved cards make the "Book again" shortcut one tap.
     allowsDelayedPaymentMethods: false,
-    returnURL: 'snapt://stripe-redirect',
+    // NO custom returnURL. StripeProvider's urlScheme="snapt" makes the SDK
+    // generate and intercept its own snapt://safepay/… return, which is what
+    // dismisses the 3D Secure browser. A custom URL bypasses that handler:
+    // the bank approves, the app is foregrounded, and the sheet never
+    // resolves — the browser just sits there (verified on device).
     appearance: APPEARANCE,
     defaultBillingDetails: clientName ? { name: clientName } : undefined,
   });
