@@ -245,19 +245,35 @@ export function registerModerationRoutes(app: FastifyInstance) {
         .in('id', reporterIds);
       for (const p of reporters ?? []) counts.set(p.id, p.false_report_count ?? 0);
     }
-    const enriched = (reports ?? []).map((r) => ({
-      ...r,
-      reporter_false_report_count: counts.get(r.reporter_id) ?? 0,
-    }));
     const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
     const { data: portfolio } = await supabaseAdmin
       .from('portfolio_items')
       .select('id, creator_id, caption, created_at')
       .eq('status', 'pending')
       .order('created_at', { ascending: true });
+    // Additive name enrichment for the SPA; the legacy page ignores it.
+    const personIds = [
+      ...new Set(
+        [
+          ...(reports ?? []).flatMap((r) => [r.reporter_id, r.target_user_id ?? '']),
+          ...(portfolio ?? []).map((p) => p.creator_id),
+        ].filter(Boolean),
+      ),
+    ];
+    const nameOf = new Map<string, string>();
+    if (personIds.length) {
+      const { data: profs } = await supabaseAdmin.from('profiles').select('id, full_name').in('id', personIds);
+      for (const p of profs ?? []) nameOf.set(p.id, p.full_name);
+    }
+    const enriched = (reports ?? []).map((r) => ({
+      ...r,
+      reporter_false_report_count: counts.get(r.reporter_id) ?? 0,
+      reporter_name: nameOf.get(r.reporter_id) ?? null,
+      target_name: r.target_user_id ? nameOf.get(r.target_user_id) ?? null : null,
+    }));
     return {
       reports: enriched.sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9)),
-      portfolio_pending: portfolio ?? [],
+      portfolio_pending: (portfolio ?? []).map((p) => ({ ...p, creator_name: nameOf.get(p.creator_id) ?? null })),
     };
   });
   app.post<{ Params: { id: string }; Body: { action?: string; severity?: string } }>(

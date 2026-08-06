@@ -46,7 +46,46 @@ export function registerAdminRoutes(app: FastifyInstance) {
       .select('*, dispute_evidence(id, submitted_by, kind, content, created_at)')
       .not('status', 'in', '(resolved,closed)')
       .order('created_at', { ascending: true });
-    return { disputes: data ?? [] };
+    // Additive enrichment for the SPA (names + booking facts); the legacy
+    // page ignores these fields.
+    const bookingIds = [...new Set((data ?? []).map((d) => d.booking_id))];
+    const bookingById = new Map<string, Record<string, unknown>>();
+    if (bookingIds.length) {
+      const { data: bookings } = await supabaseAdmin
+        .from('bookings')
+        .select('id, occasion, type, area, scheduled_at, price_usd, client_id, creator_id')
+        .in('id', bookingIds);
+      for (const b of bookings ?? []) bookingById.set(b.id, b);
+    }
+    const personIds = (data ?? []).flatMap((d) => {
+      const b = bookingById.get(d.booking_id) as { client_id?: string; creator_id?: string | null } | undefined;
+      return [d.opened_by, ...(d.dispute_evidence ?? []).map((e: { submitted_by: string }) => e.submitted_by), b?.client_id ?? '', b?.creator_id ?? ''];
+    });
+    const nameOf = new Map<string, string>();
+    if (personIds.length) {
+      const { data: profs } = await supabaseAdmin.from('profiles').select('id, full_name').in('id', [...new Set(personIds.filter(Boolean))]);
+      for (const p of profs ?? []) nameOf.set(p.id, p.full_name);
+    }
+    return {
+      disputes: (data ?? []).map((d) => {
+        const b = bookingById.get(d.booking_id) as ({ client_id: string; creator_id: string | null } & Record<string, unknown>) | undefined;
+        return {
+          ...d,
+          opened_by_name: nameOf.get(d.opened_by) ?? null,
+          dispute_evidence: (d.dispute_evidence ?? []).map((e: { submitted_by: string } & Record<string, unknown>) => ({
+            ...e,
+            submitted_by_name: nameOf.get(e.submitted_by) ?? null,
+          })),
+          booking: b
+            ? {
+                ...b,
+                client_name: nameOf.get(b.client_id) ?? null,
+                creator_name: b.creator_id ? nameOf.get(b.creator_id) ?? null : null,
+              }
+            : null,
+        };
+      }),
+    };
   });
 
   app.get('/v1/admin/applications', async (request, reply) => {

@@ -11,6 +11,9 @@ import { Creators } from './screens/Creators';
 import { CreatorDetail } from './screens/CreatorDetail';
 import { Bookings } from './screens/Bookings';
 import { BookingDetail } from './screens/BookingDetail';
+import { Payouts } from './screens/Payouts';
+import { Disputes } from './screens/Disputes';
+import { Moderation } from './screens/Moderation';
 
 export function App() {
   const { identity, restoring } = useAuth();
@@ -41,9 +44,9 @@ export function App() {
         <Route path="/users/:id" element={<UserDetail />} />
         <Route path="/creators" element={<Creators />} />
         <Route path="/creators/:id" element={<CreatorDetail />} />
-        <Route path="/payouts" element={<Placeholder title="Payouts" />} />
-        <Route path="/disputes" element={<Placeholder title="Disputes" />} />
-        <Route path="/moderation" element={<Placeholder title="Moderation" />} />
+        <Route path="/payouts" element={<Payouts />} />
+        <Route path="/disputes" element={<Disputes />} />
+        <Route path="/moderation" element={<Moderation />} />
         <Route path="/config" element={<Placeholder title="Config" />} />
         <Route path="/legal" element={<Placeholder title="Legal" />} />
         <Route path="/analytics" element={<Placeholder title="Analytics" />} />
