@@ -91,7 +91,11 @@ export function registerCreatorRoutes(app: FastifyInstance) {
     if (needsBackgroundCheck && !body.base_area?.trim()) {
       return reply.code(400).send({ error: 'A base area is required for in-person work' });
     }
-    if (!body.declared_legal_name?.trim() || body.declared_legal_name.trim().length < 3) {
+    // NOT server-required. Build 11 and the current APK predate this field,
+    // and rejecting them would break applying for everyone already installed.
+    // The app enforces it for builds that have it; a missing value simply
+    // means the ID name is reconciled against the signup name alone.
+    if (body.declared_legal_name != null && body.declared_legal_name.trim().length < 3) {
       return reply.code(400).send({
         error: 'Your full legal name, exactly as printed on your ID, is required',
       });
