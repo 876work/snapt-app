@@ -1,6 +1,13 @@
-import { initPaymentSheet, presentPaymentSheet } from '@stripe/stripe-react-native';
+import { Linking, Platform } from 'react-native';
+import { handleURLCallback, initPaymentSheet, presentPaymentSheet } from '@stripe/stripe-react-native';
 import { apiBase, authHeaders } from './api';
 import { colors } from './theme';
+
+/**
+ * Stripe's canonical return URL for this app. Must match the scheme declared
+ * in app.json ("snapt") and the shape the SDK builds itself elsewhere.
+ */
+const RETURN_URL = 'snapt://safepay';
 
 /**
  * Card payment via Stripe PaymentSheet.
@@ -46,6 +53,31 @@ const APPEARANCE = {
     shapes: { borderRadius: 14 },
   },
 } as const;
+
+/**
+ * Hands 3D Secure return URLs to the Stripe SDK so it dismisses the challenge
+ * browser and resolves presentPaymentSheet.
+ *
+ * The SDK does not observe openURL itself (no RCTLinkingManager or
+ * STPURLCallbackHandler wiring in its iOS sources), so when iOS foregrounds
+ * the app with snapt://safepay… nothing tells Stripe the challenge finished.
+ * handleURLCallback returns false for URLs it doesn't own, so this is safe to
+ * run over every incoming link.
+ *
+ * Returns the unsubscribe function.
+ */
+export function installStripeReturnHandler(): () => void {
+  if (Platform.OS !== 'ios') return () => {};
+  const onUrl = ({ url }: { url: string }) => {
+    if (url.startsWith(RETURN_URL)) void handleURLCallback(url);
+  };
+  const sub = Linking.addEventListener('url', onUrl);
+  // A cold start can deliver the URL before the listener attaches.
+  void Linking.getInitialURL().then((url) => {
+    if (url) onUrl({ url });
+  });
+  return () => sub.remove();
+}
 
 async function post<T>(path: string, body: unknown): Promise<T | null> {
   if (!apiBase) return null;
@@ -111,11 +143,18 @@ export async function payForBooking(bookingId: string, clientName?: string): Pro
     customerEphemeralKeySecret: intent.ephemeral_key,
     // Saved cards make the "Book again" shortcut one tap.
     allowsDelayedPaymentMethods: false,
-    // NO custom returnURL. StripeProvider's urlScheme="snapt" makes the SDK
-    // generate and intercept its own snapt://safepay/… return, which is what
-    // dismisses the 3D Secure browser. A custom URL bypasses that handler:
-    // the bank approves, the app is foregrounded, and the sheet never
-    // resolves — the browser just sits there (verified on device).
+    // REQUIRED for 3D Secure on iOS. PaymentSheet does NOT fall back to
+    // StripeProvider's urlScheme — StripeSdkImpl+PaymentSheet.swift only sets
+    // configuration.returnURL from this param, and the SDK itself warns that
+    // without it "payment methods that require redirects will not be shown".
+    // With it nil the bank approves, then the challenge browser has nowhere
+    // to return to and strands the user on "Authentication Complete".
+    //
+    // The value must be exactly <scheme>://safepay — that is what the SDK
+    // builds for every other flow (Mappers.mapToReturnURL) and what its URL
+    // handler recognises. app/safepay/[...rest].tsx catches it so expo-router
+    // never renders "Unmatched Route" if the app is foregrounded with it.
+    returnURL: RETURN_URL,
     appearance: APPEARANCE,
     defaultBillingDetails: clientName ? { name: clientName } : undefined,
   });

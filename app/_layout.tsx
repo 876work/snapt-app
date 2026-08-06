@@ -79,6 +79,17 @@ export default function RootLayout() {
     import('../lib/push').then((p) => p.initPushHandling());
   }, []);
 
+  React.useEffect(() => {
+    // Lets Stripe close the 3D Secure browser when the bank sends the user
+    // back to snapt://safepay. Without this the challenge succeeds and the
+    // browser just sits on "Authentication Complete".
+    let dispose: (() => void) | undefined;
+    import('../lib/payments').then((p) => {
+      dispose = p.installStripeReturnHandler();
+    });
+    return () => dispose?.();
+  }, []);
+
   if (!fontsLoaded && !fontsError) return null;
 
   return (
