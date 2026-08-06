@@ -24,7 +24,7 @@ const SEVERITY: Record<string, string> = {
 
 const ONCALL = (process.env.ONCALL_EMAILS ?? '').split(',').map((s: string) => s.trim()).filter(Boolean);
 
-async function suspendUser(userId: string, reason: string): Promise<void> {
+export async function suspendUser(userId: string, reason: string): Promise<void> {
   await supabaseAdmin.from('profiles').update({ suspended_at: new Date().toISOString() }).eq('id', userId);
   // Creators additionally drop out of matching via vetting_status.
   await supabaseAdmin.from('creator_profiles').update({ vetting_status: 'suspended' }).eq('user_id', userId);

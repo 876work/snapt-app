@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { supabaseAdmin } from '../supabase.js';
 import { audit, requireAdmin } from '../admin-auth.js';
 import { configNumber } from '../config.js';
+import { suspendUser } from './moderation.js';
 
 // Admin Portal rebuild — API surface for the SPA at /admin. Everything here
 // is read-heavy composition over the same data model the apps use; all
@@ -203,6 +204,158 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
       return {
         entries: (data ?? []).map((r) => ({ ...r, admin_name: names.get(r.admin_id)?.name ?? null })),
       };
+    },
+  );
+
+  // Customer lookup: list/search. Default view is recent signups; a query
+  // searches name/email/phone the same way global search does.
+  app.get<{ Querystring: { q?: string; before?: string; limit?: string } }>(
+    '/v1/admin/users',
+    async (request, reply) => {
+      const admin = await requireAdmin(request, reply, ['admin', 'support']);
+      if (!admin) return;
+      const limit = Math.min(Math.max(Number(request.query.limit) || 30, 1), 100);
+      let query = supabaseAdmin
+        .from('profiles')
+        .select('id, full_name, email, phone, mode, created_at, suspended_at, false_report_count')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      if (request.query.before) query = query.lt('created_at', request.query.before);
+      const q = request.query.q?.trim().replace(/[,()%]/g, ' ').trim();
+      if (q) query = query.or(`full_name.ilike.%${q}%,email.ilike.%${q}%,phone.ilike.%${q}%`);
+      const { data, error } = await query;
+      if (error) return reply.code(500).send({ error: error.message });
+      const ids = (data ?? []).map((u) => u.id);
+      const creatorByUser = new Map<string, { vetting_status: string; verified: boolean }>();
+      if (ids.length) {
+        const { data: creators } = await supabaseAdmin
+          .from('creator_profiles')
+          .select('user_id, vetting_status, verified')
+          .in('user_id', ids);
+        for (const c of creators ?? []) creatorByUser.set(c.user_id, c);
+      }
+      return { users: (data ?? []).map((u) => ({ ...u, creator: creatorByUser.get(u.id) ?? null })) };
+    },
+  );
+
+  // Customer lookup: one person's whole picture in a single round trip.
+  app.get<{ Params: { id: string } }>('/v1/admin/users/:id', async (request, reply) => {
+    const admin = await requireAdmin(request, reply, ['admin', 'support']);
+    if (!admin) return;
+    const id = request.params.id;
+    const { data: profile, error } = await supabaseAdmin
+      .from('profiles')
+      .select('id, full_name, email, phone, mode, currency, avatar_url, created_at, suspended_at, deleted_at, false_report_count')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) return reply.code(500).send({ error: error.message });
+    if (!profile) return reply.code(404).send({ error: 'No such user' });
+
+    const [{ data: creator }, { data: bookingRows }, { data: txRows }, { data: disputeRows }, { data: consentRows }, { data: actionRows }] =
+      await Promise.all([
+        supabaseAdmin
+          .from('creator_profiles')
+          .select('vetting_status, verified, is_available, service_type, specialties, applied_at')
+          .eq('user_id', id)
+          .maybeSingle(),
+        supabaseAdmin
+          .from('bookings')
+          .select('id, status, occasion, type, area, scheduled_at, duration_hours, price_usd, creator_id, created_at')
+          .eq('client_id', id)
+          .order('created_at', { ascending: false })
+          .limit(20),
+        supabaseAdmin
+          .from('transactions')
+          .select('id, booking_id, type, status, amount_usd, created_at')
+          .eq('user_id', id)
+          .order('created_at', { ascending: false })
+          .limit(20),
+        supabaseAdmin
+          .from('disputes')
+          .select('id, booking_id, category, status, created_at, resolved_at')
+          .eq('opened_by', id)
+          .order('created_at', { ascending: false })
+          .limit(10),
+        supabaseAdmin
+          .from('consent_records')
+          .select('doc_type, version, consented_at')
+          .eq('user_id', id)
+          .order('consented_at', { ascending: false })
+          .limit(30),
+        supabaseAdmin
+          .from('admin_actions')
+          .select('id, admin_id, action, detail, created_at')
+          .eq('target', id)
+          .order('created_at', { ascending: false })
+          .limit(20),
+      ]);
+
+    // Lifetime stats come from full aggregates, not the trimmed lists above.
+    const countBookings = async (filter?: (q: any) => any) => {
+      let q = supabaseAdmin.from('bookings').select('*', { count: 'exact', head: true }).eq('client_id', id);
+      if (filter) q = filter(q);
+      return (await q).count ?? 0;
+    };
+    const { data: chargeRows } = await supabaseAdmin
+      .from('transactions')
+      .select('type, status, amount_usd')
+      .eq('user_id', id)
+      .eq('status', 'succeeded');
+    let spend = 0;
+    for (const t of chargeRows ?? []) {
+      if (t.type === 'charge') spend += Number(t.amount_usd);
+      if (t.type === 'refund') spend -= Number(t.amount_usd);
+    }
+    const stats = {
+      bookings_total: await countBookings(),
+      bookings_completed: await countBookings((q) => q.eq('status', 'completed')),
+      lifetime_spend_usd: Math.round(spend * 100) / 100,
+      disputes_opened: (disputeRows ?? []).length,
+    };
+
+    // Latest consent per doc type only — the history lives in Legal.
+    const latestConsent = new Map<string, { doc_type: string; version: number; consented_at: string }>();
+    for (const c of consentRows ?? []) if (!latestConsent.has(c.doc_type)) latestConsent.set(c.doc_type, c);
+
+    const names = await profileMap([
+      ...(bookingRows ?? []).map((b) => b.creator_id ?? ''),
+      ...(actionRows ?? []).map((a) => a.admin_id),
+    ]);
+    return {
+      profile,
+      creator: creator ?? null,
+      stats,
+      bookings: (bookingRows ?? []).map((b) => ({
+        ...b,
+        creator_name: b.creator_id ? names.get(b.creator_id)?.name ?? null : null,
+      })),
+      transactions: txRows ?? [],
+      disputes: disputeRows ?? [],
+      consents: [...latestConsent.values()],
+      admin_history: (actionRows ?? []).map((a) => ({ ...a, admin_name: names.get(a.admin_id)?.name ?? null })),
+    };
+  });
+
+  // Manual suspension with a required reason — same semantics as the
+  // moderation-triggered path (profile flag + creator matching removal +
+  // user notification). Unsuspend already exists on the moderation routes.
+  app.post<{ Params: { id: string }; Body: { reason?: string } }>(
+    '/v1/admin/users/:id/suspend',
+    async (request, reply) => {
+      const admin = await requireAdmin(request, reply, ['admin']);
+      if (!admin) return;
+      const reason = request.body?.reason?.trim();
+      if (!reason) return reply.code(400).send({ error: 'reason is required' });
+      const { data: profile } = await supabaseAdmin
+        .from('profiles')
+        .select('id, suspended_at')
+        .eq('id', request.params.id)
+        .maybeSingle();
+      if (!profile) return reply.code(404).send({ error: 'No such user' });
+      if (profile.suspended_at) return reply.code(409).send({ error: 'Already suspended' });
+      await suspendUser(request.params.id, reason);
+      await audit(admin, 'user_suspended', request.params.id, { reason });
+      return { suspended: true };
     },
   );
 

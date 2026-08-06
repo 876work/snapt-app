@@ -5,6 +5,8 @@ import { Skeleton } from './components/ui';
 import { Login } from './screens/Login';
 import { Placeholder } from './screens/Placeholder';
 import { Today } from './screens/Today';
+import { Users } from './screens/Users';
+import { UserDetail } from './screens/UserDetail';
 
 export function App() {
   const { identity, restoring } = useAuth();
@@ -31,8 +33,8 @@ export function App() {
         {identity.role !== 'moderator' && <Route index element={<Today />} />}
         <Route path="/bookings" element={<Placeholder title="Bookings" />} />
         <Route path="/bookings/:id" element={<Placeholder title="Booking" legacy={false} />} />
-        <Route path="/users" element={<Placeholder title="Users" legacy={false} />} />
-        <Route path="/users/:id" element={<Placeholder title="Customer lookup" legacy={false} />} />
+        <Route path="/users" element={<Users />} />
+        <Route path="/users/:id" element={<UserDetail />} />
         <Route path="/creators" element={<Placeholder title="Creators" />} />
         <Route path="/payouts" element={<Placeholder title="Payouts" />} />
         <Route path="/disputes" element={<Placeholder title="Disputes" />} />
