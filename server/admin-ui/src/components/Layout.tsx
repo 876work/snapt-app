@@ -60,19 +60,21 @@ export function Layout() {
           ))}
         </nav>
         <div className="foot">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <span style={{ color: '#f2f2f2', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {identity.name || identity.email || 'Signed in'}
-            </span>
-            <Pill status={identity.role} />
+          <div className="profile-block">
+            <div className="who-row">
+              <div className="initial">{(identity.name || identity.email || '?').trim().charAt(0).toUpperCase()}</div>
+              <div className="ident">
+                <div className="pname">{identity.name || 'Signed in'}</div>
+                {identity.email && <div className="pemail">{identity.email}</div>}
+              </div>
+            </div>
+            <div className="actions-row">
+              <Pill status={identity.role} />
+              <button className="signout" onClick={logout}>
+                Sign out
+              </button>
+            </div>
           </div>
-          <button
-            className="btn ghost"
-            style={{ width: '100%', color: '#c9c9c9', borderColor: 'rgba(255,255,255,0.2)' }}
-            onClick={logout}
-          >
-            Sign out
-          </button>
         </div>
       </aside>
       {drawer && <div className="scrim" onClick={() => setDrawer(false)} />}

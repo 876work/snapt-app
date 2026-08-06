@@ -153,10 +153,17 @@ export function Today() {
         </span>
       </div>
 
-      {/* Safety alerts: pinned, unmissable, explicit acknowledgement. */}
+      {/* Safety alerts: pinned above everything when present; when clear,
+          a single quiet line so decisions are genuinely first. */}
       {isLoading ? (
         <div className="section">
           <SectionSkeleton rows={2} />
+        </div>
+      ) : data && data.alerts.length === 0 ? (
+        <div className="section" style={{ marginTop: 14 }}>
+          <div className="sub" style={{ color: 'var(--faint)', fontSize: 12.5 }}>
+            ✓ No open safety alerts — SOS and safety reports pin here the moment they arrive.
+          </div>
         </div>
       ) : (
         <div className="section">
@@ -166,9 +173,6 @@ export function Today() {
               {unacked.length ? `${unacked.length} unacknowledged` : ''}
             </span>
           </h2>
-          {data && data.alerts.length === 0 && (
-            <EmptyState glyph="✓">No open alerts. SOS and safety reports will pin here.</EmptyState>
-          )}
           <div style={{ display: 'grid', gap: 10 }}>
             {unacked.map((a) => (
               <div key={a.id} className="card alert-card">
@@ -210,6 +214,24 @@ export function Today() {
           </div>
         </div>
       )}
+
+      {/* Everything needing a human decision — first thing, every morning.
+          Only unmissable safety alerts sit above this. */}
+      <div className="section">
+        <h2>Needs a decision</h2>
+        {isLoading ? (
+          <SectionSkeleton rows={2} />
+        ) : (
+          <div className="tiles decisions">
+            {decisionTiles.map((t) => (
+              <Link key={t.label} to={t.to} className={`card tile ${t.urgent ? 'hot' : 'quiet'}`}>
+                <div className="value num">{t.value}</div>
+                <div className="label">{t.label}</div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Grace window — the bookings most likely to become no-shows. */}
       <div className="section">
@@ -318,24 +340,6 @@ export function Today() {
         )}
       </div>
 
-      {/* Everything needing a human decision, one glance. */}
-      <div className="section">
-        <h2>Needs a decision</h2>
-        {isLoading ? (
-          <SectionSkeleton rows={2} />
-        ) : (
-          <div className="tiles">
-            {decisionTiles.map((t) => (
-              <Link key={t.label} to={t.to} className="card tile">
-                <div className="value num" style={{ color: t.urgent ? 'var(--ink)' : 'var(--faint)' }}>
-                  {t.value}
-                </div>
-                <div className="label">{t.label}</div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
     </>
   );
 }
