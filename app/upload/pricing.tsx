@@ -1,5 +1,5 @@
 import React from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { KeyboardScrollView } from '../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
@@ -33,7 +33,6 @@ export default function RemoteOrderSummary() {
   const [orderError, setOrderError] = React.useState<string | null>(null);
 
   const [addons, setAddons] = React.useState<string[]>([]);
-  const [payOpen, setPayOpen] = React.useState(false);
 
   const pkg =
     REMOTE_PACKAGES[mediaKind].find((p) => p.tier === tier) ?? REMOTE_PACKAGES[mediaKind][0];
@@ -78,7 +77,6 @@ export default function RemoteOrderSummary() {
         }
         addServerBooking(result.booking);
         reset();
-        setPayOpen(false);
         router.dismissAll();
         router.replace(`/bookings/${result.booking.id}`);
         return true;
@@ -93,7 +91,6 @@ export default function RemoteOrderSummary() {
     setDraft({ type: 'remote', mediaKind });
     const booking = confirmDraft(pkg.priceUsd + addonsTotal);
     reset();
-    setPayOpen(false);
     router.dismissAll();
     router.replace(`/bookings/${booking.id}`);
     return true;
@@ -190,69 +187,23 @@ export default function RemoteOrderSummary() {
           </Text>
           .
         </Text>
+        {orderError ? <Text style={styles.payError}>{orderError}</Text> : null}
+        <Text style={styles.usdNote}>
+          {currency === 'XCD' ? `≈ ${formatMoney(total, 'XCD')} · ` : ''}
+          {USD_PROCESSING_NOTE}
+        </Text>
         <View style={{ height: 24 }} />
       </KeyboardScrollView>
 
       <View style={styles.footer}>
-        <Pressable onPress={() => setPayOpen(true)} style={styles.cta}>
-          <Text style={styles.ctaLabel}>Continue to Payment</Text>
-          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-            <Path d="M5 12h14M13 6l6 6-6 6" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
-          </Svg>
-        </Pressable>
+        {/* Same one-slide checkout as the in-person flow. */}
+        <SlideToConfirm
+          label="Slide to confirm & pay"
+          value={formatMoney(total, 'USD')}
+          valueLabel="You're paying (USD)"
+          onConfirm={placeOrder}
+        />
       </View>
-
-      <Modal visible={payOpen} transparent animationType="slide" onRequestClose={() => setPayOpen(false)}>
-        {/* Modals render outside the root keyboard shell, so the sheet needs
-            its own avoiding view or the keyboard covers the card fields. */}
-        <KeyboardAvoidingView
-          style={styles.sheetBackdrop}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <Pressable style={{ flex: 1 }} onPress={() => setPayOpen(false)} />
-          <View style={styles.sheet}>
-            <View style={styles.grabber} />
-            <View style={styles.sheetHead}>
-              <Text style={styles.sheetTitle}>Payment</Text>
-              <Pressable onPress={() => setPayOpen(false)} style={styles.sheetClose}>
-                <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-                  <Path d="M5 5l14 14M19 5L5 19" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" />
-                </Svg>
-              </Pressable>
-            </View>
-            <KeyboardScrollView showsVerticalScrollIndicator={false}>
-              <View style={styles.sheetSummary}>
-                <Text style={styles.sheetSummaryLabel}>Total to pay</Text>
-                <Text style={styles.sheetSummaryValue}>{formatMoney(total, 'USD')} USD</Text>
-                {currency === 'XCD' && (
-                  <Text style={styles.sheetSummaryApprox}>≈ {formatMoney(total, 'XCD')} — approximate</Text>
-                )}
-              </View>
-              <View style={styles.securedRow}>
-                <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
-                  <Rect x="5" y="10.5" width="14" height="9.5" rx="2.5" stroke={colors.grey} strokeWidth={1.8} />
-                  <Path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5" stroke={colors.grey} strokeWidth={1.8} />
-                </Svg>
-                <Text style={styles.securedText}>
-                  Card details are entered in Stripe's secure sheet and never touch Snapt's servers.
-                  Saved cards appear there for next time.
-                </Text>
-              </View>
-              <SlideToConfirm
-                label="Slide to confirm & pay"
-                value={formatMoney(total, 'USD')}
-                valueLabel="You're paying (USD)"
-                onConfirm={placeOrder}
-              />
-              <Text style={styles.usdNote}>
-                {currency === 'XCD' ? `≈ ${formatMoney(total, 'XCD')} · ` : ''}
-                {USD_PROCESSING_NOTE}
-              </Text>
-              <View style={{ height: 20 }} />
-            </KeyboardScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
     </View>
   );
 }
@@ -267,18 +218,8 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
-  sheetSummary: {
-    backgroundColor: '#FAFAFA',
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  sheetSummaryLabel: { fontSize: 12.5, fontWeight: '700', color: '#6F6F6F', letterSpacing: 0.02 },
-  sheetSummaryValue: { fontSize: 28, fontWeight: '800', color: colors.ink, marginTop: 4, letterSpacing: -0.02 },
-  sheetSummaryApprox: { fontSize: 12.5, color: '#9A9A9A', marginTop: 2 },
+  payError: { fontSize: 13, fontWeight: '600', color: colors.error, marginTop: 12 },
   securedRow: { flexDirection: 'row', gap: 9, alignItems: 'flex-start', marginBottom: 18, paddingHorizontal: 2 },
-  securedText: { flex: 1, fontSize: 12, color: '#6F6F6F', lineHeight: 17.5 },
   root: { flex: 1, backgroundColor: colors.offWhite },
   body: { paddingHorizontal: 22, paddingTop: 8 },
   card: {

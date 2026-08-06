@@ -1,4 +1,5 @@
 import React from 'react';
+import { useFocusEffect } from 'expo-router';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { KeyboardScrollView } from '../../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../../lib/text';
@@ -28,38 +29,67 @@ export default function Wallet() {
   const { currency, setCurrency } = useAuth();
   // Real charge/refund ledger in API mode; mock rows otherwise. Payment
   // methods stay illustrative until real Stripe payment methods (Phase 7).
-  const [txns, setTxns] = React.useState(TXNS);
-  React.useEffect(() => {
-    import('../../../lib/api').then(({ apiConfigured }) => {
-      if (!apiConfigured) return;
-      import('../../../lib/supabase').then(async ({ supabase }) => {
-        if (!supabase) return;
-        const { data: auth } = await supabase.auth.getSession();
-        const token = auth.session?.access_token;
-        if (!token) return;
-        const res = await fetch(
-          `${process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '')}/v1/wallet/transactions`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        ).catch(() => null);
-        if (!res?.ok) return;
-        const json = (await res.json()) as {
-          transactions: { id: string; type: string; amount_usd: number; created_at: string }[];
-        };
-        setTxns(
-          json.transactions.map((t) => ({
-            id: t.id,
-            kind: t.type === 'refund' ? 'credit' : 'event',
-            title: t.type === 'refund' ? 'Refund — cancelled booking' : 'Booking payment',
-            date: new Date(t.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-            method: t.type === 'refund' ? 'To your card' : 'Card on file',
-            amount: t.type === 'refund' ? Number(t.amount_usd) : -Number(t.amount_usd),
-            tint: t.type === 'refund' ? '#EAFBFD' : '#EAF8F0',
-            stroke: t.type === 'refund' ? '#3FA9BC' : '#1B9A57',
-          })),
-        );
-      });
-    });
+  // Real charge/refund ledger. Starts EMPTY, never with mock rows: showing
+  // invented transactions to someone checking whether their refund arrived
+  // is worse than showing nothing. Refetches on focus so a refund issued
+  // while the app is open (book → cancel minutes later) appears without a
+  // restart, and surfaces failure instead of silently keeping stale rows.
+  const [txns, setTxns] = React.useState<typeof TXNS>([]);
+  const [txnsState, setTxnsState] = React.useState<'loading' | 'ready' | 'error' | 'mock'>('loading');
+
+  const loadTxns = React.useCallback(async () => {
+    const { apiConfigured } = await import('../../../lib/api');
+    if (!apiConfigured) {
+      setTxns(TXNS);
+      setTxnsState('mock');
+      return;
+    }
+    const { supabase } = await import('../../../lib/supabase');
+    if (!supabase) {
+      setTxnsState('error');
+      return;
+    }
+    const { data: auth } = await supabase.auth.getSession();
+    const token = auth.session?.access_token;
+    if (!token) {
+      setTxnsState('error');
+      return;
+    }
+    const res = await fetch(
+      `${process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '')}/v1/wallet/transactions`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    ).catch(() => null);
+    if (!res?.ok) {
+      setTxnsState('error');
+      return;
+    }
+    const json = (await res.json()) as {
+      transactions: { id: string; type: string; amount_usd: number; created_at: string }[];
+    };
+    setTxns(
+      json.transactions.map((t) => ({
+        id: t.id,
+        kind: t.type === 'refund' ? 'credit' : 'event',
+        title: t.type === 'refund' ? 'Refund — cancelled booking' : 'Booking payment',
+        date: new Date(t.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        method: t.type === 'refund' ? 'To your card' : 'Card on file',
+        amount: t.type === 'refund' ? Number(t.amount_usd) : -Number(t.amount_usd),
+        tint: t.type === 'refund' ? '#EAFBFD' : '#EAF8F0',
+        stroke: t.type === 'refund' ? '#3FA9BC' : '#1B9A57',
+      })),
+    );
+    setTxnsState('ready');
   }, []);
+
+  // useFocusEffect, not a mount-once effect: the wallet is a tab and stays
+  // mounted, so a mount-only fetch never sees anything that happened after
+  // the first visit.
+  useFocusEffect(
+    React.useCallback(() => {
+      loadTxns();
+    }, [loadTxns]),
+  );
+
   const [methods, setMethods] = React.useState<CardMethod[]>([
     { id: 'c1', brand: 'VISA', brandBg: '#1A3B8F', label: 'Visa ending 4412', sub: 'Expires 08/28', isDefault: true },
     { id: 'c2', brand: 'MC', brandBg: '#2B2B2B', label: 'Mastercard ending 8823', sub: 'Expires 03/27', isDefault: false },
@@ -169,6 +199,17 @@ export default function Wallet() {
         <Text style={styles.sectionTitle}>Transactions</Text>
         {currency === 'XCD' && <Text style={styles.usdNote}>{USD_PROCESSING_NOTE}</Text>}
         <View style={styles.list}>
+          {txnsState === 'loading' && txns.length === 0 && (
+            <Text style={styles.txnNote}>Loading your transactions…</Text>
+          )}
+          {txnsState === 'error' && (
+            <Text style={styles.txnNote}>
+              Couldn't load your transactions just now. Pull back to this tab to retry.
+            </Text>
+          )}
+          {txnsState === 'ready' && txns.length === 0 && (
+            <Text style={styles.txnNote}>No payments yet. Charges and refunds appear here.</Text>
+          )}
           {txns.map((t, i) => (
             <View key={t.id} style={[styles.methodRow, i < txns.length - 1 && styles.rowBorder]}>
               <View style={[styles.txnIcon, { backgroundColor: t.tint }]}>
@@ -324,6 +365,7 @@ export default function Wallet() {
 }
 
 const styles = StyleSheet.create({
+  txnNote: { fontSize: 13, color: colors.grey, paddingVertical: 14, paddingHorizontal: 2, lineHeight: 19 },
   root: { flex: 1, backgroundColor: colors.offWhite },
   header: {
     paddingTop: insetTop + 19,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { KeyboardScrollView } from '../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
@@ -46,7 +46,6 @@ export default function OrderSummary() {
   const duration = DURATIONS.find((d) => d.hours === draft.durationHours);
 
   const [addons, setAddons] = React.useState<string[]>([]);
-  const [payOpen, setPayOpen] = React.useState(false);
   const [bookError, setBookError] = React.useState<string | null>(null);
 
   // Display price from the confirmed table (service type × duration); the
@@ -98,7 +97,6 @@ export default function OrderSummary() {
         // is still good — the webhook finishes the job either way.
         await waitForCharge(result.booking.id);
         useBookings.getState().addServerBooking(result.booking);
-        setPayOpen(false);
         router.dismissAll();
         router.replace(`/bookings/${result.booking.id}`);
         return true;
@@ -110,7 +108,6 @@ export default function OrderSummary() {
       // API unreachable — fall through to the local mock path.
     }
     const booking = confirmDraft(base + addonsTotal);
-    setPayOpen(false);
     router.dismissAll();
     router.replace(`/bookings/${booking.id}`);
     return true;
@@ -241,63 +238,24 @@ export default function OrderSummary() {
           </Text>
           .
         </Text>
+        {bookError ? <Text style={styles.payError}>{bookError}</Text> : null}
+        <Text style={styles.usdNote}>
+          {currency === 'XCD' ? `≈ ${formatMoney(total, 'XCD')} · ` : ''}
+          {USD_PROCESSING_NOTE}
+        </Text>
         <View style={{ height: 24 }} />
       </KeyboardScrollView>
 
       <View style={styles.footer}>
-        <Button title="Continue to Payment" arrow onPress={() => setPayOpen(true)} style={{ flex: 1 }} />
+        {/* ONE confirmation for one action: the slide IS the payment
+            commitment and opens Stripe's sheet directly. */}
+        <SlideToConfirm
+          label="Slide to confirm & pay"
+          value={formatMoney(total, 'USD')}
+          valueLabel="You're paying (USD)"
+          onConfirm={book}
+        />
       </View>
-
-      {/* Payment sheet */}
-      <Modal visible={payOpen} transparent animationType="slide" onRequestClose={() => setPayOpen(false)}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.sheetBackdrop}
-        >
-          <Pressable style={{ flex: 1 }} onPress={() => setPayOpen(false)} />
-          <View style={styles.sheet}>
-            <View style={styles.grabber} />
-            <View style={styles.sheetHead}>
-              <Text style={styles.sheetTitle}>Payment</Text>
-              <Pressable onPress={() => setPayOpen(false)} style={styles.sheetClose}>
-                <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-                  <Path d="M5 5l14 14M19 5L5 19" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" />
-                </Svg>
-              </Pressable>
-            </View>
-            <KeyboardScrollView showsVerticalScrollIndicator={false}>
-              <View style={styles.sheetSummary}>
-                <Text style={styles.sheetSummaryLabel}>Total to pay</Text>
-                <Text style={styles.sheetSummaryValue}>{formatMoney(total, 'USD')} USD</Text>
-                {currency === 'XCD' && (
-                  <Text style={styles.sheetSummaryApprox}>≈ {formatMoney(total, 'XCD')} — approximate</Text>
-                )}
-              </View>
-              <View style={styles.securedRow}>
-                <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
-                  <Rect x="5" y="10.5" width="14" height="9.5" rx="2.5" stroke={colors.grey} strokeWidth={1.8} />
-                  <Path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5" stroke={colors.grey} strokeWidth={1.8} />
-                </Svg>
-                <Text style={styles.securedText}>
-                  Card details are entered in Stripe's secure sheet and never touch Snapt's servers.
-                  Saved cards appear there for next time.
-                </Text>
-              </View>
-              <SlideToConfirm
-                label="Slide to confirm & pay"
-                value={formatMoney(total, 'USD')}
-                valueLabel="You're paying (USD)"
-                onConfirm={book}
-              />
-              <Text style={styles.usdNote}>
-                {currency === 'XCD' ? `≈ ${formatMoney(total, 'XCD')} · ` : ''}
-                {USD_PROCESSING_NOTE}
-              </Text>
-              <View style={{ height: 20 }} />
-            </KeyboardScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
     </View>
   );
 }
@@ -337,18 +295,8 @@ function FieldRow({ icon, children }: { icon: React.ReactNode; children: React.R
 }
 
 const styles = StyleSheet.create({
-  sheetSummary: {
-    backgroundColor: '#FAFAFA',
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  sheetSummaryLabel: { fontSize: 12.5, fontWeight: '700', color: '#6F6F6F', letterSpacing: 0.02 },
-  sheetSummaryValue: { fontSize: 28, fontWeight: '800', color: colors.ink, marginTop: 4, letterSpacing: -0.02 },
-  sheetSummaryApprox: { fontSize: 12.5, color: '#9A9A9A', marginTop: 2 },
+  payError: { fontSize: 13, fontWeight: '600', color: colors.error, marginTop: 12 },
   securedRow: { flexDirection: 'row', gap: 9, alignItems: 'flex-start', marginBottom: 18, paddingHorizontal: 2 },
-  securedText: { flex: 1, fontSize: 12, color: '#6F6F6F', lineHeight: 17.5 },
   root: { flex: 1, backgroundColor: colors.offWhite },
   body: { paddingHorizontal: spacing.screenX, paddingTop: 8 },
   card: {
