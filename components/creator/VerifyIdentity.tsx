@@ -21,12 +21,25 @@ import { colors } from '../../lib/theme';
 const CALLBACK_URL = 'snapt://creator/verification-complete';
 
 /**
- * false = hand off to the system browser (Safari), where camera access for
- * document capture is guaranteed. true = in-app sheet (nicer UX, no context
- * switch) — only flip this once camera capture is confirmed on a physical
- * device; the iOS Simulator has no camera at all, so it cannot answer this.
+ * true = keep verification inside the app; false = hand off to Safari.
+ *
+ * WHICH in-app browser matters more than whether we use one. expo-web-browser
+ * has two, backed by different iOS classes:
+ *
+ *   openAuthSessionAsync -> ASWebAuthenticationSession  (isolated auth context)
+ *   openBrowserAsync     -> SFSafariViewController      (in-app Safari)
+ *
+ * We use SFSafariViewController. It is the one with evidence of camera
+ * access — Apple's own review process prompts for the host app's
+ * NSCameraUsageDescription when a page inside it asks for the camera. The
+ * auth session is an isolated, ephemeral context intended for sign-in, and
+ * device permissions there are unreliable at best.
+ *
+ * SFSafariViewController does not self-dismiss on the callback URL the way
+ * an auth session does, so app/creator/verification-complete.tsx closes it
+ * when Didit sends the creator back.
  */
-const USE_IN_APP_BROWSER = false;
+const USE_IN_APP_BROWSER = true;
 
 export type DocType = 'ID' | 'DL' | 'P';
 
@@ -111,7 +124,13 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
       // has its own route. (Flip USE_IN_APP_BROWSER once the in-app sheet is
       // camera-verified on a real device.)
       if (USE_IN_APP_BROWSER) {
-        await WebBrowser.openAuthSessionAsync(body.url, CALLBACK_URL);
+        // SFSafariViewController, NOT the auth session — see USE_IN_APP_BROWSER.
+        // Resolves when the creator closes the sheet; the callback route
+        // dismisses it when Didit finishes.
+        await WebBrowser.openBrowserAsync(body.url, {
+          presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+          dismissButtonStyle: 'close',
+        });
       } else {
         const opened = await Linking.canOpenURL(body.url);
         if (!opened) {

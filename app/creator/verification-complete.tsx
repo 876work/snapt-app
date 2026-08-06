@@ -1,6 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { Text } from '../../lib/text';
 import { apiBase, authHeaders } from '../../lib/api';
 import { colors } from '../../lib/theme';
@@ -20,6 +21,15 @@ export default function VerificationComplete() {
   const params = useLocalSearchParams<{ status?: string }>();
   const [status, setStatus] = React.useState<string | null>(null);
   const [checking, setChecking] = React.useState(true);
+
+  React.useEffect(() => {
+    // SFSafariViewController stays presented when Didit sends the creator
+    // back through snapt://, so close it here. (An auth session would
+    // self-dismiss, but that context can't be trusted with the camera.)
+    WebBrowser.dismissBrowser().catch(() => {
+      /* nothing was open — the creator came back another way */
+    });
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
