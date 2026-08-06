@@ -93,7 +93,7 @@ export function registerAdminRoutes(app: FastifyInstance) {
     if (!adminId) return;
     const { data } = await supabaseAdmin
       .from('creator_profiles')
-      .select('user_id, specialties, base_area, vetting_status, created_at, profiles!inner(full_name, email)')
+      .select('user_id, specialties, base_area, vetting_status, created_at, profiles!creator_profiles_user_id_fkey!inner(full_name, email)')
       .eq('vetting_status', 'in_review')
       .order('created_at', { ascending: true });
     return { applications: data ?? [] };

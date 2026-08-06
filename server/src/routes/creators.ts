@@ -174,7 +174,7 @@ export function registerCreatorRoutes(app: FastifyInstance) {
   app.get('/v1/creators/featured', async () => {
     const { data } = await supabaseAdmin
       .from('creator_profiles')
-      .select('user_id, specialties, verified, base_area, profiles!inner(full_name, avatar_url)')
+      .select('user_id, specialties, verified, base_area, profiles!creator_profiles_user_id_fkey!inner(full_name, avatar_url)')
       .eq('vetting_status', 'approved')
       .limit(6);
     return {

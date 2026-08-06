@@ -56,7 +56,7 @@ function pad(n: number): string {
 export async function eligibleCreators(occasion: string, area?: string): Promise<EligibleCreator[]> {
   const { data, error } = await supabaseAdmin
     .from('creator_profiles')
-    .select('user_id, specialties, verified, base_area, service_radius_km, availability, blocked_dates, profiles!inner(full_name, avatar_url)')
+    .select('user_id, specialties, verified, base_area, service_radius_km, availability, blocked_dates, profiles!creator_profiles_user_id_fkey!inner(full_name, avatar_url)')
     .eq('vetting_status', 'approved')
     .eq('is_available', true)
     .contains('specialties', [occasion]);
