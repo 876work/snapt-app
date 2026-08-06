@@ -67,6 +67,15 @@ export const MAP_BOUNDS = {
 export const MIN_ZOOM_LEVEL = 11;
 
 /**
+ * Maximum zoom. Zooming in stays effectively unrestricted (21 is the Google
+ * SDK's own ceiling) — but the prop must ALWAYS accompany minZoomLevel: the
+ * Fabric Google-iOS view defaults an unset maxZoom to 0 and calls
+ * [GMSMapView setMinZoom:11 maxZoom:0], and min > max makes the Google SDK
+ * throw mid-mount — an uncatchable native crash (TestFlight build 10).
+ */
+export const MAX_ZOOM_LEVEL = 21;
+
+/**
  * Highlight markers hide when latitudeDelta < this (≈ zoom 13, a ~4.4 km
  * viewport): past that the user is picking an exact spot and the labels
  * are clutter; above it they're orientation.

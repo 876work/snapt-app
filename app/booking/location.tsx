@@ -19,6 +19,7 @@ import {
   GeoArea,
   HIGHLIGHT_HIDE_DELTA,
   MAP_BOUNDS,
+  MAX_ZOOM_LEVEL,
   MIN_ZOOM_LEVEL,
   MOCK_AREAS,
   MOCK_POLYGON,
@@ -167,6 +168,7 @@ export default function Location() {
             style={StyleSheet.absoluteFill}
             initialRegion={initialRegion}
             minZoomLevel={MIN_ZOOM_LEVEL}
+            maxZoomLevel={MAX_ZOOM_LEVEL}
             onMapReady={() => {
               // Pan constrained to the region. Enforcement differs by
               // platform: Android blocks the gesture at the edge; iOS

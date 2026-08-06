@@ -176,8 +176,15 @@ export default function RemoteOrderSummary() {
           </Text>
         </View>
         <Text style={styles.terms}>
-          By continuing, you agree to our <Text style={styles.link}>Terms & Conditions</Text> and{' '}
-          <Text style={styles.link}>Privacy Policy</Text>.
+          By continuing, you agree to our{' '}
+          <Text style={styles.link} onPress={() => router.push('/legal/terms')}>
+            Terms & Conditions
+          </Text>{' '}
+          and{' '}
+          <Text style={styles.link} onPress={() => router.push('/legal/privacy')}>
+            Privacy Policy
+          </Text>
+          .
         </Text>
         <View style={{ height: 24 }} />
       </ScrollView>
