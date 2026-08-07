@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { Promotions } from './screens/Promotions';
 import { useAuth } from './auth';
 import { Layout } from './components/Layout';
 import { Skeleton } from './components/ui';
@@ -59,6 +60,7 @@ export function App() {
         <Route path="/legal" element={<Legal />} />
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/audit" element={<Audit />} />
+        {identity.role === 'admin' && <Route path="/promotions" element={<Promotions />} />}
         {identity.role === 'admin' && <Route path="/team" element={<Team />} />}
         <Route path="*" element={<Navigate to={home} replace />} />
       </Route>

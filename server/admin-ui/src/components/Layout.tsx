@@ -26,6 +26,7 @@ const NAV: NavItem[] = [
   { to: '/legal', label: 'Legal', icon: 'legal', roles: ['admin'] },
   { to: '/analytics', label: 'Analytics', icon: 'analytics', roles: ['admin', 'support'] },
   { to: '/audit', label: 'Audit log', icon: 'audit', roles: ['admin', 'support'] },
+  { to: '/promotions', label: 'Promotions', icon: 'legal', roles: ['admin'] },
   { to: '/team', label: 'Team', icon: 'users', roles: ['admin'] },
 ];
 

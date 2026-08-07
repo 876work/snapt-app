@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { env, stripeConfigured } from './env.js';
 import { registerAuth } from './plugins/auth.js';
 import { registerConfigRoutes } from './routes/config.js';
+import { registerNotificationRoutes } from './routes/notifications.js';
 import { registerPaymentRoutes } from './routes/payments.js';
 import { registerCreatorRoutes } from './routes/creators.js';
 import { registerBookingRoutes } from './routes/bookings.js';
@@ -53,6 +54,8 @@ app.get('/v1/health', async () => ({
 }));
 
 registerConfigRoutes(app);
+
+registerNotificationRoutes(app);
 registerPaymentRoutes(app);
 registerCreatorRoutes(app);
 registerBookingRoutes(app);
