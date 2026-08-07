@@ -56,7 +56,14 @@ export default function PushPrime() {
         </View>
         <Text style={styles.subSmall}>No promotions unless you opt in. No spam, ever.</Text>
         <Button title="Turn on notifications" arrow onPress={enable} />
-        <Pressable onPress={finish}>
+        <Pressable
+          onPress={() => {
+            // Record the dismissal so "declined" is distinguishable from
+            // "never asked" when a missing token is diagnosed later.
+            import('../../lib/push').then((m) => m.recordPrimeDismissed());
+            finish();
+          }}
+        >
           <Text style={styles.notNow}>Not now</Text>
         </Pressable>
       </View>

@@ -39,6 +39,21 @@ export function registerPushRoutes(app: FastifyInstance) {
     return { active: Boolean(data) };
   });
 
+  // Permission outcome. Nothing ever wrote profiles.push_permission, so
+  // "declined" and "never asked" were indistinguishable for every user —
+  // which made diagnosing a missing token impossible. granted:null means the
+  // priming screen was dismissed without ever reaching the OS prompt.
+  app.post<{ Body: { granted?: boolean | null } }>('/v1/me/push-permission', async (request, reply) => {
+    const user = requireUser(request);
+    const granted = typeof request.body?.granted === 'boolean' ? request.body.granted : null;
+    const { error } = await supabaseAdmin
+      .from('profiles')
+      .update({ push_permission: { primed: true, granted, answered_at: new Date().toISOString() } })
+      .eq('id', user.id);
+    if (error) return reply.code(500).send({ error: error.message });
+    return { recorded: true };
+  });
+
   // Sign-out hygiene: the app unregisters the device token so a shared
   // device doesn't keep receiving the previous account's notifications.
   app.delete<{ Body: { token?: string } }>('/v1/push-tokens', async (request, reply) => {

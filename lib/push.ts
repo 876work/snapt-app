@@ -54,8 +54,14 @@ export async function enablePush(): Promise<boolean> {
     const Notifications = await import('expo-notifications');
     const existing = await Notifications.getPermissionsAsync();
     let status = existing.status;
-    if (status !== 'granted') {
+    const prompted = status !== 'granted';
+    if (prompted) {
       status = (await Notifications.requestPermissionsAsync()).status;
+      // Record the ANSWER, not the silent re-registration path — so
+      // answered_at is genuinely when they decided.
+      import('./api').then(({ recordPushPermissionApi }) =>
+        recordPushPermissionApi(status === 'granted').catch(() => undefined),
+      );
     }
     if (status !== 'granted') return false;
     const token = await getToken();
@@ -65,6 +71,16 @@ export async function enablePush(): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** The priming screen was shown and dismissed without reaching the OS prompt. */
+export async function recordPrimeDismissed(): Promise<void> {
+  try {
+    const { recordPushPermissionApi } = await import('./api');
+    await recordPushPermissionApi(null);
+  } catch {
+    /* fire and forget */
   }
 }
 

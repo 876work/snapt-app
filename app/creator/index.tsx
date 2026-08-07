@@ -4,6 +4,7 @@ import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { SlideToConfirm } from '../../components/ui/SlideToConfirm';
+import { PushOfferNudge } from '../../components/creator/PushOfferNudge';
 import { useAuth } from '../../lib/store';
 import { JobOffer, useCreator } from '../../lib/store/creator';
 import { apiConfigured, fetchMyBookings } from '../../lib/api';
@@ -29,9 +30,11 @@ export default function CreatorHome() {
     });
   }, [setAvailable]);
 
+  const [wentAvailable, setWentAvailable] = React.useState(false);
   const onToggleAvailable = () => {
     const next = !available;
     toggleAvailable();
+    if (!available) setWentAvailable(true); // they just went ON
     import('../../lib/api').then(({ apiConfigured, updateCreatorSettingsApi }) => {
       if (!apiConfigured) return;
       updateCreatorSettingsApi({ is_available: next }).then((r) => {
@@ -164,6 +167,11 @@ export default function CreatorHome() {
       </View>
 
       <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        {/* Contextual, once-each push re-prompt: on first seeing the approved
+            dashboard, and again the moment they first go available — the two
+            points where a 15-minute offer window makes push obviously worth
+            having. The component self-hides when push already delivers. */}
+        <PushOfferNudge trigger={wentAvailable ? 'available' : 'approved'} />
         {reconsent && (
           <View style={{ backgroundColor: '#FFF4D6', borderRadius: 14, padding: 14, marginBottom: 12 }}>
             <Text style={{ fontSize: 13.5, fontWeight: '800', color: colors.ink }}>

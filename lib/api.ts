@@ -315,6 +315,11 @@ export interface ApplyPayload {
   consents: { creator_agreement: boolean; background_check?: boolean };
 }
 
+/** Fire-and-forget record of the push-permission outcome (null = primed, never answered the OS prompt). */
+export function recordPushPermissionApi(granted: boolean | null) {
+  return authedPost<{ recorded: boolean }>(`/v1/me/push-permission`, { granted });
+}
+
 export function applyAsCreator(payload: ApplyPayload) {
   return authedPost<{ status: string }>(`/v1/creator/apply`, payload);
 }
