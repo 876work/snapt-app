@@ -57,10 +57,14 @@ export async function notify(
   trigger: keyof typeof TRIGGERS | string,
   title: string,
   body: string,
+  /** Deep-link payload, e.g. { booking_id }. Drives where a tap lands. */
+  data: Record<string, unknown> = {},
 ): Promise<void> {
   const spec = TRIGGERS[trigger] ?? { category: 'account' as Category, push: false, email: false };
   const channels = ['in_app', ...(spec.push ? ['push'] : []), ...(spec.email ? ['email'] : [])];
   try {
+    // WRITE FIRST. The row is the record; delivery is best-effort on top of
+    // it. Nothing below can prevent it being saved.
     await supabaseAdmin.from('notifications').insert({
       user_id: userId,
       trigger_type: trigger,
@@ -68,6 +72,7 @@ export async function notify(
       title,
       body,
       channels,
+      data,
     });
     if (spec.email) {
       const { data: profile } = await supabaseAdmin
@@ -102,18 +107,63 @@ export async function notify(
 }
 
 /**
+ * Promotional send — the ONLY way marketing should reach a user.
+ *
+ * A Firebase console send bypasses this server entirely, which is exactly why
+ * those never appear in the inbox. Here the inbox rows are written first, in
+ * one batch, and only then does anything go to a device.
+ *
+ * The caller has already filtered out opt-outs (see promotionAudience); this
+ * function never writes a promotional row for a user it wasn't handed.
+ */
+export async function sendPromotion(
+  userIds: string[],
+  title: string,
+  body: string,
+  deepLink?: string,
+): Promise<{ written: number; pushed: number }> {
+  if (userIds.length === 0) return { written: 0, pushed: 0 };
+  const data = deepLink ? { deep_link: deepLink } : {};
+  let written = 0;
+  // Chunked so one oversized audience can't blow the statement limit, and a
+  // failure mid-way still leaves the earlier chunks recorded.
+  for (let i = 0; i < userIds.length; i += 500) {
+    const chunk = userIds.slice(i, i + 500);
+    const { error } = await supabaseAdmin.from('notifications').insert(
+      chunk.map((userId) => ({
+        user_id: userId,
+        trigger_type: 'promotion',
+        category: 'promotions' as Category,
+        title,
+        body,
+        channels: ['in_app', 'push'],
+        data,
+      })),
+    );
+    if (error) console.error('[promotion] inbox write failed', error.message);
+    else written += chunk.length;
+  }
+  let pushed = 0;
+  for (const userId of userIds) {
+    const ok = await sendPush(userId, title, body, 'promotion');
+    if (ok) pushed += 1;
+  }
+  return { written, pushed };
+}
+
+/**
  * Push transport: Expo Push Service (relays to FCM on Android and APNs on
  * iOS — credentials live in EAS, none needed server-side). The per-trigger
  * push/in-app routing above is the reconciled 11_Notification_Trigger_Mapping
  * table; this function is transport only. Dead tokens (uninstalled devices)
  * are pruned on DeviceNotRegistered.
  */
-async function sendPush(userId: string, title: string, body: string, trigger: string): Promise<void> {
+async function sendPush(userId: string, title: string, body: string, trigger: string): Promise<boolean> {
   const { data: tokens } = await supabaseAdmin
     .from('push_tokens')
     .select('token')
     .eq('user_id', userId);
-  if (!tokens || tokens.length === 0) return;
+  if (!tokens || tokens.length === 0) return false;
   try {
     const res = await fetch('https://exp.host/--/api/v2/push/send', {
       method: 'POST',
@@ -135,8 +185,10 @@ async function sendPush(userId: string, title: string, body: string, trigger: st
     if (dead.length > 0) {
       await supabaseAdmin.from('push_tokens').delete().in('token', dead);
     }
+    return (json.data ?? []).some((t) => t.status === 'ok');
   } catch (err) {
     // Push is best-effort; in-app (and email where flagged) already landed.
     console.error('[push] send failed', trigger, err);
+    return false;
   }
 }
