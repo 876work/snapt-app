@@ -64,6 +64,7 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       base_area: body.base_area ?? null,
       service_radius_km: body.service_radius_km ?? null,
       bio: body.bio ?? null,
+      portfolio_link: body.portfolio_link?.trim() || null,
       declared_legal_name: body.declared_legal_name?.trim() || null,
     };
     const { error } = await supabaseAdmin
@@ -120,6 +121,26 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       return reply.code(409).send({ error: 'Application already exists' });
     }
 
+    // REAPPLYING AFTER REJECTION starts the identity check over. Otherwise the
+    // new application inherits verification_status 'approved' from the very
+    // session an admin already reviewed and refused — and inherits its spent
+    // attempts, so they often could not re-verify even if they wanted to.
+    if (existing?.vetting_status === 'rejected') {
+      await supabaseAdmin
+        .from('creator_profiles')
+        .update({
+          verification_status: 'not_started',
+          verification_attempts: 0,
+          verification_session_id: null,
+        })
+        .eq('user_id', user.id);
+      // Old sessions stay for audit but stop counting or asking for review.
+      await supabaseAdmin
+        .from('verification_sessions')
+        .update({ name_review_required: false, status: 'Superseded' })
+        .eq('user_id', user.id);
+    }
+
     // Record consent against the latest version of each applicable doc,
     // snapshotting type+version for audit (§14). Remote applicants never
     // consent to the background-check disclosure.
@@ -147,6 +168,9 @@ export function registerCreatorRoutes(app: FastifyInstance) {
         base_area: body.base_area ?? null,
         service_radius_km: needsBackgroundCheck ? (body.service_radius_km ?? null) : null,
         bio: body.bio ?? null,
+        // Was collected by the app and silently dropped — the single most
+        // useful artefact for judging a photographer never reached review.
+        portfolio_link: body.portfolio_link?.trim() || null,
         declared_legal_name: body.declared_legal_name?.trim() || null,
         // Default weekly template until the creator edits it in Schedule —
         // without one an approved creator can never be booked.

@@ -129,6 +129,7 @@ export default function CreatorApplication() {
         service_type: serviceType,
         base_area: baseArea,
         declared_legal_name: legalName.trim(),
+        portfolio_link: portfolio.trim() || undefined,
         consents: {
           creator_agreement: true,
           ...(needsBgCheck ? { background_check: true } : {}),

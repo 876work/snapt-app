@@ -17,6 +17,8 @@ interface CreatorDetailData {
     suspended_at: string | null;
   } | null;
   creator: {
+    portfolio_link?: string | null;
+    declared_legal_name?: string | null;
     user_id: string;
     vetting_status: string;
     background_check_status: string;
@@ -122,6 +124,18 @@ export function CreatorDetail() {
         </h1>
         <Pill status={creator.vetting_status} />
         {creator.verified && <Pill tone="brand">verified</Pill>}
+      {creator.portfolio_link && (
+        <div className="card" style={{ padding: 12, marginBottom: 12, borderLeft: '4px solid var(--gold, #C9A227)' }}>
+          <div className="k">Portfolio</div>
+          <a href={creator.portfolio_link} target="_blank" rel="noreferrer noopener" style={{ fontSize: 15, fontWeight: 700 }}>
+            {creator.portfolio_link}
+          </a>
+          <div style={{ fontSize: 12.5, color: 'var(--text-dim)', marginTop: 3 }}>
+            Their own work — the best evidence for this decision. Opens in a new tab.
+          </div>
+        </div>
+      )}
+
         {creator.vetting_status === 'approved' && !creator.is_available && <Pill tone="neutral">paused</Pill>}
         {isAdmin && inReview && (
           <>

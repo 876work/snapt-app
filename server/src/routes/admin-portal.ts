@@ -502,7 +502,7 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
     const { data: creator, error } = await supabaseAdmin
       .from('creator_profiles')
       .select(
-        'user_id, vetting_status, background_check_status, background_check_completed_at, specialties, service_type, service_radius_km, base_area, bio, availability, blocked_dates, verified, promo_fee_rate, is_available, applied_at, rejection_reason, payout_methods, created_at',
+        'user_id, vetting_status, background_check_status, background_check_completed_at, specialties, service_type, service_radius_km, base_area, bio, portfolio_link, declared_legal_name, availability, blocked_dates, verified, promo_fee_rate, is_available, applied_at, rejection_reason, payout_methods, created_at',
       )
       .eq('user_id', id)
       .maybeSingle();

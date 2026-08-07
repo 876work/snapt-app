@@ -163,7 +163,9 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
           didit_detail?: string;
         };
         if (body.error === 'max_attempts') {
-          setError("You've used both attempts. Submit your application — our team will review your documents by hand. Nothing else is needed from you.");
+          // Attempts are only spent on a check Didit actually decided, so
+          // this now only appears when they genuinely used both.
+          setError("Both ID checks have been used. Submit your application — our team reviews the documents by hand, usually within 2 working days. Nothing else is needed from you.");
         } else {
           // Always say something concrete. The reason code is for support
           // and for us; the creator is told exactly what to do next.

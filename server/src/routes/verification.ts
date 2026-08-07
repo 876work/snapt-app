@@ -305,6 +305,20 @@ function extractDecision(decision: Record<string, any>) {
 }
 
 /**
+ * An attempt is a verification Didit DECIDED — approved or declined. Derived
+ * by counting rather than incrementing, so it is idempotent under webhook
+ * retries and under the backfill, and an abandoned session never costs one.
+ */
+async function countAttempts(userId: string): Promise<number> {
+  const { count } = await supabaseAdmin
+    .from('verification_sessions')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .in('status', ['Approved', 'Declined']);
+  return count ?? 0;
+}
+
+/**
  * What the creator is told, per outcome. Deliberately plain: no "your
  * submission has been processed" — say what happened and what, if anything,
  * they need to do.
@@ -464,6 +478,8 @@ export async function applyDecision(
   }
 
   await supabaseAdmin.from('verification_sessions').update(patch).eq('id', session.id);
+  // AFTER the session's own status lands, so this decision is included.
+  profilePatch.verification_attempts = await countAttempts(session.user_id);
   await supabaseAdmin.from('creator_profiles').update(profilePatch).eq('user_id', session.user_id);
 
   // Tell the creator. Distinct copy per outcome — "parked for review" is NOT
@@ -596,13 +612,15 @@ export function registerVerificationRoutes(app: FastifyInstance) {
             .eq('id', existing.id);
         }
 
+        // Starting a check costs NOTHING. Attempts are counted from sessions
+        // Didit actually decided (see countAttempts) — abandoning, losing
+        // signal or closing the sheet must never burn one, and previously two
+        // abandons locked a creator out of verification permanently.
         await supabaseAdmin
           .from('creator_profiles')
           .update({
             verification_status: 'in_progress',
             verification_session_id: sessionRowId,
-            // Only a genuinely new session consumes an attempt.
-            verification_attempts: attempt,
           })
           .eq('user_id', user.id);
 
