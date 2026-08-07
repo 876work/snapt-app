@@ -1,20 +1,62 @@
 import React from 'react';
-import { Image, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
-import { CREATORS } from '../../lib/mock/data';
+import type { Creator } from '../../lib/mock/data';
 import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { colors } from '../../lib/theme';
 import { navShrinkOnScroll } from '../../lib/navShrink';
 
 export default function AllCreators() {
+  // Was rendering the mock CREATORS array outright. Real approved creators
+  // come from /v1/creators/featured; an empty list says so plainly rather
+  // than filling the grid with people who don't exist.
+  const [creators, setCreators] = React.useState<Creator[] | null>(null);
+  const [failed, setFailed] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    import('../../lib/api').then(async ({ apiConfigured, fetchFeaturedCreators }) => {
+      if (!apiConfigured) {
+        if (!cancelled) setCreators([]);
+        return;
+      }
+      const list = await fetchFeaturedCreators();
+      if (cancelled) return;
+      if (list == null) setFailed(true);
+      else setCreators(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <View style={styles.root}>
       <ScreenHeader title="Creators near you" />
       <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        {creators == null && !failed && (
+          <View style={styles.state}>
+            <ActivityIndicator color={colors.yellowDark} />
+          </View>
+        )}
+        {failed && (
+          <View style={styles.state}>
+            <Text style={styles.stateTitle}>Couldn't load creators</Text>
+            <Text style={styles.stateBody}>Check your connection and try again.</Text>
+          </View>
+        )}
+        {creators?.length === 0 && (
+          <View style={styles.state}>
+            <Text style={styles.stateTitle}>No creators available yet</Text>
+            <Text style={styles.stateBody}>
+              We're onboarding creators in your area. Check back shortly.
+            </Text>
+          </View>
+        )}
         <View style={styles.grid}>
-          {CREATORS.map((c) => (
+          {(creators ?? []).map((c) => (
             <View key={c.id} style={styles.card}>
               <View style={[styles.photoWrap, { backgroundColor: c.tint }]}>
                 <CreatorAvatar name={c.name} photo={c.photo} />
@@ -62,6 +104,9 @@ export default function AllCreators() {
 }
 
 const styles = StyleSheet.create({
+  state: { alignItems: 'center', justifyContent: 'center', paddingTop: 70, paddingHorizontal: 26, gap: 6 },
+  stateTitle: { fontSize: 15, fontWeight: '800', color: colors.ink, textAlign: 'center' },
+  stateBody: { fontSize: 13, color: colors.grey, textAlign: 'center', lineHeight: 19 },
   root: { flex: 1, backgroundColor: colors.offWhite },
   body: { paddingHorizontal: 20, paddingTop: 8 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },

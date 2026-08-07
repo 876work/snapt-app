@@ -6,7 +6,7 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { BoltIcon, OccasionIcon } from '../../components/ui/Icons';
 import { QuickBookSheet } from '../../components/home/QuickBookSheet';
 import { useAuth, useBookings } from '../../lib/store';
-import { AREAS, Area, CREATORS, OCCASIONS, Occasion } from '../../lib/mock/data';
+import { AREAS, Area, OCCASIONS, Occasion, type Creator } from '../../lib/mock/data';
 import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { colors, insetTop } from '../../lib/theme';
 import { navShrinkOnScroll } from '../../lib/navShrink';
@@ -33,12 +33,14 @@ export default function Home() {
   // Real approved creators in API mode (rating shows "New" until the
   // reviews system lands; initials until avatar upload exists). Mock
   // catalog only when no API is configured.
-  const [featured, setFeatured] = React.useState(CREATORS.slice(0, 2));
+  // Starts empty, NOT with two mock creators — that produced a flash of
+  // invented people on every load before the real fetch landed.
+  const [featured, setFeatured] = React.useState<Creator[]>([]);
   React.useEffect(() => {
     import('../../lib/api').then(({ apiConfigured, fetchFeaturedCreators }) => {
       if (!apiConfigured) return;
       fetchFeaturedCreators().then((list) => {
-        if (list && list.length > 0) setFeatured(list.slice(0, 2));
+        setFeatured((list ?? []).slice(0, 2));
       });
     });
   }, []);

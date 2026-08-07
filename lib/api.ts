@@ -380,6 +380,32 @@ export async function fetchMyBookings(): Promise<ServerBookingListItem[] | null>
   return result?.bookings ?? null;
 }
 
+/**
+ * Server booking -> the shape the app's screens render.
+ *
+ * Used by the store's hydrate(), so the bookings list, booking detail and
+ * order screens all read genuine rows instead of the seed array they used to.
+ */
+export function toClientBooking(b: ServerBookingListItem): Booking {
+  return {
+    id: b.id,
+    type: b.type === 'remote' ? 'remote' : 'in-person',
+    occasion: (b.occasion ?? 'Portraits') as Booking['occasion'],
+    creatorId: b.creator_id ?? null,
+    area: b.area ?? null,
+    meetingPoint: b.meeting_point ?? null,
+    meetingLat: b.meeting_lat ?? null,
+    meetingLng: b.meeting_lng ?? null,
+    scheduledAt: b.scheduled_at ?? new Date().toISOString(),
+    durationHours: b.duration_hours ?? 1,
+    mediaKind: b.media_kind,
+    priceUsd:
+      b.pricing_snapshot?.subtotal_usd ?? b.pricing_snapshot?.session_price_usd ?? b.price_usd,
+    status: mapServerStatus(b.status),
+    rescheduleCount: b.reschedule_count ?? 0,
+  } as Booking;
+}
+
 export function checkInApi(id: string) {
   return authedPost<{ session: Record<string, unknown> }>(`/v1/bookings/${id}/session/check-in`);
 }

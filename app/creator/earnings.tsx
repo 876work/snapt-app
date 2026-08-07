@@ -12,12 +12,18 @@ import {
 import { colors } from '../../lib/theme';
 import { navShrinkOnScroll } from '../../lib/navShrink';
 
-const PAYOUTS = [
-  { id: 'p1', title: 'Portraits — Keisha B.', state: 'pending', date: 'Jul 25 · clears in ~48h', calc: 'Job $140 − 20% promo fee', amount: 112 },
-  { id: 'p2', title: 'Wedding edit — Andre P.', state: 'available', date: 'Jul 22', calc: 'Job $160 − 20% promo fee', amount: 128 },
-  { id: 'p3', title: 'Family — Simone V.', state: 'paid', date: 'Jul 15 · to CIBC ··4321', calc: 'Job $216 − 20% promo fee', amount: 172.8 },
-  { id: 'p4', title: 'Events — St. Lucia Jazz', state: 'paid', date: 'Jul 8 · to CIBC ··4321', calc: 'Job $320 − 20% promo fee', amount: 256 },
-];
+// No mock fallback. A failed fetch used to render four invented payouts with
+// real-looking amounts — wrong numbers on a money screen are worse than an
+// error message.
+
+interface PayoutRow {
+  id: string;
+  title: string;
+  state: string;
+  date: string;
+  calc: string;
+  amount: number;
+}
 
 const STATE_STYLE: Record<string, { bg: string; color: string; label: string }> = {
   pending: { bg: '#FFF4D6', color: '#8A6800', label: 'PENDING' },
@@ -33,7 +39,7 @@ export default function CreatorEarnings() {
   // mock rows otherwise. Held funds flip to available server-side once the
   // 7-day hold elapses.
   const [real, setReal] = React.useState<{
-    rows: typeof PAYOUTS;
+    rows: PayoutRow[];
     totals: { pending: number; available: number; paid_out: number };
   } | null>(null);
   React.useEffect(() => {
@@ -62,10 +68,10 @@ export default function CreatorEarnings() {
     });
   }, []);
 
-  const rows = real?.rows ?? PAYOUTS;
-  const pending = real?.totals.pending ?? 112;
-  const available = real?.totals.available ?? 128;
-  const paidOut = real?.totals.paid_out ?? 428.8;
+  const rows = real?.rows ?? [];
+  const pending = real?.totals.pending ?? 0;
+  const available = real?.totals.available ?? 0;
+  const paidOut = real?.totals.paid_out ?? 0;
 
   return (
     <View style={styles.root}>

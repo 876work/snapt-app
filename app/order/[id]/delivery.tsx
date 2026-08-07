@@ -9,12 +9,16 @@ import { SlideToConfirm } from '../../../components/ui/SlideToConfirm';
 import { creatorById, useBookings } from '../../../lib/store';
 import { colors, insetBottom } from '../../../lib/theme';
 
-const DELIVERABLES = [
-  { name: 'Sunset-reel-final.mp4', meta: '0:45 · 4K', thumb: require('../../../assets/design/bookings/p2.webp'), tint: '#6FD3E0' },
-  { name: 'Golden-hour-01.jpg', meta: '24MP · retouched', thumb: require('../../../assets/design/bookings/p1.webp'), tint: '#F2C14E' },
-  { name: 'Golden-hour-02.jpg', meta: '24MP · retouched', thumb: require('../../../assets/design/bookings/p3.webp'), tint: '#F2A0B5' },
-  { name: 'Family-candids.jpg', meta: '24MP · retouched', thumb: require('../../../assets/design/bookings/p4.webp'), tint: '#8ED7A6' },
-];
+// No mock fallback: a failed fetch used to show four bundled sample images
+// as if they were the client's delivered files.
+
+interface Deliverable {
+  name: string;
+  meta: string;
+  /** Signed remote URL from the server ({ uri }). */
+  thumb: { uri: string };
+  tint: string;
+}
 
 export default function Delivery() {
   const router = useRouter();
@@ -29,7 +33,7 @@ export default function Delivery() {
   // Retention-deleted files come back with deleted=true and no URL: they are
   // excluded from the grid and the screen shows a clear "no longer
   // available" state instead of broken images or dead downloads.
-  const [real, setReal] = React.useState<typeof DELIVERABLES | null>(null);
+  const [real, setReal] = React.useState<Deliverable[] | null>(null);
   const [expiresAt, setExpiresAt] = React.useState<string | null>(null);
   const [allDeleted, setAllDeleted] = React.useState(false);
   React.useEffect(() => {
@@ -48,14 +52,14 @@ export default function Delivery() {
           live.map((m, i) => ({
             name: m.download_url!.split('/').pop()?.split('?')[0]?.replace(/^\d+-/, '') ?? `file-${i + 1}`,
             meta: m.content_type ?? 'delivered file',
-            thumb: { uri: m.download_url } as unknown as number,
+            thumb: { uri: m.download_url! },
             tint: '#F2C14E',
           })),
         );
       });
     });
   }, [id]);
-  const deliverables = real ?? DELIVERABLES;
+  const deliverables = real ?? [];
 
   // Save-to-device: download the signed file, then save to the photo
   // library (permission prompted on first use). Real files only — the mock
@@ -63,8 +67,8 @@ export default function Delivery() {
   const [savedNames, setSavedNames] = React.useState<Set<string>>(new Set());
   const [saveNote, setSaveNote] = React.useState<string | null>(null);
 
-  const saveFile = async (d: (typeof DELIVERABLES)[number]): Promise<boolean> => {
-    const uri = (d.thumb as unknown as { uri?: string }).uri;
+  const saveFile = async (d: Deliverable): Promise<boolean> => {
+    const uri = d.thumb.uri;
     if (!uri) {
       setSaveNote('Demo files — downloads work on real deliveries.');
       return false;

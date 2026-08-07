@@ -48,13 +48,13 @@ export interface Creator {
   loc: string;
 }
 
-export const CREATORS: Creator[] = [
-  { id: 'jordan', name: 'Jordan M.', rating: 4.9, sessions: 128, specialties: ['Portraits', 'Wedding', 'Events'], verified: true, distanceKm: 2.1, tint: '#F2C14E', photo: require('../../assets/design/creators/jordan.webp'), loc: 'Rodney Bay' },
-  { id: 'amara', name: 'Amara J.', rating: 5.0, sessions: 96, specialties: ['Family', 'Portraits', 'Social', 'Wedding'], verified: true, distanceKm: 3.4, tint: '#6FD3E0', photo: require('../../assets/design/creators/amara.webp'), loc: 'Gros Islet' },
-  { id: 'marcus', name: 'Marcus D.', rating: 4.7, sessions: 74, specialties: ['Events', 'Social'], verified: false, distanceKm: 1.2, tint: '#8ED7A6', photo: require('../../assets/design/creators/marcus.webp'), loc: 'Castries' },
-  { id: 'nia', name: 'Nia T.', rating: 5.0, sessions: 61, specialties: ['Wedding', 'Family', 'Portraits'], verified: true, distanceKm: 5.0, tint: '#F2A0B5', photo: require('../../assets/design/creators/nia.webp'), loc: 'Marigot Bay' },
-  { id: 'sam', name: 'Sam R.', rating: 4.6, sessions: 42, specialties: ['Social', 'Events'], verified: false, distanceKm: 4.2, tint: '#E8863D', photo: require('../../assets/design/creators/sam.webp'), loc: 'Soufrière' },
-];
+// CREATORS and SEED_BOOKINGS were DELETED (2026-08-07).
+//
+// They initialised the zustand store and nothing ever replaced them, so the
+// bookings list, booking detail, order and creator-browse screens rendered
+// invented data over a working backend. Config constants below (OCCASIONS,
+// AREAS, DURATIONS, PRICING_TABLE) stay — those are business rules, not
+// fake records. Do not reintroduce seed records here.
 
 // The 19 final highlighted locations (northern region). Area is a plain
 // string now — the canonical list lives in service_areas / lib/geo.ts.
@@ -95,47 +95,3 @@ const in3Days = new Date(Date.now() + 3 * 86400_000);
 const in30Hours = new Date(Date.now() + 30 * 3600_000);
 const past = new Date(Date.now() - 12 * 86400_000);
 
-export const SEED_BOOKINGS: Booking[] = [
-  {
-    id: 'bk-1001',
-    type: 'in-person',
-    occasion: 'Portraits',
-    creatorId: 'jordan',
-    area: 'Rodney Bay',
-    meetingPoint: 'Pigeon Island causeway entrance',
-    scheduledAt: in3Days.toISOString(),
-    durationHours: 1,
-    mediaKind: 'photo',
-    priceUsd: 60,
-    status: 'confirmed',
-    rescheduleCount: 0,
-  },
-  {
-    id: 'bk-1002',
-    type: 'in-person',
-    occasion: 'Family',
-    creatorId: 'amara',
-    area: 'Castries',
-    meetingPoint: 'Derek Walcott Square',
-    scheduledAt: in30Hours.toISOString(),
-    durationHours: 2,
-    mediaKind: 'both',
-    priceUsd: 260,
-    status: 'confirmed',
-    rescheduleCount: 1,
-  },
-  {
-    id: 'bk-0900',
-    type: 'in-person',
-    occasion: 'Portraits',
-    creatorId: 'jordan',
-    area: 'Rodney Bay',
-    meetingPoint: 'Pigeon Island causeway entrance',
-    scheduledAt: past.toISOString(),
-    durationHours: 1,
-    mediaKind: 'photo',
-    priceUsd: 60,
-    status: 'completed',
-    rescheduleCount: 0,
-  },
-];

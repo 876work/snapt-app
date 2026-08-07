@@ -1,7 +1,7 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '../../../lib/text';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Card } from '../../../components/ui/Misc';
 import { OccasionIcon } from '../../../components/ui/Icons';
 import { creatorById, useAuth, useBookings } from '../../../lib/store';
@@ -23,11 +23,68 @@ export default function Bookings() {
   const router = useRouter();
   const currency = useAuth((s) => s.currency);
   const bookings = useBookings((s) => s.bookings);
+  const loaded = useBookings((s) => s.bookingsLoaded);
+  const [error, setError] = React.useState(false);
+
+  /**
+   * Pull the real list from the server. The store starts EMPTY now — it used
+   * to start as SEED_BOOKINGS and nothing ever replaced it, so this screen
+   * showed invented bookings while genuine ones sat in the database.
+   */
+  const load = React.useCallback(async () => {
+    const { apiConfigured, fetchMyBookings, toClientBooking } = await import('../../../lib/api');
+    if (!apiConfigured) {
+      useBookings.getState().hydrateBookings([]);
+      return;
+    }
+    // Creator names on these cards come from the catalog, which is also no
+    // longer seeded — pull it alongside so "with Jordan M." resolves.
+    const { fetchFeaturedCreators } = await import('../../../lib/api');
+    fetchFeaturedCreators().then((list) => {
+      if (list?.length) useBookings.getState().registerCreators(list);
+    });
+    const rows = await fetchMyBookings();
+    if (rows == null) {
+      setError(true);
+      return;
+    }
+    setError(false);
+    useBookings.getState().hydrateBookings(rows.map(toClientBooking));
+  }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      load();
+    }, [load]),
+  );
 
   return (
     <View style={styles.root}>
-      <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        onScroll={navShrinkOnScroll}
+        scrollEventThrottle={32}
+        contentContainerStyle={styles.body}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.yellowDark} />}
+      >
         <Text style={styles.title}>Bookings</Text>
+        {!loaded && !error ? (
+          <View style={styles.state}>
+            <ActivityIndicator color={colors.yellowDark} />
+          </View>
+        ) : error ? (
+          <View style={styles.state}>
+            <Text style={styles.stateTitle}>Couldn't load your bookings</Text>
+            <Text style={styles.stateBody}>Pull down to try again.</Text>
+          </View>
+        ) : bookings.length === 0 ? (
+          <View style={styles.state}>
+            <Text style={styles.stateTitle}>No bookings yet</Text>
+            <Text style={styles.stateBody}>
+              Once you book a session it'll show up here with its status and details.
+            </Text>
+          </View>
+        ) : null}
         {bookings.map((b) => {
           const c = creatorById(b.creatorId);
           const d = new Date(b.scheduledAt);
@@ -61,6 +118,9 @@ export default function Bookings() {
 }
 
 const styles = StyleSheet.create({
+  state: { alignItems: 'center', justifyContent: 'center', paddingTop: 60, paddingHorizontal: 24, gap: 6 },
+  stateTitle: { fontSize: 15, fontWeight: '800', color: colors.ink, textAlign: 'center' },
+  stateBody: { fontSize: 13, color: colors.grey, textAlign: 'center', lineHeight: 19 },
   root: { flex: 1, backgroundColor: colors.offWhite },
   body: { paddingHorizontal: spacing.screenX, paddingTop: insetTop + 23 },
   title: { fontSize: 24, fontWeight: '800', letterSpacing: -0.6, color: colors.ink, marginBottom: 18 },

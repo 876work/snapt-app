@@ -11,16 +11,11 @@ import { colors, spacing, insetBottom } from '../../lib/theme';
 
 const SAMPLE_TINTS = ['#F2C14E', '#6FD3E0', '#F2A0B5', '#8ED7A6'];
 
-const BREAKDOWN = [
-  { label: 'Quality', val: 4.9 },
-  { label: 'Punctuality', val: 4.8 },
-  { label: 'Friendliness', val: 5.0 },
-];
-
-const REVIEWS = [
-  { name: 'Keisha B.', stars: 5, text: 'Made the whole family feel at ease — the golden-hour shots were unreal.', date: '2 weeks ago' },
-  { name: 'Andre P.', stars: 5, text: 'On time, professional, and the edit turnaround was faster than promised.', date: 'last month' },
-];
+// NO invented reviews or rating breakdown here. This screen shows a REAL
+// creator to a client deciding whether to hire them; fabricated testimonials
+// attributed to that person are not a placeholder, they are a false claim
+// about someone's work. Until there is a reviews endpoint, the honest thing
+// is to say we have nothing to show yet.
 
 export default function CreatorPreview() {
   const router = useRouter();
@@ -95,33 +90,15 @@ export default function CreatorPreview() {
           ))}
         </View>
 
-        {/* Rating breakdown */}
-        <Text style={styles.sectionLabel}>Rating breakdown</Text>
-        <View style={styles.breakCard}>
-          {BREAKDOWN.map((b) => (
-            <View key={b.label} style={styles.breakRow}>
-              <Text style={styles.breakLabel}>{b.label}</Text>
-              <View style={styles.breakTrack}>
-                <View style={[styles.breakBar, { width: `${(b.val / 5) * 100}%` }]} />
-              </View>
-              <Text style={styles.breakVal}>{b.val.toFixed(1)}</Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Recent reviews */}
-        <Text style={styles.sectionLabel}>Recent reviews</Text>
-        <View style={{ gap: 10 }}>
-          {REVIEWS.map((r) => (
-            <View key={r.name} style={styles.reviewCard}>
-              <View style={styles.reviewHead}>
-                <Text style={styles.reviewName}>{r.name}</Text>
-                <Text style={styles.reviewStars}>{'★'.repeat(r.stars)}</Text>
-              </View>
-              <Text style={styles.reviewText}>{r.text}</Text>
-              <Text style={styles.reviewDate}>{r.date}</Text>
-            </View>
-          ))}
+        {/* Reviews — real ones only, and there is no endpoint for them yet. */}
+        <Text style={styles.sectionLabel}>Reviews</Text>
+        <View style={styles.reviewEmpty}>
+          <Text style={styles.reviewEmptyTitle}>No reviews to show yet</Text>
+          <Text style={styles.reviewEmptyBody}>
+            {creator.sessions > 0
+              ? `${creator.name} has completed ${creator.sessions} ${creator.sessions === 1 ? 'session' : 'sessions'} on Snapt. Written reviews are coming soon.`
+              : `${creator.name} is new to Snapt. Reviews appear here once clients have rated their sessions.`}
+          </Text>
         </View>
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -141,6 +118,16 @@ export default function CreatorPreview() {
 }
 
 const styles = StyleSheet.create({
+  reviewEmpty: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 16,
+    gap: 5,
+  },
+  reviewEmptyTitle: { fontSize: 14, fontWeight: '700', color: colors.ink },
+  reviewEmptyBody: { fontSize: 12.5, color: colors.grey, lineHeight: 19 },
   root: { flex: 1, backgroundColor: colors.offWhite },
   body: { paddingHorizontal: spacing.screenX, paddingTop: 8 },
   headCard: {

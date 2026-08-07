@@ -3,10 +3,8 @@ import {
   Area,
   Booking,
   Creator,
-  CREATORS,
   MediaKind,
   Occasion,
-  SEED_BOOKINGS,
 } from '../mock/data';
 import { Currency } from '../constants/business';
 
@@ -110,6 +108,10 @@ interface BookingState {
   confirmDraft: (priceUsd: number) => Booking;
   /** Insert a booking already created server-side (API mode) and clear the draft. */
   addServerBooking: (booking: Booking) => void;
+  /** Replace the local list with what the server actually holds. */
+  hydrateBookings: (bookings: Booking[]) => void;
+  /** True once the server list has landed — screens use it for empty vs loading. */
+  bookingsLoaded: boolean;
   cancelBooking: (id: string) => void;
   rescheduleBooking: (id: string, newDateIso: string) => void;
   reportNoShow: (id: string) => void;
@@ -117,8 +119,13 @@ interface BookingState {
 
 export const useBookings = create<BookingState>((set, get) => ({
   draft: emptyDraft,
-  bookings: SEED_BOOKINGS,
-  catalog: CREATORS,
+  // EMPTY, not seeded. These used to start as SEED_BOOKINGS/CREATORS from
+  // lib/mock/data and nothing ever replaced them, so the bookings list,
+  // booking detail and creator browse screens rendered invented data over a
+  // working backend. The server is now the only source.
+  bookings: [],
+  bookingsLoaded: false,
+  catalog: [],
   registerCreators: (incoming) =>
     set((s) => ({
       catalog: [...incoming, ...s.catalog.filter((c) => !incoming.some((n) => n.id === c.id))],
@@ -127,8 +134,9 @@ export const useBookings = create<BookingState>((set, get) => ({
   resetDraft: (type = 'in-person') => set({ draft: { ...emptyDraft, type } }),
   eligibleCreators: () => {
     const { occasion } = get().draft;
-    if (!occasion) return CREATORS;
-    return CREATORS.filter((c) => c.specialties.includes(occasion));
+    const catalog = get().catalog;
+    if (!occasion) return catalog;
+    return catalog.filter((c) => c.specialties.includes(occasion));
   },
   confirmDraft: (priceUsd) => {
     const d = get().draft;
@@ -149,6 +157,7 @@ export const useBookings = create<BookingState>((set, get) => ({
     set((s) => ({ bookings: [booking, ...s.bookings], draft: emptyDraft }));
     return booking;
   },
+  hydrateBookings: (bookings) => set({ bookings, bookingsLoaded: true }),
   addServerBooking: (booking) =>
     set((s) => ({ bookings: [booking, ...s.bookings], draft: emptyDraft })),
   cancelBooking: (id) =>
