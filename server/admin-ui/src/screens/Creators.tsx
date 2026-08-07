@@ -4,7 +4,28 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { EmptyState, Pill, SectionSkeleton, formatWhen } from '../components/ui';
 
+/**
+ * Waiting age, escalating. A row 4 working days old must not read the same as
+ * one from this morning — the list should make staleness obvious BEFORE the
+ * stale-application alert fires.
+ */
+function WaitingAge({ days, parked }: { days: number; parked?: boolean }) {
+  const tone = days >= 4 ? 'danger' : days >= 2 ? 'warn' : 'neutral';
+  const label = days === 0 ? 'today' : days === 1 ? '1 working day' : `${days} working days`;
+  return (
+    <>
+      <Pill tone={tone}>
+        {days >= 4 ? '\u26A0 ' : ''}
+        waiting {label}
+      </Pill>
+      {parked && <Pill tone="warn">parked \u2014 name review</Pill>}
+    </>
+  );
+}
+
 interface CreatorRow {
+  waiting_working_days?: number;
+  parked_for_name_review?: boolean;
   user_id: string;
   vetting_status: string;
   background_check_status: string;
@@ -85,6 +106,9 @@ export function Creators() {
               </div>
               {!c.is_available && c.vetting_status === 'approved' && <Pill tone="neutral">paused</Pill>}
               <Pill status={c.vetting_status} />
+              {c.vetting_status === 'in_review' && (
+                <WaitingAge days={c.waiting_working_days ?? 0} parked={c.parked_for_name_review} />
+              )}
             </div>
           ))}
         </div>

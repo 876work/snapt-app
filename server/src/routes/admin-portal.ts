@@ -120,6 +120,23 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
     const decisions = {
       payouts: { creators: new Set((payoutRows ?? []).map((r) => r.creator_id)).size, total_usd: payoutTotal },
       applications: await count('creator_profiles', (q) => q.eq('vetting_status', 'in_review')),
+      // Parked for name review carries duplicate/mismatch flags and needs
+      // thought, which is exactly why it gets skipped. Counted separately so
+      // it can be weighted above the ordinary queue.
+      parked_applications: await (async () => {
+        const { data } = await supabaseAdmin
+          .from('verification_sessions')
+          .select('user_id')
+          .eq('name_review_required', true);
+        const ids = [...new Set((data ?? []).map((r) => r.user_id as string))];
+        if (!ids.length) return 0;
+        const { count: c } = await supabaseAdmin
+          .from('creator_profiles')
+          .select('user_id', { count: 'exact', head: true })
+          .eq('vetting_status', 'in_review')
+          .in('user_id', ids);
+        return c ?? 0;
+      })(),
       open_disputes: await count('disputes', (q) => q.not('status', 'in', '(resolved,closed)')),
       unassigned_bookings: await count('bookings', (q) => q.eq('status', 'pending').is('creator_id', null)),
       moderation_reports: await count('content_reports', (q) => q.eq('status', 'open')),
@@ -483,9 +500,19 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
     const { data, error } = await query;
     if (error) return reply.code(500).send({ error: error.message });
     const names = await profileMap((data ?? []).map((c) => c.user_id));
+    // Waiting age + parked flag travel with each row so the list shows
+    // staleness before any alert fires.
+    const { workingDaysSince } = await import('../scheduler.js');
+    const { data: parkedRows } = await supabaseAdmin
+      .from('verification_sessions')
+      .select('user_id')
+      .eq('name_review_required', true);
+    const parkedIds = new Set((parkedRows ?? []).map((r) => r.user_id as string));
     const rank = (s: string) => (s === 'in_review' ? 0 : 1);
     const creators = (data ?? [])
       .map((c) => ({
+        waiting_working_days: c.applied_at ? workingDaysSince(c.applied_at as string) : 0,
+        parked_for_name_review: parkedIds.has(c.user_id as string),
         ...c,
         name: names.get(c.user_id)?.name ?? '',
         email: names.get(c.user_id)?.email ?? null,

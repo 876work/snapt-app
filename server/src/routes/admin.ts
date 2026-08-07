@@ -5,6 +5,7 @@ import { reassignBooking, offerWindowMs } from '../offers.js';
 import { notify } from '../notify.js';
 import { decryptField } from '../crypto.js';
 import { sendEmail } from '../email.js';
+import { workingDaysSince } from '../scheduler.js';
 import { reconcileNames } from '../name-match.js';
 
 // Admin Portal (handoff §15) — original Phase 5 endpoints. Sits on the SAME
@@ -94,10 +95,23 @@ export function registerAdminRoutes(app: FastifyInstance) {
     if (!adminId) return;
     const { data } = await supabaseAdmin
       .from('creator_profiles')
-      .select('user_id, specialties, base_area, vetting_status, created_at, profiles!creator_profiles_user_id_fkey!inner(full_name, email)')
+      .select('user_id, specialties, base_area, vetting_status, applied_at, created_at, profiles!creator_profiles_user_id_fkey!inner(full_name, email)')
       .eq('vetting_status', 'in_review')
       .order('created_at', { ascending: true });
-    return { applications: data ?? [] };
+    // Waiting age travels with the row so the list can show staleness before
+    // the alert fires — the alert is the safety net, not the first signal.
+    const { data: parked } = await supabaseAdmin
+      .from('verification_sessions')
+      .select('user_id')
+      .eq('name_review_required', true);
+    const parkedIds = new Set((parked ?? []).map((p) => p.user_id as string));
+    return {
+      applications: (data ?? []).map((a: any) => ({
+        ...a,
+        waiting_working_days: a.applied_at ? workingDaysSince(a.applied_at) : 0,
+        parked_for_name_review: parkedIds.has(a.user_id),
+      })),
+    };
   });
 
   // §15 fee/promo settings: every app_config row is admin-editable.

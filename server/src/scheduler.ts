@@ -78,9 +78,59 @@ async function retentionDaily(): Promise<void> {
   );
 }
 
+/** Working days between then and now — weekends don't count against us. */
+export function workingDaysSince(iso: string): number {
+  const start = new Date(iso);
+  if (Number.isNaN(start.getTime())) return 0;
+  let days = 0;
+  const cursor = new Date(start);
+  while (cursor < new Date()) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    const day = cursor.getUTCDay();
+    if (day !== 0 && day !== 6) days += 1;
+  }
+  return days;
+}
+
+/**
+ * An application waiting past the 2 working days we promise the applicant.
+ *
+ * Without this a missed application sits forever and the creator's only
+ * recourse is the support link on their status card. One unresolved alert per
+ * application, re-raised never — resolving it is the admin saying they've
+ * seen it.
+ */
+async function staleApplications(): Promise<void> {
+  const { data: waiting } = await supabaseAdmin
+    .from('creator_profiles')
+    .select('user_id, applied_at')
+    .eq('vetting_status', 'in_review')
+    .not('applied_at', 'is', null);
+  for (const row of waiting ?? []) {
+    const age = workingDaysSince(row.applied_at as string);
+    if (age < 2) continue;
+    const { data: existing } = await supabaseAdmin
+      .from('admin_alerts')
+      .select('id')
+      .eq('alert_type', 'application_stale')
+      .is('resolved_at', null)
+      .filter('detail->>creator_id', 'eq', row.user_id)
+      .maybeSingle();
+    if (existing) continue;
+    await supabaseAdmin.from('admin_alerts').insert({
+      alert_type: 'application_stale',
+      detail: {
+        creator_id: row.user_id,
+        waiting_working_days: age,
+        applied_at: row.applied_at,
+      },
+    });
+  }
+}
+
 export function startScheduler(): void {
   const tick = () =>
-    Promise.all([releasePayouts(), remindEvidenceDeadlines(), retentionDaily()]).catch((err) =>
+    Promise.all([releasePayouts(), remindEvidenceDeadlines(), retentionDaily(), staleApplications()]).catch((err) =>
       console.error('scheduler tick failed', err),
     );
   void tick();

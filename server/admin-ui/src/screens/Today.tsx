@@ -66,6 +66,7 @@ interface TodayData {
   })[];
   offers: (BookingLite & { offer_expires_at: string })[];
   decisions: {
+    parked_applications: number;
     payouts: { creators: number; total_usd: number };
     applications: number;
     open_disputes: number;
@@ -144,6 +145,17 @@ export function Today() {
               : 'pending payouts',
           urgent: data.decisions.payouts.creators > 0,
         },
+        // Parked-for-name-review sits ABOVE the ordinary queue: these carry
+        // duplicate or mismatch flags, need thought, and are therefore the
+        // ones most likely to be skipped.
+        ...(data.decisions.parked_applications
+          ? [{
+              to: '/creators',
+              value: data.decisions.parked_applications,
+              label: 'parked for name review',
+              urgent: true,
+            }]
+          : []),
         { to: '/creators', value: data.decisions.applications, label: 'applications to review', urgent: data.decisions.applications > 0 },
         { to: '/disputes', value: data.decisions.open_disputes, label: 'open disputes', urgent: data.decisions.open_disputes > 0 },
         { to: '/bookings?filter=unassigned', value: data.decisions.unassigned_bookings, label: 'unassigned bookings', urgent: data.decisions.unassigned_bookings > 0 },
