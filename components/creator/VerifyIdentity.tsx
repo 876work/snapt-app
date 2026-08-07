@@ -3,6 +3,7 @@ import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-n
 import * as WebBrowser from 'expo-web-browser';
 import Svg, { Path } from 'react-native-svg';
 import { Text } from '../../lib/text';
+import { useRouter } from 'expo-router';
 import { apiBase, authHeaders } from '../../lib/api';
 import { colors } from '../../lib/theme';
 
@@ -59,6 +60,7 @@ interface Status {
 }
 
 export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void }) {
+  const router = useRouter();
   const [doc, setDoc] = React.useState<DocType | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [status, setStatus] = React.useState<Status | null>(null);
@@ -256,18 +258,23 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
         <View style={[styles.statusCard, styles.pending]}>
           <Text style={styles.statusTitle}>Almost there — we're checking one detail</Text>
           <Text style={styles.statusSub}>
-            Your ID and selfie matched. One detail on your document needs a quick look from our
-            team before we finish. Nothing is needed from you, and your application is still
-            moving — we'll let you know as soon as it's done.
+            Your ID and selfie matched. One detail on your document needs a quick look from our team
+            before we finish — usually within 2 working days. Nothing is needed from you, and your
+            application is still moving.
           </Text>
+          {/* A parked creator can't retry and can't message anyone. Without
+              this they have no way to chase a review that stalls. */}
+          <Pressable onPress={() => router.push('/help/contact')} hitSlop={6}>
+            <Text style={styles.chaseLink}>Heard nothing after 2 days? Contact support →</Text>
+          </Pressable>
         </View>
       )}
       {inReview && (
         <View style={[styles.statusCard, styles.pending]}>
-          <Text style={styles.statusTitle}>Checking your documents</Text>
+          <Text style={styles.statusTitle}>A person is reviewing your documents</Text>
           <Text style={styles.statusSub}>
-            This usually takes a minute. You can submit your application now — we'll finish the check
-            in the background.
+            Submit your application now if you haven't — our team reviews the documents by hand and
+            usually decides within 2 working days. Nothing else is needed from you.
           </Text>
         </View>
       )}
@@ -275,7 +282,8 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
         <View style={[styles.statusCard, styles.bad]}>
           <Text style={styles.statusTitle}>Age requirement not met</Text>
           <Text style={styles.statusSub}>
-            Your document shows you're under 18. Snapt creators must be 18 or older.
+            Your document shows you're under 18. Snapt creators must be 18 or older — but you're
+            welcome to apply again once you turn 18.
           </Text>
         </View>
       )}
@@ -290,10 +298,10 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
       )}
       {declined && exhausted && (
         <View style={[styles.statusCard, styles.pending]}>
-          <Text style={styles.statusTitle}>We'll take it from here</Text>
+          <Text style={styles.statusTitle}>A person is reviewing your documents</Text>
           <Text style={styles.statusSub}>
-            Both attempts are used, so a person will review your documents instead. Submit your
-            application — nothing else is needed from you.
+            Both attempts are used, so our team reviews the documents by hand instead — usually
+            within 2 working days. Submit your application; nothing else is needed from you.
           </Text>
         </View>
       )}
@@ -404,6 +412,7 @@ const styles = StyleSheet.create({
   bad: { backgroundColor: '#FDECEC', borderColor: '#F5C6C6' },
   statusTitle: { fontSize: 14, fontWeight: '800', color: colors.ink },
   statusSub: { fontSize: 12.5, color: colors.grey, lineHeight: 18, marginTop: 3 },
+  chaseLink: { fontSize: 12.5, fontWeight: '700', color: colors.goldText, marginTop: 9 },
   infoCard: {
     backgroundColor: colors.yellowSoft,
     borderWidth: 1,

@@ -312,26 +312,33 @@ function extractDecision(decision: Record<string, any>) {
 function verificationMessage(
   rollup: string,
   parked: boolean,
+  attemptsLeft: boolean,
 ): { trigger: string; title: string; body: string } | null {
   if (rollup === 'failed_underage') {
     return {
       trigger: 'verification_failed',
       title: 'Age requirement not met',
-      body: 'Your document shows you\'re under 18. Snapt creators must be 18 or older, so we can\'t take this application further.',
+      body: 'Your document shows you\'re under 18. Snapt creators must be 18 or older, so we can\'t take this application further — but you\'re welcome to apply again once you turn 18.',
     };
   }
   if (rollup === 'declined') {
-    return {
-      trigger: 'verification_failed',
-      title: "We couldn't verify your ID",
-      body: 'Usually it\'s a blurry photo or glare on the document. You can try once more from your application, or submit anyway and our team will check it by hand.',
-    };
+    return attemptsLeft
+      ? {
+          trigger: 'verification_failed',
+          title: "We couldn't verify your ID",
+          body: 'Usually it\'s a blurry photo or glare on the document. You can try once more from your application, or submit anyway and our team will review the documents by hand — usually within 2 working days.',
+        }
+      : {
+          trigger: 'verification_failed',
+          title: 'A person is reviewing your documents',
+          body: 'Both attempts are used, so our team reviews the documents by hand instead — usually within 2 working days. Nothing else is needed from you.',
+        };
   }
   if (rollup === 'approved' && parked) {
     return {
       trigger: 'verification_result',
       title: "We're checking one detail",
-      body: 'Your ID and selfie matched. One detail needs a quick look from our team before we finish — nothing is needed from you, and your application is still moving.',
+      body: 'Your ID and selfie matched. One detail needs a quick look from our team before we finish — usually within 2 working days. Nothing is needed from you, and your application is still moving.',
     };
   }
   if (rollup === 'approved') {
@@ -344,8 +351,8 @@ function verificationMessage(
   if (rollup === 'in_review') {
     return {
       trigger: 'verification_result',
-      title: "We're reviewing your documents",
-      body: 'Your documents are with our team. You don\'t need to do anything — we\'ll let you know as soon as it\'s decided.',
+      title: 'A person is reviewing your documents',
+      body: 'Our team reviews the documents by hand — usually within 2 working days. Nothing else is needed from you.',
     };
   }
   return null; // in_progress / abandoned — nothing decided, nothing to say
@@ -462,7 +469,7 @@ export async function applyDecision(
   // Tell the creator. Distinct copy per outcome — "parked for review" is NOT
   // the same as "verified", and saying so is the whole point.
   const parked = patch.name_review_required === true || blocked || expired;
-  const message = verificationMessage(rollup, parked);
+  const message = verificationMessage(rollup, parked, session.attempt < MAX_ATTEMPTS);
   if (message) {
     await notify(session.user_id, message.trigger, message.title, message.body, {
       deep_link: '/creator',
