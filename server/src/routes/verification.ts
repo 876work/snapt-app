@@ -170,6 +170,71 @@ function collectRisk(decision: Record<string, any>): RiskFlag[] {
     if (m?.session_id && m?.vendor_data) matchUser.set(m.session_id, m.vendor_data);
   }
 
+  // Didit's own blocklist / allowlist verdict on matched identities. We were
+  // ignoring it entirely — an identity Didit already knows is blocked would
+  // have sailed through.
+  for (const m of [
+    ...(Array.isArray(idv?.matches) ? idv.matches : []),
+    ...(Array.isArray(live?.matches) ? live.matches : []),
+  ]) {
+    if (m?.is_blocklisted) {
+      buckets.push({
+        feature: 'BLOCKLIST',
+        risk: 'BLOCKLISTED_IDENTITY',
+        short_description: 'This identity is on Didit\'s blocklist.',
+        additional_data: { duplicated_session_id: m.session_id ?? null },
+      });
+    } else if (m?.is_allowlisted) {
+      buckets.push({
+        feature: 'BLOCKLIST',
+        risk: 'ALLOWLISTED_IDENTITY',
+        short_description: 'This identity is allowlisted — previously cleared by a human.',
+        additional_data: { duplicated_session_id: m.session_id ?? null },
+      });
+    }
+  }
+
+  // Expired documents must not pass. This was read and stored but never checked.
+  const expiry: string | null = idv?.expiration_date ?? null;
+  if (expiry) {
+    const when = new Date(expiry);
+    if (!Number.isNaN(when.getTime()) && when.getTime() < Date.now()) {
+      buckets.push({
+        feature: 'ID_VERIFICATION',
+        risk: 'DOCUMENT_EXPIRED',
+        short_description: `The document expired on ${expiry}.`,
+      });
+    }
+  }
+
+  // Network context. is_data_center is TRUE for our own in-app browser (it
+  // proxies through Fastly), so it is recorded as context, never as a risk on
+  // its own — only a VPN/Tor exit is worth flagging.
+  for (const ip of ips) {
+    if (ip?.is_vpn_or_tor) {
+      buckets.push({
+        feature: 'LOCATION',
+        risk: 'VPN_OR_TOR',
+        short_description: `Connected through a VPN or Tor exit (${ip.ip_country ?? 'unknown country'}).`,
+      });
+    }
+  }
+
+  // Liveness estimates an age from the selfie. A wide gap from the document's
+  // date of birth is a cheap tell for a forged or borrowed DOB.
+  const estimated: number | null = typeof live?.age_estimation === 'number' ? live.age_estimation : null;
+  const dobValue: string | null = idv?.date_of_birth ?? null;
+  if (estimated != null && dobValue) {
+    const documentAge = ageFrom(dobValue);
+    if (documentAge != null && Math.abs(documentAge - estimated) > 12) {
+      buckets.push({
+        feature: 'LIVENESS',
+        risk: 'AGE_ESTIMATE_MISMATCH',
+        short_description: `Selfie looks about ${Math.round(estimated)}; the document says ${documentAge}.`,
+      });
+    }
+  }
+
   const seen = new Set<string>();
   const flags: RiskFlag[] = [];
   for (const w of buckets) {
@@ -224,6 +289,13 @@ function extractDecision(decision: Record<string, any>) {
       id_verification_status: idv.status ?? null,
       face_match_status: face.status ?? null,
       duplicate_count: duplicateFlags(flags).length,
+      age_estimation: typeof live.age_estimation === 'number' ? live.age_estimation : null,
+      ip_country: first<any>(decision?.ip_analyses)?.ip_country ?? null,
+      is_vpn_or_tor: first<any>(decision?.ip_analyses)?.is_vpn_or_tor ?? null,
+      // True for our own in-app browser via Fastly — context, not a risk.
+      is_data_center: first<any>(decision?.ip_analyses)?.is_data_center ?? null,
+      document_expired: flags.some((f) => f.risk === 'DOCUMENT_EXPIRED'),
+      blocklisted: flags.some((f) => f.risk === 'BLOCKLISTED_IDENTITY'),
     },
     face_match_score: typeof face.score === 'number' ? face.score : null,
     date_of_birth: dob,
@@ -277,8 +349,15 @@ export async function applyDecision(
     log.error({ sessionId: diditId }, 'didit decision fetch failed — status stored without identity data');
   }
 
+  // A blocklisted identity or an EXPIRED document must never come out the
+  // other side as "approved", whatever Didit concluded. Both go to a human
+  // instead — these are decision-changing, not background detail.
+  const blocked = flags.some((f) => f.risk === 'BLOCKLISTED_IDENTITY');
+  const expired = flags.some((f) => f.risk === 'DOCUMENT_EXPIRED');
+
   let rollup = 'in_review';
   if (is18 === false) rollup = 'failed_underage';
+  else if (blocked || expired) rollup = 'in_review';
   else if (status === 'Approved') rollup = 'approved';
   else if (status === 'Declined') rollup = 'declined';
   else if (status === 'In Review') rollup = 'in_review';

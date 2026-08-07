@@ -243,7 +243,12 @@ export function VerificationPanel({ creatorId }: { creatorId: string }) {
 function RiskPanel({ risk }: { risk: { flags: RiskFlag[]; duplicates: RiskFlag[] } }) {
   if (!risk.flags.length) return null;
   const dupes = risk.duplicates;
-  const others = risk.flags.filter((f) => !dupes.includes(f));
+  // Expiry and blocklist change the decision, so they lead — never buried in
+  // a bullet list below the fold.
+  const blocking = risk.flags.filter(
+    (f) => f.risk === 'DOCUMENT_EXPIRED' || f.risk === 'BLOCKLISTED_IDENTITY',
+  );
+  const others = risk.flags.filter((f) => !dupes.includes(f) && !blocking.includes(f));
 
   return (
     <div
@@ -251,9 +256,33 @@ function RiskPanel({ risk }: { risk: { flags: RiskFlag[]; duplicates: RiskFlag[]
       style={{
         marginTop: 10,
         padding: 14,
-        borderLeft: `4px solid ${dupes.length ? 'var(--danger)' : 'var(--warn)'}`,
+        borderLeft: `4px solid ${
+          blocking.length || dupes.length ? 'var(--danger)' : 'var(--warn)'
+        }`,
       }}
     >
+      {blocking.map((f, i) => (
+        <div
+          key={`b${i}`}
+          style={{
+            marginBottom: 10,
+            padding: '10px 12px',
+            borderRadius: 8,
+            background: 'var(--danger-soft, #FDECEC)',
+          }}
+        >
+          <strong style={{ fontSize: 14 }}>
+            {f.risk === 'DOCUMENT_EXPIRED' ? 'Expired document' : 'Blocklisted identity'}
+          </strong>
+          <div style={{ fontSize: 13, lineHeight: '20px' }}>{f.description}</div>
+          <div style={{ fontSize: 12.5, color: 'var(--text-dim)', marginTop: 4 }}>
+            {f.risk === 'DOCUMENT_EXPIRED'
+              ? 'Held for review — an expired document cannot approve a creator.'
+              : 'Held for review — Didit has this identity on its blocklist.'}
+          </div>
+        </div>
+      ))}
+
       {dupes.length > 0 ? (
         <>
           <strong style={{ fontSize: 14 }}>
@@ -278,9 +307,9 @@ function RiskPanel({ risk }: { risk: { flags: RiskFlag[]; duplicates: RiskFlag[]
             </div>
           ))}
         </>
-      ) : (
+      ) : blocking.length === 0 ? (
         <strong style={{ fontSize: 14 }}>Checks raised {risk.flags.length} note(s)</strong>
-      )}
+      ) : null}
       {others.length > 0 && (
         <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12.5, color: 'var(--text-dim)' }}>
           {others.map((f, i) => (
