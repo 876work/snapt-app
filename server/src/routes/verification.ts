@@ -6,6 +6,7 @@ import { audit, requireAdmin } from '../admin-auth.js';
 import { env } from '../env.js';
 import { autoAppliable, combinedSignal, reconcileNames } from '../name-match.js';
 import { sendEmail } from '../email.js';
+import { notify } from '../notify.js';
 
 /**
  * Didit identity verification — HOSTED sessions.
@@ -304,6 +305,53 @@ function extractDecision(decision: Record<string, any>) {
 }
 
 /**
+ * What the creator is told, per outcome. Deliberately plain: no "your
+ * submission has been processed" — say what happened and what, if anything,
+ * they need to do.
+ */
+function verificationMessage(
+  rollup: string,
+  parked: boolean,
+): { trigger: string; title: string; body: string } | null {
+  if (rollup === 'failed_underage') {
+    return {
+      trigger: 'verification_failed',
+      title: 'Age requirement not met',
+      body: 'Your document shows you\'re under 18. Snapt creators must be 18 or older, so we can\'t take this application further.',
+    };
+  }
+  if (rollup === 'declined') {
+    return {
+      trigger: 'verification_failed',
+      title: "We couldn't verify your ID",
+      body: 'Usually it\'s a blurry photo or glare on the document. You can try once more from your application, or submit anyway and our team will check it by hand.',
+    };
+  }
+  if (rollup === 'approved' && parked) {
+    return {
+      trigger: 'verification_result',
+      title: "We're checking one detail",
+      body: 'Your ID and selfie matched. One detail needs a quick look from our team before we finish — nothing is needed from you, and your application is still moving.',
+    };
+  }
+  if (rollup === 'approved') {
+    return {
+      trigger: 'verification_result',
+      title: 'Identity verified',
+      body: 'Your ID and selfie matched. That part of your application is done.',
+    };
+  }
+  if (rollup === 'in_review') {
+    return {
+      trigger: 'verification_result',
+      title: "We're reviewing your documents",
+      body: 'Your documents are with our team. You don\'t need to do anything — we\'ll let you know as soon as it\'s decided.',
+    };
+  }
+  return null; // in_progress / abandoned — nothing decided, nothing to say
+}
+
+/**
  * Apply a Didit outcome to one of our sessions: fetch the decision, store the
  * fields we keep, run the 18+ gate and the name reconciliation, and roll the
  * result up onto the application.
@@ -410,6 +458,17 @@ export async function applyDecision(
 
   await supabaseAdmin.from('verification_sessions').update(patch).eq('id', session.id);
   await supabaseAdmin.from('creator_profiles').update(profilePatch).eq('user_id', session.user_id);
+
+  // Tell the creator. Distinct copy per outcome — "parked for review" is NOT
+  // the same as "verified", and saying so is the whole point.
+  const parked = patch.name_review_required === true || blocked || expired;
+  const message = verificationMessage(rollup, parked);
+  if (message) {
+    await notify(session.user_id, message.trigger, message.title, message.body, {
+      deep_link: '/creator',
+    });
+  }
+
   return { rollup, verdict, duplicates: duplicateFlags(flags).length };
 }
 
@@ -553,7 +612,7 @@ export function registerVerificationRoutes(app: FastifyInstance) {
     const user = requireUser(request);
     const { data: session } = await supabaseAdmin
       .from('verification_sessions')
-      .select('didit_session_id, document_type, status, attempt, is_18_plus, created_at')
+      .select('didit_session_id, document_type, status, attempt, is_18_plus, name_review_required, created_at')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -569,6 +628,8 @@ export function registerVerificationRoutes(app: FastifyInstance) {
       max_attempts: MAX_ATTEMPTS,
       retries_left: Math.max(0, MAX_ATTEMPTS - (profile?.verification_attempts ?? 0)),
       configured: diditConfigured,
+      /** Passed the ID check, but a human still has to resolve something. */
+      review_pending: Boolean(session?.name_review_required),
       session: session ?? null,
     };
   });

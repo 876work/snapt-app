@@ -54,6 +54,8 @@ interface Status {
   attempts: number;
   retries_left: number;
   configured: boolean;
+  /** Passed the ID check, but a human still has to resolve something. */
+  review_pending?: boolean;
 }
 
 export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void }) {
@@ -221,7 +223,11 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
   };
 
   const s = status?.status ?? 'not_started';
-  const done = s === 'approved';
+  // Parked is NOT approved. Telling someone "nothing more to do here" while an
+  // admin still has a name mismatch and duplicate flags open is a lie the
+  // creator can't act on.
+  const parked = s === 'approved' && status?.review_pending === true;
+  const done = s === 'approved' && !parked;
   const inReview = s === 'in_review';
   const declined = s === 'declined';
   const underage = s === 'failed_underage';
@@ -244,6 +250,16 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
         <View style={[styles.statusCard, styles.ok]}>
           <Text style={styles.statusTitle}>Identity verified ✓</Text>
           <Text style={styles.statusSub}>Your ID and selfie matched. Nothing more to do here.</Text>
+        </View>
+      )}
+      {parked && (
+        <View style={[styles.statusCard, styles.pending]}>
+          <Text style={styles.statusTitle}>Almost there — we're checking one detail</Text>
+          <Text style={styles.statusSub}>
+            Your ID and selfie matched. One detail on your document needs a quick look from our
+            team before we finish. Nothing is needed from you, and your application is still
+            moving — we'll let you know as soon as it's done.
+          </Text>
         </View>
       )}
       {inReview && (
@@ -282,7 +298,7 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
         </View>
       )}
 
-      {!done && !underage && !exhausted && (
+      {!done && !parked && !underage && !exhausted && (
         <>
           <Text style={styles.pickLabel}>Which document will you use?</Text>
           {DOCS.map((d) => {

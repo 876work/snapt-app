@@ -49,6 +49,12 @@ const TRIGGERS: Record<string, TriggerSpec> = {
   strike_issued: { category: 'account', push: true, email: true }, // §6: with reason stated
   suspension_applied: { category: 'account', push: true, email: true }, // §6
   reconsent_required: { category: 'account', push: true, email: true }, // §14 material change
+  // ID check outcome. A creator who photographs their passport and hears
+  // nothing is the worst version of this flow. Push always; email only where
+  // they are blocked or must act (the two _failed triggers) — a plain pass
+  // already gets the verified-name email, and two emails is noise.
+  verification_result: { category: 'account', push: true, email: false },
+  verification_failed: { category: 'account', push: true, email: true },
   files_expiring: { category: 'bookings', push: true, email: true }, // retention: 30d/7d download warnings
 };
 
