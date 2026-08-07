@@ -353,11 +353,16 @@ export function registerCreatorRoutes(app: FastifyInstance) {
           vetting_decided_at: new Date().toISOString(),
           vetting_agreed_with_didit: agreed,
           vetting_status: 'approved',
+          // The badge is NO LONGER set here. `verified` means identity
+          // verified and is granted automatically by the ID check. Ticking
+          // this box used to write background_check_status 'passed' with a
+          // completion timestamp for a check nobody performs — a fabricated
+          // record. Until the police certificate flow exists, an admin can
+          // only mark it pending.
           ...(passed
             ? {
                 background_check_status: 'passed',
                 background_check_completed_at: new Date().toISOString(),
-                verified: true, // badge is tied to completed background check (§11)
               }
             : {}),
         })

@@ -330,8 +330,10 @@ Snapt and explains what happens when they''re broken. It applies to everyone who
 platform, in the app and during sessions.
 
 1. Our safety foundations
-Creator vetting. Every creator offering in-person sessions completes identity
-verification and a background check before approval.
+Creator vetting. Every creator completes identity verification before approval — a
+government-issued document, a liveness check and a face match against that document,
+with age confirmed from the document itself. Background checks for in-person work are
+being introduced; where one has been completed, it is shown on the creator's profile.
 Session check-in. Every in-person session begins with a safety code exchange: your
 creator must verify the code shown in your app before the session starts. Never
 proceed with a session if the code exchange doesn''t happen — it means the person in

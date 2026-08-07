@@ -438,6 +438,14 @@ export async function applyDecision(
   };
 
   let verdict: string | null = null;
+  // IDENTITY VERIFIED is now what the badge means, and it is earned by the
+  // check we actually perform — document, passive liveness, face match, 18+
+  // from the document. It is no longer an admin ticking a background check
+  // that nobody runs. Blocked/expired/parked never reach here.
+  if (rollup === 'approved' && !blocked && !expired) {
+    profilePatch.verified = true;
+  }
+
   if (rollup === 'approved' && parsed) {
     const { data: account } = await supabaseAdmin
       .from('profiles')
