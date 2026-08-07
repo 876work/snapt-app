@@ -111,18 +111,105 @@ function escapeHtml(value: string): string {
   );
 }
 
-/** Pull the fields we keep out of Didit's decision payload. */
-function extractDecision(decision: Record<string, any>) {
-  const idv = decision?.id_verification ?? decision?.document ?? {};
-  const face = decision?.face_match ?? decision?.faceMatch ?? {};
-  const liveness = decision?.liveness ?? {};
-  const dob: string | null = idv.date_of_birth ?? idv.dateOfBirth ?? null;
-  const warnings: unknown[] = [
+/**
+ * Fetch the decision. Didit's WEBHOOK carries only a status — the identity
+ * data lives behind this call. Relying on `payload.decision` meant the 18+
+ * gate and the name reconciliation never ran on a single real session.
+ */
+async function fetchDecision(diditSessionId: string): Promise<Record<string, any> | null> {
+  if (!env.diditApiKey) return null;
+  try {
+    const res = await fetch(`${DIDIT_BASE}/v3/session/${diditSessionId}/decision/`, {
+      headers: { 'x-api-key': env.diditApiKey },
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as Record<string, any>;
+  } catch {
+    return null;
+  }
+}
+
+function first<T>(value: unknown): T | undefined {
+  return Array.isArray(value) ? (value[0] as T | undefined) : undefined;
+}
+
+export interface RiskFlag {
+  feature: string;
+  risk: string;
+  description: string;
+  /** The other session this document / face / device also appeared on. */
+  duplicate_session_id: string | null;
+  /** vendor_data on that session = OUR user id, so it resolves to an account. */
+  duplicate_user_id: string | null;
+}
+
+/**
+ * Duplicate signals are the strongest fraud evidence we get: the same
+ * document, face or device appearing under a second account. Didit reports
+ * them per-feature, so they are collected from every branch and normalised.
+ */
+function collectRisk(decision: Record<string, any>): RiskFlag[] {
+  const idv = (first<any>(decision?.id_verifications) ?? decision?.id_verification ?? {}) as any;
+  const live = (first<any>(decision?.liveness_checks) ?? decision?.liveness ?? {}) as any;
+  const ips: any[] = Array.isArray(decision?.ip_analyses) ? decision.ip_analyses : [];
+
+  const buckets: any[] = [
     ...(Array.isArray(decision?.warnings) ? decision.warnings : []),
     ...(Array.isArray(idv?.warnings) ? idv.warnings : []),
-    ...(Array.isArray(face?.warnings) ? face.warnings : []),
-    ...(Array.isArray(liveness?.warnings) ? liveness.warnings : []),
+    ...(Array.isArray(live?.warnings) ? live.warnings : []),
+    ...ips.flatMap((ip) => (Array.isArray(ip?.warnings) ? ip.warnings : [])),
   ];
+
+  // matches[] carries the other session's vendor_data — our user id.
+  const matchUser = new Map<string, string>();
+  for (const m of [
+    ...(Array.isArray(idv?.matches) ? idv.matches : []),
+    ...(Array.isArray(live?.matches) ? live.matches : []),
+    ...ips.flatMap((ip) => (Array.isArray(ip?.matches) ? ip.matches : [])),
+  ]) {
+    if (m?.session_id && m?.vendor_data) matchUser.set(m.session_id, m.vendor_data);
+  }
+
+  const seen = new Set<string>();
+  const flags: RiskFlag[] = [];
+  for (const w of buckets) {
+    const dupSession = w?.additional_data?.duplicated_session_id ?? null;
+    const key = `${w?.feature}|${w?.risk}|${dupSession ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    flags.push({
+      feature: String(w?.feature ?? 'UNKNOWN'),
+      risk: String(w?.risk ?? 'UNKNOWN'),
+      description: String(w?.short_description ?? ''),
+      duplicate_session_id: dupSession,
+      duplicate_user_id: dupSession ? (matchUser.get(dupSession) ?? null) : null,
+    });
+  }
+  return flags;
+}
+
+/** Risks that mean "this identity is already on another account". */
+const DUPLICATE_RISKS = new Set([
+  'POSSIBLE_DUPLICATED_USER',
+  'DUPLICATED_FACE',
+  'DUPLICATED_DEVICE_FINGERPRINT',
+  'DUPLICATED_DOCUMENT',
+]);
+
+export function duplicateFlags(flags: RiskFlag[]): RiskFlag[] {
+  return flags.filter((f) => DUPLICATE_RISKS.has(f.risk));
+}
+
+/** Pull the fields we keep out of Didit's decision payload. */
+function extractDecision(decision: Record<string, any>) {
+  // Didit returns ARRAYS (id_verifications, face_matches, liveness_checks).
+  // The singular fallbacks are belt-and-braces for older payload shapes.
+  const idv = (first<any>(decision?.id_verifications) ?? decision?.id_verification ?? {}) as any;
+  const face = (first<any>(decision?.face_matches) ?? decision?.face_match ?? {}) as any;
+  const live = (first<any>(decision?.liveness_checks) ?? decision?.liveness ?? {}) as any;
+  const dob: string | null = idv.date_of_birth ?? idv.dateOfBirth ?? null;
+  const flags = collectRisk(decision);
+
   return {
     extracted: {
       full_name: idv.full_name ?? idv.fullName ?? null,
@@ -132,14 +219,119 @@ function extractDecision(decision: Record<string, any>) {
       document_type: idv.document_type ?? null,
       issuing_country: idv.issuing_state ?? idv.issuing_country ?? null,
       expiry_date: idv.expiration_date ?? null,
-      liveness_status: liveness.status ?? null,
+      liveness_status: live.status ?? null,
+      liveness_score: typeof live.score === 'number' ? live.score : null,
       id_verification_status: idv.status ?? null,
       face_match_status: face.status ?? null,
+      duplicate_count: duplicateFlags(flags).length,
     },
     face_match_score: typeof face.score === 'number' ? face.score : null,
     date_of_birth: dob,
-    warnings,
+    warnings: flags,
   };
+}
+
+/**
+ * Apply a Didit outcome to one of our sessions: fetch the decision, store the
+ * fields we keep, run the 18+ gate and the name reconciliation, and roll the
+ * result up onto the application.
+ *
+ * Shared by the webhook and the admin backfill so both take exactly the same
+ * path — a backfill that reimplements the logic is a second thing to get wrong.
+ */
+export async function applyDecision(
+  session: { id: string; user_id: string; attempt: number; didit_session_id?: string },
+  status: string,
+  log?: { error: (o: unknown, m: string) => void },
+): Promise<{ rollup: string; verdict: string | null; duplicates: number }> {
+  const patch: Record<string, unknown> = { status, decided_at: new Date().toISOString() };
+  let is18: boolean | null = null;
+  let flags: RiskFlag[] = [];
+  let parsed: ReturnType<typeof extractDecision> | null = null;
+
+  const diditId =
+    session.didit_session_id ??
+    (
+      await supabaseAdmin
+        .from('verification_sessions')
+        .select('didit_session_id')
+        .eq('id', session.id)
+        .maybeSingle()
+    ).data?.didit_session_id;
+
+  const decision = diditId ? await fetchDecision(diditId) : null;
+  if (decision) {
+    parsed = extractDecision(decision);
+    patch.extracted = parsed.extracted;
+    patch.face_match_score = parsed.face_match_score;
+    patch.warnings = parsed.warnings;
+    flags = parsed.warnings;
+    if (parsed.date_of_birth) {
+      patch.date_of_birth = parsed.date_of_birth;
+      const age = ageFrom(parsed.date_of_birth);
+      // 18+ is enforced from the DOCUMENT's date of birth, never a typed field.
+      is18 = age != null ? age >= 18 : null;
+      patch.is_18_plus = is18;
+    }
+  } else if (log) {
+    log.error({ sessionId: diditId }, 'didit decision fetch failed — status stored without identity data');
+  }
+
+  let rollup = 'in_review';
+  if (is18 === false) rollup = 'failed_underage';
+  else if (status === 'Approved') rollup = 'approved';
+  else if (status === 'Declined') rollup = 'declined';
+  else if (status === 'In Review') rollup = 'in_review';
+  else if (status === 'Abandoned' || status === 'Expired') rollup = 'in_progress';
+
+  const profilePatch: Record<string, unknown> = {
+    verification_status: rollup,
+    verification_session_id: session.id,
+  };
+
+  let verdict: string | null = null;
+  if (rollup === 'approved' && parsed) {
+    const { data: account } = await supabaseAdmin
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', session.user_id)
+      .maybeSingle();
+    const { data: creator } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('declared_legal_name, legal_name')
+      .eq('user_id', session.user_id)
+      .maybeSingle();
+
+    const comparison = reconcileNames({
+      idFullName: parsed.extracted.full_name,
+      idFirstName: parsed.extracted.first_name,
+      idLastName: parsed.extracted.last_name,
+      signupName: account?.full_name ?? null,
+      declaredLegalName: creator?.declared_legal_name ?? null,
+    });
+    verdict = comparison.verdict;
+    patch.name_verdict = comparison.verdict;
+    patch.name_detail = { ...comparison, face_match_score: parsed.face_match_score };
+    patch.name_review_required = comparison.verdict === 'substantial_mismatch';
+
+    if (autoAppliable(comparison.verdict) && comparison.id_name) {
+      profilePatch.legal_name = comparison.id_name;
+      profilePatch.legal_name_source = 'didit';
+      profilePatch.legal_name_set_at = new Date().toISOString();
+      if (account?.email && creator?.legal_name !== comparison.id_name) {
+        await notifyLegalNameSet(
+          account.email,
+          comparison.id_name,
+          account.full_name ?? '',
+          comparison.verdict,
+        ).catch(() => undefined);
+      }
+    }
+  }
+
+  await supabaseAdmin.from('verification_sessions').update(patch).eq('id', session.id);
+  await supabaseAdmin.from('creator_profiles').update(profilePatch).eq('user_id', session.user_id);
+  return { rollup, verdict, duplicates: duplicateFlags(flags).length };
 }
 
 export function registerVerificationRoutes(app: FastifyInstance) {
@@ -410,84 +602,7 @@ export function registerVerificationRoutes(app: FastifyInstance) {
       return { received: true };
     }
 
-    const patch: Record<string, unknown> = { status, decided_at: new Date().toISOString() };
-    let is18: boolean | null = null;
-    if (payload.decision) {
-      const parsed = extractDecision(payload.decision);
-      patch.extracted = parsed.extracted;
-      patch.face_match_score = parsed.face_match_score;
-      patch.warnings = parsed.warnings;
-      if (parsed.date_of_birth) {
-        patch.date_of_birth = parsed.date_of_birth;
-        const age = ageFrom(parsed.date_of_birth);
-        // 18+ is enforced from the DOCUMENT's date of birth, never a typed
-        // field the applicant controls.
-        is18 = age != null ? age >= 18 : null;
-        patch.is_18_plus = is18;
-      }
-    }
-    // Roll up to the application. Under-18 is a hard fail regardless of what
-    // Didit concluded; everything else still goes to a human.
-    let rollup = 'in_review';
-    if (is18 === false) rollup = 'failed_underage';
-    else if (status === 'Approved') rollup = 'approved';
-    else if (status === 'Declined') rollup = 'declined';
-    else if (status === 'In Review') rollup = 'in_review';
-    else if (status === 'Abandoned' || status === 'Expired') rollup = 'in_progress';
-
-    const profilePatch: Record<string, unknown> = {
-      verification_status: rollup,
-      verification_session_id: session.id,
-    };
-
-    // Name reconciliation. Only on a document we actually trust: a declined
-    // or abandoned session's extracted name is not evidence of anything.
-    if (rollup === 'approved' && patch.extracted) {
-      const extracted = patch.extracted as Record<string, string | null>;
-      const { data: account } = await supabaseAdmin
-        .from('profiles')
-        .select('full_name, email')
-        .eq('id', session.user_id)
-        .maybeSingle();
-      const { data: creator } = await supabaseAdmin
-        .from('creator_profiles')
-        .select('declared_legal_name, legal_name')
-        .eq('user_id', session.user_id)
-        .maybeSingle();
-
-      const comparison = reconcileNames({
-        idFullName: extracted.full_name,
-        idFirstName: extracted.first_name,
-        idLastName: extracted.last_name,
-        signupName: account?.full_name ?? null,
-        declaredLegalName: creator?.declared_legal_name ?? null,
-      });
-
-      patch.name_verdict = comparison.verdict;
-      patch.name_detail = { ...comparison, face_match_score: patch.face_match_score ?? null };
-      // A substantial mismatch is PARKED, never applied. The discrepancy is
-      // the evidence — overwriting it would destroy the signal.
-      patch.name_review_required = comparison.verdict === 'substantial_mismatch';
-
-      if (autoAppliable(comparison.verdict) && comparison.id_name) {
-        profilePatch.legal_name = comparison.id_name;
-        profilePatch.legal_name_source = 'didit';
-        profilePatch.legal_name_set_at = new Date().toISOString();
-        // The DISPLAY name (profiles.full_name) is deliberately untouched.
-        if (account?.email && creator?.legal_name !== comparison.id_name) {
-          await notifyLegalNameSet(
-            account.email,
-            comparison.id_name,
-            account.full_name ?? '',
-            comparison.verdict,
-          ).catch((err) => request.log.error({ err }, 'legal name email failed'));
-        }
-      }
-    }
-
-    await supabaseAdmin.from('verification_sessions').update(patch).eq('id', session.id);
-    await supabaseAdmin.from('creator_profiles').update(profilePatch).eq('user_id', session.user_id);
-
+    await applyDecision(session, status);
     return { received: true };
   });
 
@@ -545,16 +660,77 @@ export function registerVerificationRoutes(app: FastifyInstance) {
           }
         : null;
 
+      // Duplicate document / face / device across accounts is the strongest
+      // fraud signal we get, so it is resolved to real accounts here rather
+      // than left as opaque session ids the reviewer cannot act on.
+      const flags: RiskFlag[] = Array.isArray(latest?.warnings) ? (latest.warnings as RiskFlag[]) : [];
+      const dupes = duplicateFlags(flags);
+      const dupeUserIds = [...new Set(dupes.map((d) => d.duplicate_user_id).filter(Boolean))] as string[];
+      const { data: dupeAccounts } = dupeUserIds.length
+        ? await supabaseAdmin.from('profiles').select('id, full_name, email').in('id', dupeUserIds)
+        : { data: [] };
+      const risk = {
+        flags,
+        duplicates: dupes.map((d) => {
+          const acct = (dupeAccounts ?? []).find((a) => a.id === d.duplicate_user_id);
+          return {
+            ...d,
+            duplicate_account: acct ? { id: acct.id, full_name: acct.full_name, email: acct.email } : null,
+          };
+        }),
+      };
+
       await audit(admin, 'verification_viewed', request.params.id);
       return {
         profile: profile ?? null,
         reconciliation,
+        risk,
         sessions: sessions ?? [],
         // Images stay with Didit; the portal streams them through
         // /image below rather than copying them into our storage.
         image_endpoint: `/v1/admin/creators/${request.params.id}/verification/image`,
         configured: diditConfigured,
       };
+    },
+  );
+
+  /**
+   * Backfill / re-pull a decision from Didit for one session, or for every
+   * session missing identity data. Also the manual recovery path for any
+   * webhook we never received.
+   */
+  app.post<{ Body: { session_id?: string; all_missing?: boolean } }>(
+    '/v1/admin/verification/reconcile',
+    async (request, reply) => {
+      const admin = await requireAdmin(request, reply, ['admin']);
+      if (!admin) return;
+      if (!diditConfigured) return reply.code(503).send({ error: 'verification_unavailable' });
+
+      let query = supabaseAdmin
+        .from('verification_sessions')
+        .select('id, user_id, attempt, didit_session_id, status');
+      if (request.body?.session_id) {
+        query = query.eq('didit_session_id', request.body.session_id);
+      } else if (request.body?.all_missing) {
+        // Sessions Didit decided but where we hold no identity data.
+        query = query.is('date_of_birth', null).neq('status', 'Not Started');
+      } else {
+        return reply.code(400).send({ error: 'session_id or all_missing is required' });
+      }
+      const { data: sessions } = await query;
+      if (!sessions?.length) return reply.code(404).send({ error: 'No matching sessions' });
+
+      const results = [];
+      for (const s of sessions) {
+        const outcome = await applyDecision(
+          { id: s.id, user_id: s.user_id, attempt: s.attempt, didit_session_id: s.didit_session_id },
+          s.status as string,
+          request.log,
+        );
+        results.push({ didit_session_id: s.didit_session_id, ...outcome });
+      }
+      await audit(admin, 'verification_reconciled', undefined, { count: results.length });
+      return { reconciled: results.length, results };
     },
   );
 

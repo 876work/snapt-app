@@ -31,6 +31,15 @@ interface Reconciliation {
   auto_applied: boolean;
 }
 
+interface RiskFlag {
+  feature: string;
+  risk: string;
+  description: string;
+  duplicate_session_id: string | null;
+  duplicate_user_id: string | null;
+  duplicate_account?: { id: string; full_name: string; email: string } | null;
+}
+
 interface VerificationData {
   profile: {
     verification_status: string;
@@ -45,6 +54,7 @@ interface VerificationData {
     declared_legal_name: string | null;
   } | null;
   reconciliation: Reconciliation | null;
+  risk: { flags: RiskFlag[]; duplicates: RiskFlag[] } | null;
   sessions: Session[];
   image_endpoint: string;
   configured: boolean;
@@ -159,6 +169,8 @@ export function VerificationPanel({ creatorId }: { creatorId: string }) {
             </div>
           </div>
 
+          {data.risk && <RiskPanel risk={data.risk} />}
+
           {data.reconciliation && (
             <NameReconciliation
               creatorId={creatorId}
@@ -181,16 +193,7 @@ export function VerificationPanel({ creatorId }: { creatorId: string }) {
             </div>
           )}
 
-          {Array.isArray(latest.warnings) && latest.warnings.length > 0 && (
-            <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--warn)', marginTop: 10 }}>
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>Warnings from Didit</div>
-              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
-                {latest.warnings.map((w, i) => (
-                  <li key={i}>{typeof w === 'string' ? w : JSON.stringify(w)}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {/* Warnings render in RiskPanel above, resolved to real accounts. */}
 
           <div style={{ display: 'flex', gap: 12, marginTop: 10, flexWrap: 'wrap' }}>
             {(['portrait', 'document'] as const).map((kind) => (
@@ -225,6 +228,68 @@ export function VerificationPanel({ creatorId }: { creatorId: string }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Duplicate document / face / device across accounts.
+ *
+ * This is the single strongest fraud signal the verification produces — the
+ * same person, or the same borrowed document, appearing under a second
+ * account — and it used to be discarded entirely. It sits ABOVE the name and
+ * face panel because it changes how you read both.
+ */
+function RiskPanel({ risk }: { risk: { flags: RiskFlag[]; duplicates: RiskFlag[] } }) {
+  if (!risk.flags.length) return null;
+  const dupes = risk.duplicates;
+  const others = risk.flags.filter((f) => !dupes.includes(f));
+
+  return (
+    <div
+      className="card"
+      style={{
+        marginTop: 10,
+        padding: 14,
+        borderLeft: `4px solid ${dupes.length ? 'var(--danger)' : 'var(--warn)'}`,
+      }}
+    >
+      {dupes.length > 0 ? (
+        <>
+          <strong style={{ fontSize: 14 }}>
+            This identity already appears on {dupes.length === 1 ? 'another account' : 'other accounts'}
+          </strong>
+          <p style={{ fontSize: 13, lineHeight: '20px', margin: '6px 0 10px', color: 'var(--text-dim)' }}>
+            The same document, face or device was used to verify a different account. That is
+            legitimate for a shared household device, and the clearest sign of a borrowed or
+            sold identity otherwise. Resolve it before approving.
+          </p>
+          {dupes.map((d, i) => (
+            <div key={i} style={{ marginBottom: 8 }}>
+              <Pill tone="danger">{d.risk.replace(/_/g, ' ').toLowerCase()}</Pill>{' '}
+              {d.duplicate_account ? (
+                <a href={`/users/${d.duplicate_account.id}`}>
+                  {d.duplicate_account.full_name || d.duplicate_account.email}
+                </a>
+              ) : (
+                <span style={{ opacity: 0.7 }}>account not resolved</span>
+              )}
+              <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>{d.description}</div>
+            </div>
+          ))}
+        </>
+      ) : (
+        <strong style={{ fontSize: 14 }}>Checks raised {risk.flags.length} note(s)</strong>
+      )}
+      {others.length > 0 && (
+        <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12.5, color: 'var(--text-dim)' }}>
+          {others.map((f, i) => (
+            <li key={i}>
+              <strong>{f.risk.replace(/_/g, ' ').toLowerCase()}</strong> — {f.description}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
