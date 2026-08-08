@@ -396,7 +396,7 @@ export function registerAdminRoutes(app: FastifyInstance) {
       if (!creatorId) return reply.code(400).send({ error: 'creator_id required' });
       const { data: booking } = await supabaseAdmin
         .from('bookings')
-        .select('id, status, occasion, area')
+        .select('id, status, occasion, area, type')
         .eq('id', request.params.id)
         .maybeSingle();
       if (!booking || booking.status !== 'pending') {
@@ -409,8 +409,12 @@ export function registerAdminRoutes(app: FastifyInstance) {
           offer_expires_at: new Date(Date.now() + (await offerWindowMs())).toISOString(),
         })
         .eq('id', booking.id);
+      // A remote edit is not "a session booking near you" — that copy told
+      // an editor to expect an in-person shoot. Say what the job actually is.
       await notify(creatorId, 'offer_received', 'New job offer',
-        `A ${booking.occasion ?? 'session'} booking near ${booking.area ?? 'you'} was assigned to you — accept within the offer window.`,
+        booking.type === 'remote'
+          ? 'A remote edit order was assigned to you — accept within the offer window to start on the client\'s footage.'
+          : `A ${booking.occasion ?? 'session'} booking near ${booking.area ?? 'you'} was assigned to you — accept within the offer window.`,
         { booking_id: booking.id });
       await audit(adminId, 'manual_dispatch', booking.id, { creator_id: creatorId });
       return { assigned: true };

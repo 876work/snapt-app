@@ -177,6 +177,21 @@ export async function createBookingFromPaidIntent(intent: {
       "Your payment went through. The creator you picked got booked in the meantime, so we're matching you with another — we'll confirm shortly.",
       { booking_id: booking.id },
     );
+  } else {
+    // REMOTE EDIT. There is no matching step at checkout — an editor is
+    // assigned by dispatch afterwards — so this branch used to fall through
+    // to nothing. The client's only signal was the payment_charged receipt,
+    // which is email-only (push: false): a paid order confirmed nowhere in
+    // the app. Same silent-success failure as the swallowed claim, one
+    // layer up. booking_confirmed is push + email, so the order announces
+    // itself.
+    await notify(
+      clientId,
+      'booking_confirmed',
+      'Order confirmed',
+      "Your edit order is in. Next step: upload your footage from the order screen — we'll assign your editor and get to work.",
+      { booking_id: booking.id },
+    );
   }
 
   return { created: true, booking_id: booking.id };
