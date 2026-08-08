@@ -7,6 +7,7 @@ import { SlideToConfirm } from '../../../components/ui/SlideToConfirm';
 import { LEGAL_DOCS } from '../../../lib/mock/legal';
 import { useAuth } from '../../../lib/store';
 import { signOutEverywhere } from '../../../lib/auth';
+import * as Updates from 'expo-updates';
 import { colors, spacing, insetTop, insetBottom } from '../../../lib/theme';
 import { navShrinkOnScroll } from '../../../lib/navShrink';
 
@@ -28,6 +29,8 @@ export default function Profile() {
     creatorStatus,
   } = useAuth();
   const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [updBusy, setUpdBusy] = React.useState(false);
+  const [updStatus, setUpdStatus] = React.useState<string | null>(null);
 
   const initial = (name || 'Y').charAt(0).toUpperCase();
 
@@ -300,6 +303,51 @@ export default function Profile() {
           />
         </View>
 
+        {/* Which bundle is this phone ACTUALLY running? Added 2026-08-08
+            after a day of guessing: OTA delivery was verified healthy
+            server-side while the device showed stale UI, and nothing on the
+            phone could say which update it had applied. This line answers
+            that question; the button surfaces the raw check/download error
+            instead of failing silently. */}
+        <View style={styles.updBlock}>
+          <Text style={styles.updTitle}>Build &amp; updates</Text>
+          <Text style={styles.updLine}>
+            Bundle: {Updates.updateId ?? 'embedded (factory bundle)'}
+          </Text>
+          <Text style={styles.updLine}>
+            Published: {Updates.createdAt ? Updates.createdAt.toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : '—'}
+          </Text>
+          <Text style={styles.updLine}>
+            Channel: {Updates.channel || 'none'} · runtime {String(Updates.runtimeVersion ?? '').slice(0, 8)}
+            {Updates.isEmbeddedLaunch ? ' · running factory bundle' : ''}
+          </Text>
+          <Pressable
+            disabled={updBusy}
+            onPress={async () => {
+              setUpdBusy(true);
+              setUpdStatus('Checking…');
+              try {
+                const r = await Updates.checkForUpdateAsync();
+                if (!r.isAvailable) {
+                  setUpdStatus('Up to date — no newer update for this channel and runtime.');
+                } else {
+                  setUpdStatus('Downloading update…');
+                  await Updates.fetchUpdateAsync();
+                  setUpdStatus('Restarting on the new version…');
+                  await Updates.reloadAsync();
+                }
+              } catch (e) {
+                // The raw reason, verbatim — this exists to be read out loud.
+                setUpdStatus(`Update check failed: ${String((e as Error)?.message ?? e)}`);
+              }
+              setUpdBusy(false);
+            }}
+          >
+            <Text style={styles.updBtn}>{updBusy ? 'Checking…' : 'Check for updates now'}</Text>
+          </Pressable>
+          {updStatus ? <Text style={styles.updStatus}>{updStatus}</Text> : null}
+        </View>
+
         <Pressable
           onPress={() => {
             signOutEverywhere();
@@ -523,6 +571,17 @@ const styles = StyleSheet.create({
   listRowBorder: { borderBottomWidth: 1, borderBottomColor: '#F1F1F1' },
   listLabel: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.ink },
   listDetail: { fontSize: 11, color: '#9A948B', fontWeight: '600' },
+  updBlock: {
+    marginTop: 18,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: '#F4F1EA',
+    gap: 3,
+  },
+  updTitle: { fontSize: 12, fontWeight: '800', color: colors.grey, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 },
+  updLine: { fontSize: 12, color: colors.grey, fontVariant: ['tabular-nums'] },
+  updBtn: { fontSize: 13.5, fontWeight: '800', color: colors.ink, marginTop: 8 },
+  updStatus: { fontSize: 12, color: colors.grey, marginTop: 6 },
   logout: { textAlign: 'center', fontSize: 13, fontWeight: '700', color: '#B4442E', marginTop: 24 },
   deleteLink: { textAlign: 'center', fontSize: 12.5, fontWeight: '600', color: '#9A948B', marginTop: 16 },
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(26,26,26,0.45)' },
