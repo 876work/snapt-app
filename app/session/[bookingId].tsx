@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { KeyboardScrollView } from '../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -107,6 +107,8 @@ export default function SessionDay() {
     { id: string; body: string; mine: boolean }[] | null
   >(null);
   const [chatDraft, setChatDraft] = React.useState('');
+  const [chatSending, setChatSending] = React.useState(false);
+  const [chatError, setChatError] = React.useState<string | null>(null);
   React.useEffect(() => {
     if (!chatEnabled || !bookingId) return;
     let uid: string | null = null;
@@ -126,14 +128,25 @@ export default function SessionDay() {
     return () => unsub();
   }, [bookingId]);
 
+  // Same rule as the standalone thread screen: the composer clears only once
+  // the row is confirmed written. Clearing first and discarding the null
+  // return meant a send with no signal destroyed the text in silence — worst
+  // of all here, where people are mid-shoot and least able to retype.
   const sendChat = async () => {
     const body = chatDraft.trim();
-    if (!body) return;
-    setChatDraft('');
+    if (!body || chatSending) return;
     if (chatEnabled && bookingId) {
-      await sendMessage(bookingId, body);
-      // Realtime echo appends it; no optimistic row needed at this scale.
+      setChatSending(true);
+      setChatError(null);
+      const sent = await sendMessage(bookingId, body);
+      setChatSending(false);
+      if (sent) {
+        setChatDraft(''); // Realtime echo appends it; no optimistic row needed.
+      } else {
+        setChatError("Not sent — check your connection, then tap send again.");
+      }
     } else {
+      setChatDraft('');
       setChatMessages((prev) => [
         ...(prev ?? []),
         { id: `local-${Date.now()}`, body, mine: true },
@@ -562,20 +575,33 @@ export default function SessionDay() {
               )}
             </KeyboardScrollView>
             <View style={styles.chatInputWrap}>
+              {chatError && (
+                <View style={styles.chatError}>
+                  <Text style={styles.chatErrorText}>{chatError}</Text>
+                </View>
+              )}
               <View style={styles.chatInputRow}>
                 <TextInput
                   placeholder={`Message ${firstName}…`}
                   placeholderTextColor="#9A9A9A"
                   style={styles.chatInput}
                   value={chatDraft}
-                  onChangeText={setChatDraft}
+                  onChangeText={(t) => {
+                    setChatDraft(t);
+                    if (chatError) setChatError(null);
+                  }}
                   onSubmitEditing={sendChat}
                   returnKeyType="send"
+                  editable={!chatSending}
                 />
-                <Pressable onPress={sendChat} style={styles.chatSend}>
-                  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-                    <Path d="M4 12L20 4l-6 16-3-7-7-1z" stroke={colors.ink} strokeWidth={1.8} strokeLinejoin="round" />
-                  </Svg>
+                <Pressable onPress={sendChat} style={styles.chatSend} disabled={chatSending}>
+                  {chatSending ? (
+                    <ActivityIndicator size="small" color={colors.ink} />
+                  ) : (
+                    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                      <Path d="M4 12L20 4l-6 16-3-7-7-1z" stroke={colors.ink} strokeWidth={1.8} strokeLinejoin="round" />
+                    </Svg>
+                  )}
                 </Pressable>
               </View>
             </View>
@@ -943,6 +969,14 @@ const styles = StyleSheet.create({
   },
   chatBubbleText: { fontSize: 13, lineHeight: 18, color: colors.ink },
   chatInputWrap: { paddingHorizontal: 14, paddingTop: 10 },
+  chatError: {
+    backgroundColor: '#FDECEC',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  chatErrorText: { fontSize: 13, color: '#A3261F' },
   chatInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
