@@ -46,6 +46,8 @@ export default function RemoteOrderSummary() {
   // than starting a second checkout.
   const [paidBookingId, setPaidBookingId] = React.useState<string | null>(null);
   const [uploading, setUploading] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const [stage, setStage] = React.useState('');
 
   /** Upload every queued file, one at a time, with live per-file progress. */
   const uploadAll = async (bookingId: string): Promise<number> => {
@@ -93,11 +95,23 @@ export default function RemoteOrderSummary() {
   };
 
   const placeOrder = async () => {
+    if (busy) return false; // re-entry guard
+    setBusy(true);
+    setOrderError(null);
+    try {
+      return await runOrder();
+    } finally {
+      setBusy(false);
+      setStage('');
+    }
+  };
+
+  const runOrder = async () => {
     const { apiConfigured } = await import('../../lib/api');
     if (apiConfigured) {
       // Same payment-first contract as the in-person checkout: the order
       // does not exist until Stripe confirms.
-      const outcome = await checkoutBooking({
+      const outcome = await checkoutBooking(setStage, {
         type: 'remote',
         media_kind: mediaKind,
         remote_tier: pkg.tier,
@@ -129,6 +143,14 @@ export default function RemoteOrderSummary() {
       }
       if (outcome.reason === 'conflict') {
         setOrderError(outcome.conflict.error);
+        return false;
+      }
+      if (outcome.reason === 'paid_unconfirmed') {
+        setOrderError(
+          'Your payment went through, but we haven\'t been able to confirm the order yet. ' +
+            'Do NOT pay again — check Bookings in a minute, and contact support with reference ' +
+            `${outcome.paymentIntentId.slice(-8)} if it doesn't appear.`,
+        );
         return false;
       }
       setOrderError(
@@ -270,6 +292,7 @@ export default function RemoteOrderSummary() {
           </View>
         )}
         {orderError ? <Text style={styles.footerError}>{orderError}</Text> : null}
+        {busy && !!stage && <Text style={styles.footerStage}>{stage}</Text>}
         {paidBookingId && !uploading && (
           <Pressable onPress={retryUploads} style={styles.retryBtn}>
             <Text style={styles.retryLabel}>Retry upload</Text>
@@ -281,7 +304,12 @@ export default function RemoteOrderSummary() {
         </View>
         {/* Same contract as the in-person checkout: this opens the sheet,
             Stripe's Pay button confirms. */}
-        <Button title="Continue to payment" arrow onPress={placeOrder} />
+        <Button
+          title={busy ? 'Working…' : 'Continue to payment'}
+          arrow
+          loading={busy}
+          onPress={placeOrder}
+        />
       </View>
     </View>
   );
@@ -364,6 +392,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#F0F0F0',
   },
   footerError: { fontSize: 12.5, fontWeight: '700', color: '#A32C2C', textAlign: 'center', marginBottom: 10 },
+  footerStage: { fontSize: 12, color: colors.grey, textAlign: 'center', marginBottom: 10 },
   uploadPanel: { gap: 4, marginBottom: 10, maxHeight: 140 },
   uploadRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   uploadName: { flex: 1, fontSize: 11.5, color: colors.grey },

@@ -52,6 +52,10 @@ export default function OrderSummary() {
   const visibleAddons = draft.social ? ADDONS.filter((a) => a.id !== 'extra-photos') : ADDONS;
   const [bookError, setBookError] = React.useState<string | null>(null);
   const [conflict, setConflict] = React.useState<SlotConflict | null>(null);
+  // In-flight guard. Without it a cold Render dyno (30-60s) leaves the
+  // screen inert, and a second tap creates a second PaymentIntent.
+  const [busy, setBusy] = React.useState(false);
+  const [stage, setStage] = React.useState('');
   const [timeNote, setTimeNote] = React.useState<string | null>(null);
 
   // PRE-VALIDATE the slot on arrival: most conflicts should surface here,
@@ -109,12 +113,24 @@ export default function OrderSummary() {
     draft.mediaKind === 'both' ? 'Photos + video' : draft.mediaKind === 'photo' ? 'Photos' : 'Video';
 
   const book = async () => {
+    if (busy) return false; // re-entry guard
+    setBusy(true);
+    setBookError(null);
+    try {
+      return await runCheckout();
+    } finally {
+      setBusy(false);
+      setStage('');
+    }
+  };
+
+  const runCheckout = async () => {
     if (apiConfigured) {
       const draftNow = useBookings.getState().draft;
       // ONE call: prices server-side and opens the sheet. NOTHING is
       // created — no booking, no creator assignment, no offer clock, no
       // push — until Stripe confirms the payment via webhook.
-      const outcome = await checkoutBooking({
+      const outcome = await checkoutBooking(setStage, {
         type: draftNow.type === 'in-person' ? 'in_person' : 'remote',
         occasion: draftNow.occasion,
         media_kind: draftNow.mediaKind,
@@ -143,6 +159,14 @@ export default function OrderSummary() {
       }
       if (outcome.reason === 'conflict') {
         setConflict(outcome.conflict);
+        return false;
+      }
+      if (outcome.reason === 'paid_unconfirmed') {
+        setBookError(
+          'Your payment went through, but we haven\'t been able to confirm the booking yet. ' +
+            'Do NOT pay again — check Bookings in a minute, and contact support with reference ' +
+            `${outcome.paymentIntentId.slice(-8)} if it doesn't appear.`,
+        );
         return false;
       }
       // Cancelled or declined: nothing exists to clean up.
@@ -325,6 +349,7 @@ export default function OrderSummary() {
             the scroll content can sit outside the viewport at the exact
             moment someone wonders why nothing happened. */}
         {bookError ? <Text style={styles.footerError}>{bookError}</Text> : null}
+        {busy && !!stage && <Text style={styles.footerStage}>{stage}</Text>}
         <View style={styles.payBar}>
           <Text style={styles.payBarLabel}>You're paying (USD)</Text>
           <Text style={styles.payBarValue}>{formatMoney(total, 'USD')}</Text>
@@ -333,7 +358,12 @@ export default function OrderSummary() {
             irreversible commitments; this opens Stripe's sheet, where the
             Pay button is the single real confirmation. Two commit gestures
             for one action taught people to swipe past the one that counts. */}
-        <Button title="Continue to payment" arrow onPress={book} />
+        <Button
+          title={busy ? 'Working…' : 'Continue to payment'}
+          arrow
+          loading={busy}
+          onPress={book}
+        />
       </View>
     </View>
   );
@@ -474,6 +504,7 @@ const styles = StyleSheet.create({
   link: { color: colors.yellowDark, fontWeight: '600', textDecorationLine: 'underline' },
   timeNote: { fontSize: 12.5, fontWeight: '700', color: '#1E7A45', marginBottom: 8, textAlign: 'center' },
   footerError: { fontSize: 12.5, fontWeight: '700', color: '#A32C2C', textAlign: 'center', marginBottom: 10 },
+  footerStage: { fontSize: 12, color: colors.grey, textAlign: 'center', marginBottom: 10 },
   payBar: {
     flexDirection: 'row',
     alignItems: 'center',

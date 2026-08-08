@@ -149,12 +149,31 @@ export async function waitForCharge(bookingId: string, timeoutMs = 15_000): Prom
  */
 export type CheckoutOutcome =
   | { ok: true; bookingId: string | null }
+  /** Paid, but the webhook has not produced a booking yet. NEVER silent:
+   * with booking creation behind the webhook, this is the difference
+   * between "confirming" and "we took your money and made nothing". */
+  | { ok: false; reason: 'paid_unconfirmed'; paymentIntentId: string }
   | { ok: false; reason: 'cancelled' | 'failed' | 'unavailable'; message?: string }
   | { ok: false; reason: 'conflict'; conflict: import('./api').SlotConflict };
 
-export async function checkoutBooking(params: Record<string, unknown>): Promise<CheckoutOutcome> {
+export async function checkoutBooking(
+  /** Progress copy for the caller to display while this runs. Called with
+   * '' to clear. Checkout is slow enough on a cold dyno that silence reads
+   * as a crash, so the stages are part of the contract, not decoration. */
+  onStage: (message: string) => void,
+  params: Record<string, unknown>,
+): Promise<CheckoutOutcome> {
   const { apiBase, authHeaders } = await import('./api');
   if (!apiBase) return { ok: false, reason: 'unavailable', message: 'No server configured.' };
+
+  onStage('Starting secure checkout…');
+  // Render's free tier sleeps; a cold dyno can take 30-60s to answer. Say
+  // so rather than letting the screen look dead — and BOUND it, because
+  // React Native's fetch has no default timeout and would otherwise hang
+  // forever on a server that never wakes.
+  const waking = setTimeout(() => onStage('Waking the server — first request can take up to a minute…'), 6000);
+  const abort = new AbortController();
+  const timeout = setTimeout(() => abort.abort(), 90_000);
 
   let res: Response;
   try {
@@ -162,9 +181,20 @@ export async function checkoutBooking(params: Record<string, unknown>): Promise<
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify(params),
+      signal: abort.signal,
     });
-  } catch {
-    return { ok: false, reason: 'unavailable', message: "Couldn't reach the server — check your connection and try again." };
+  } catch (err) {
+    const timedOut = (err as { name?: string })?.name === 'AbortError';
+    return {
+      ok: false,
+      reason: 'unavailable',
+      message: timedOut
+        ? 'The server did not respond in time. Nothing was charged — please try again.'
+        : "Couldn't reach the server — check your connection and try again. Nothing was charged.",
+    };
+  } finally {
+    clearTimeout(waking);
+    clearTimeout(timeout);
   }
   const json = (await res.json().catch(() => ({}))) as {
     client_secret?: string;
@@ -203,6 +233,7 @@ export async function checkoutBooking(params: Record<string, unknown>): Promise<
   });
   if (init.error) return { ok: false, reason: 'unavailable', message: init.error.message };
 
+  onStage('');
   const { error } = await presentPaymentSheet();
   if (error) {
     // Sheet closed or declined. NOTHING was created — no booking, no offer,
@@ -217,9 +248,18 @@ export async function checkoutBooking(params: Record<string, unknown>): Promise<
 
   // Paid. The BOOKING is created by the webhook, so wait for the server's
   // word rather than the sheet's.
+  onStage('Payment received — confirming your booking…');
   const bookingId = json.payment_intent_id
     ? await waitForCheckoutBooking(json.payment_intent_id)
     : null;
+  onStage('');
+  if (!bookingId && json.payment_intent_id) {
+    // The charge went through but no booking came back. Almost always the
+    // Stripe webhook not reaching us — and since the webhook is what
+    // CREATES the booking, staying quiet here would strand a paid client
+    // on an empty bookings list.
+    return { ok: false, reason: 'paid_unconfirmed', paymentIntentId: json.payment_intent_id };
+  }
   return { ok: true, bookingId };
 }
 
