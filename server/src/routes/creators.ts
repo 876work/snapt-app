@@ -157,6 +157,19 @@ export function registerCreatorRoutes(app: FastifyInstance) {
     const latest = new Map<string, { id: string; doc_type: string; version: number }>();
     for (const doc of docs ?? []) if (!latest.has(doc.doc_type)) latest.set(doc.doc_type, doc);
 
+    // REQUIRED headshot (original spec): uploaded via /v1/creator/headshot
+    // before submit. Server-enforced so an old build can't skip it.
+    const { data: existingRow } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('headshot_path')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (!existingRow?.headshot_path) {
+      return reply.code(400).send({
+        error: 'A professional headshot is required — add yours on the photo step before submitting.',
+      });
+    }
+
     const { error: upsertError } = await supabaseAdmin.from('creator_profiles').upsert(
       {
         user_id: user.id,
@@ -212,7 +225,7 @@ export function registerCreatorRoutes(app: FastifyInstance) {
   app.get('/v1/creators/featured', async () => {
     const { data } = await supabaseAdmin
       .from('creator_profiles')
-      .select('user_id, specialties, verified, base_area, profiles!creator_profiles_user_id_fkey!inner(full_name, avatar_url)')
+      .select('user_id, specialties, verified, base_area, headshot_path, headshot_status, profiles!creator_profiles_user_id_fkey!inner(full_name, avatar_url)')
       .eq('vetting_status', 'approved')
       .limit(12);
     const ids = (data ?? []).map((c: any) => c.user_id as string);
@@ -255,7 +268,12 @@ export function registerCreatorRoutes(app: FastifyInstance) {
             specialties: c.specialties ?? [],
             verified: c.verified,
             base_area: c.base_area,
-            avatar_url: c.profiles.avatar_url,
+            // The APPROVED headshot, signed — pending/rejected never leaves
+            // the admin panel.
+            avatar_url:
+              c.headshot_status === 'approved' && c.headshot_path
+                ? await createDownloadUrl('portfolio', c.headshot_path).catch(() => null)
+                : c.profiles.avatar_url,
             /** Signed portfolio URLs, newest first. Never empty here. */
             work,
           };
@@ -305,15 +323,70 @@ export function registerCreatorRoutes(app: FastifyInstance) {
     const { data, error } = await supabaseAdmin
       .from('creator_profiles')
       .select(
-        'vetting_status, background_check_status, specialties, verified, base_area, service_radius_km, availability, blocked_dates, service_type, is_available, applied_at, rejection_reason',
+        'vetting_status, background_check_status, specialties, verified, base_area, service_radius_km, availability, blocked_dates, service_type, is_available, applied_at, rejection_reason, headshot_path, headshot_status',
       )
       .eq('user_id', user.id)
       .maybeSingle();
     if (error) return reply.code(500).send({ error: error.message });
+    let headshotUrl: string | null = null;
+    if (data?.headshot_path) {
+      const { createDownloadUrl } = await import('../storage.js');
+      headshotUrl = await createDownloadUrl('portfolio', data.headshot_path).catch(() => null);
+    }
+    const { headshot_path, ...rest } = data ?? ({} as Record<string, unknown>);
     return {
       status: statusOf(data),
-      ...(data ?? {}),
+      ...rest,
+      headshot_url: headshotUrl,
     };
+  });
+
+  // ---- Headshot: upload + register -----------------------------------------
+  // Applicants included (no approved-creator gate): the headshot is part of
+  // the application itself. Files go to the private portfolio bucket under
+  // headshots/{uid}/ and every upload lands as PENDING — nothing reaches
+  // clients until an admin has seen it.
+  app.post<{ Body: { filename?: string; content_type?: string } }>(
+    '/v1/creator/headshot/upload-url',
+    async (request, reply) => {
+      const user = requireUser(request);
+      const { filename, content_type } = request.body ?? {};
+      if (!filename) return reply.code(400).send({ error: 'filename is required' });
+      if (!content_type || !content_type.startsWith('image/')) {
+        return reply.code(400).send({ error: 'Headshots must be an image' });
+      }
+      const { createUploadTarget } = await import('../storage.js');
+      const safeName = filename.replace(/[^\w.\-]/g, '_');
+      return createUploadTarget('portfolio', `headshots/${user.id}/${Date.now()}-${safeName}`, content_type);
+    },
+  );
+
+  app.post<{ Body: { storage_path?: string } }>('/v1/creator/headshot', async (request, reply) => {
+    const user = requireUser(request);
+    const storagePath = request.body?.storage_path;
+    // Path is scoped to the caller — nobody can register someone else's file.
+    if (!storagePath || !storagePath.startsWith(`headshots/${user.id}/`)) {
+      return reply.code(400).send({ error: 'storage_path must be your own headshot upload' });
+    }
+    const { data: existing } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('vetting_status, headshot_status')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    const { error } = await supabaseAdmin.from('creator_profiles').upsert(
+      { user_id: user.id, headshot_path: storagePath, headshot_status: 'pending' },
+      { onConflict: 'user_id' },
+    );
+    if (error) return reply.code(500).send({ error: error.message });
+    // A replacement from an already-live creator needs re-review — flag it
+    // so it doesn't sit invisible until someone happens to open the profile.
+    if (existing?.vetting_status === 'approved') {
+      await supabaseAdmin.from('admin_alerts').insert({
+        alert_type: 'headshot_review',
+        detail: { creator_id: user.id },
+      });
+    }
+    return reply.code(201).send({ saved: true, headshot_status: 'pending' });
   });
 
   // Approved creators manage their schedule + matching visibility here.
@@ -386,18 +459,61 @@ export function registerCreatorRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: `occasion must be one of ${OCCASIONS.join(', ')}` });
       }
       const creators = await eligibleCreators(occasion, area);
+      const { createDownloadUrl } = await import('../storage.js');
       return {
-        creators: creators.map((c) => ({
+        creators: await Promise.all(creators.map(async (c) => ({
           id: c.user_id,
           full_name: c.full_name,
-          avatar_url: c.avatar_url,
+          avatar_url:
+            c.headshot_status === 'approved' && c.headshot_path
+              ? await createDownloadUrl('portfolio', c.headshot_path).catch(() => null)
+              : c.avatar_url,
           specialties: c.specialties,
           verified: c.verified,
           base_area: c.base_area,
           // Real km, booking area → creator base area (seeded coordinates).
           distance_km: c.distance_km ?? null,
-        })),
+        }))),
       };
+    },
+  );
+
+  // Headshot review — the post-approval path (backfill uploads and
+  // replacements). Application-time headshots are approved implicitly by
+  // the application approval itself.
+  app.post<{ Params: { userId: string }; Body: { approve?: boolean } }>(
+    '/v1/admin/creators/:userId/headshot-review',
+    async (request, reply) => {
+      const adminId = await requireAdmin(request, reply);
+      if (!adminId) return;
+      const approve = request.body?.approve === true;
+      const { data: row } = await supabaseAdmin
+        .from('creator_profiles')
+        .select('headshot_status')
+        .eq('user_id', request.params.userId)
+        .maybeSingle();
+      if (!row?.headshot_status) return reply.code(404).send({ error: 'No headshot to review' });
+      const { error } = await supabaseAdmin
+        .from('creator_profiles')
+        .update({ headshot_status: approve ? 'approved' : 'rejected' })
+        .eq('user_id', request.params.userId);
+      if (error) return reply.code(500).send({ error: error.message });
+      await supabaseAdmin
+        .from('admin_alerts')
+        .update({ resolved_at: new Date().toISOString() })
+        .eq('alert_type', 'headshot_review')
+        .is('resolved_at', null)
+        .filter('detail->>creator_id', 'eq', request.params.userId);
+      await audit(adminId, approve ? 'headshot_approved' : 'headshot_rejected', request.params.userId, {});
+      if (!approve) {
+        await notify(
+          request.params.userId,
+          'headshot_rejected',
+          'Your headshot needs a retake',
+          "The photo you uploaded didn't meet our profile guidelines. Upload a new one from your creator profile — clear, front-facing, just you.",
+        );
+      }
+      return { headshot_status: approve ? 'approved' : 'rejected' };
     },
   );
 
@@ -439,6 +555,13 @@ export function registerCreatorRoutes(app: FastifyInstance) {
         })
         .eq('user_id', request.params.userId);
       if (error) return reply.code(500).send({ error: error.message });
+      // Approving the application approves the pending headshot with it —
+      // it was on screen during this review.
+      await supabaseAdmin
+        .from('creator_profiles')
+        .update({ headshot_status: 'approved' })
+        .eq('user_id', request.params.userId)
+        .eq('headshot_status', 'pending');
       await notify(request.params.userId, 'application_approved', 'You\'re approved!', 'Welcome to Snapt — you can now receive bookings. Set your availability to go live.');
       await audit(adminId, 'creator_approved', request.params.userId, {
         verification_status: vp?.verification_status ?? 'unknown',

@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { VerifyIdentity } from '../../components/creator/VerifyIdentity';
+import { HeadshotUpload } from '../../components/creator/HeadshotUpload';
 import { PoliceCertificate } from '../../components/creator/PoliceCertificate';
 import { Button } from '../../components/ui/Button';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
@@ -48,10 +49,30 @@ export default function CreatorApplication() {
   const [bgCheckConsent, setBgCheckConsent] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  // Required (original spec): the professional face clients see. Server
+  // rejects a submit without one, this just gates the button honestly.
+  const [headshotDone, setHeadshotDone] = React.useState(false);
+  const [headshotUrl, setHeadshotUrl] = React.useState<string | null>(null);
+  const [headshotStatus, setHeadshotStatus] = React.useState<'pending' | 'approved' | 'rejected' | null>(null);
   const loaded = React.useRef(false);
+
+  React.useEffect(() => {
+    import('../../lib/api').then(({ apiConfigured, fetchCreatorMe }) => {
+      if (!apiConfigured) return;
+      fetchCreatorMe().then((me) => {
+        if (!me) return;
+        if (me.headshot_url) {
+          setHeadshotUrl(me.headshot_url);
+          setHeadshotStatus(me.headshot_status ?? null);
+          setHeadshotDone(true);
+        }
+      });
+    });
+  }, []);
 
   const needsBgCheck = serviceType !== 'remote';
   const canSubmit =
+    headshotDone &&
     sel.length > 0 &&
     legalName.trim().length >= 3 &&
     agreementAccepted &&
@@ -159,6 +180,15 @@ export default function CreatorApplication() {
           Tell us what you shoot and we'll take it from there. Applications are vetted — most hear back
           in 2–3 days. Your progress saves automatically.
         </Text>
+
+        <Text style={styles.sectionLabel}>YOUR HEADSHOT</Text>
+        <View style={styles.card}>
+          <HeadshotUpload
+            currentUrl={headshotUrl}
+            status={headshotStatus}
+            onUploaded={() => setHeadshotDone(true)}
+          />
+        </View>
 
         <Text style={styles.sectionLabel}>HOW DO YOU WANT TO WORK?</Text>
         <SegmentedControl
@@ -299,6 +329,14 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.offWhite },
   body: { paddingHorizontal: 22, paddingTop: 8 },
   lead: { fontSize: 13.5, color: colors.grey, lineHeight: 19.5, marginBottom: 8 },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 15,
+    marginBottom: 4,
+  },
   sectionLabel: {
     fontSize: 10,
     fontWeight: '800',

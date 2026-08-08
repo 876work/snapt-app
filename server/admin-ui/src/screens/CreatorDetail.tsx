@@ -19,6 +19,8 @@ interface CreatorDetailData {
   creator: {
     portfolio_link?: string | null;
     declared_legal_name?: string | null;
+    headshot_url?: string | null;
+    headshot_status?: 'pending' | 'approved' | 'rejected' | null;
     user_id: string;
     vetting_status: string;
     background_check_status: string;
@@ -88,6 +90,12 @@ export function CreatorDetail() {
     onError: (e) => setActionError((e as Error).message),
     onSettled: refresh,
   });
+  const headshotReview = useMutation({
+    mutationFn: (approve: boolean) =>
+      api(`/v1/admin/creators/${id}/headshot-review`, { method: 'POST', body: JSON.stringify({ approve }) }),
+    onSuccess: refresh,
+  });
+
   const overturn = useMutation({
     mutationFn: (strikeId: string) => api(`/v1/admin/strikes/${strikeId}/overturn`, { method: 'POST' }),
     onSuccess: () => setActionError(null),
@@ -124,6 +132,55 @@ export function CreatorDetail() {
         </h1>
         <Pill status={creator.vetting_status} />
         {creator.verified && <Pill tone="brand">verified</Pill>}
+      {/* The applicant's face, front and centre of review — spec'd from the
+          start, previously never displayed. */}
+      {creator.headshot_url ? (
+        <div className="card" style={{ padding: 12, marginBottom: 12, display: 'flex', gap: 14, alignItems: 'center' }}>
+          <img
+            src={creator.headshot_url}
+            alt="Creator headshot"
+            style={{ width: 96, height: 96, borderRadius: 12, objectFit: 'cover' }}
+          />
+          <div style={{ flex: 1 }}>
+            <div className="k">Headshot</div>
+            <Pill
+              tone={creator.headshot_status === 'approved' ? 'brand' : creator.headshot_status === 'rejected' ? 'danger' : 'neutral'}
+            >
+              {creator.headshot_status ?? 'none'}
+            </Pill>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+              {creator.headshot_status === 'pending'
+                ? inReview
+                  ? 'Approving the application approves this photo with it.'
+                  : 'Uploaded after approval — needs a separate review before clients see it.'
+                : creator.headshot_status === 'approved'
+                  ? 'Live on client surfaces.'
+                  : 'Not shown to clients.'}
+            </div>
+          </div>
+          {creator.headshot_status === 'pending' && !inReview && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn" disabled={headshotReview.isPending} onClick={() => headshotReview.mutate(true)}>
+                Approve photo
+              </button>
+              <button
+                className="btn btn-danger"
+                disabled={headshotReview.isPending}
+                onClick={() => window.confirm('Reject this headshot? The creator is asked to upload a new one.') && headshotReview.mutate(false)}
+              >
+                Reject
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+          <div className="k">Headshot</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+            None uploaded — this creator renders as an initial-letter tile in the app.
+          </div>
+        </div>
+      )}
       {creator.portfolio_link && (
         <div className="card" style={{ padding: 12, marginBottom: 12, borderLeft: '4px solid var(--gold, #C9A227)' }}>
           <div className="k">Portfolio</div>

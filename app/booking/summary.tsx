@@ -11,7 +11,8 @@ import { SlideToConfirm } from '../../components/ui/SlideToConfirm';
 import { DURATIONS, packagePrice } from '../../lib/mock/data';
 import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { creatorById, useAuth, useBookings } from '../../lib/store';
-import { apiConfigured, createBookingApi } from '../../lib/api';
+import { apiConfigured, createBookingApi, fetchDaySlotsDetailed, isServerCreatorId, SlotConflict } from '../../lib/api';
+import { SlotRecoverySheet } from '../../components/booking/SlotRecoverySheet';
 import { abandonBooking, payForBooking, waitForCharge } from '../../lib/payments';
 import {
   CANCEL_FULL_REFUND_HOURS,
@@ -51,6 +52,35 @@ export default function OrderSummary() {
   // ignores the flag for Social regardless — this just keeps the UI honest.
   const visibleAddons = draft.social ? ADDONS.filter((a) => a.id !== 'extra-photos') : ADDONS;
   const [bookError, setBookError] = React.useState<string | null>(null);
+  const [conflict, setConflict] = React.useState<SlotConflict | null>(null);
+  const [timeNote, setTimeNote] = React.useState<string | null>(null);
+
+  // PRE-VALIDATE the slot on arrival: most conflicts should surface here,
+  // before anyone slides toward a payment, not after.
+  React.useEffect(() => {
+    if (!apiConfigured || !draft.occasion || !draft.date || !draft.time || draft.durationHours == null) return;
+    let cancelled = false;
+    fetchDaySlotsDetailed(draft.occasion, draft.date, draft.durationHours, draft.area).then((slots) => {
+      if (cancelled || !slots) return; // unreachable server: the book() 409 path still catches it
+      const wantedCreator = isServerCreatorId(draft.creatorId) ? draft.creatorId : null;
+      const slot = slots.find((x) => x.time === draft.time);
+      const ok = slot && (!wantedCreator || slot.creator_ids.includes(wantedCreator));
+      if (ok) return;
+      const times = slots
+        .filter((x) => (wantedCreator ? x.creator_ids.includes(wantedCreator) : x.creator_ids.length > 0))
+        .map((x) => x.time)
+        .slice(0, 8);
+      setConflict({
+        code: slot ? 'creator_taken' : 'slot_taken',
+        error: 'That time is no longer available',
+        alternative_times: times,
+        rematch_available: !!slot && slot.creator_ids.length > 0,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [draft.occasion, draft.date, draft.time, draft.durationHours, draft.area, draft.creatorId]);
 
   // Display price from the confirmed table (service type × duration); the
   // server recomputes from config at booking creation (§8).
@@ -61,6 +91,11 @@ export default function OrderSummary() {
   const serviceFee = (base + addonsTotal) * CLIENT_SERVICE_FEE_RATE;
   const total = base + addonsTotal + serviceFee;
 
+
+  const setDraftTime = (time: string) => {
+    useBookings.getState().setDraft({ time });
+    setTimeNote(`Time updated to ${time} — slide below to confirm.`);
+  };
 
   const when =
     draft.date && draft.time
@@ -113,6 +148,12 @@ export default function OrderSummary() {
         router.dismissAll();
         router.replace(`/bookings/${result.booking.id}`);
         return true;
+      }
+      if (result && 'conflict' in result) {
+        // The slot vanished between arrival and the slide. Recovery sheet,
+        // not a dead-end string.
+        setConflict(result.conflict);
+        return false; // slider unlocks; the sheet offers the way forward
       }
       if (result && 'error' in result) {
         setBookError(result.error);
@@ -254,6 +295,7 @@ export default function OrderSummary() {
           </Text>
           .
         </Text>
+        {timeNote ? <Text style={styles.timeNote}>{timeNote}</Text> : null}
         {bookError ? <Text style={styles.payError}>{bookError}</Text> : null}
         <Text style={styles.usdNote}>
           {currency === 'XCD' ? `≈ ${formatMoney(total, 'XCD')} · ` : ''}
@@ -262,6 +304,27 @@ export default function OrderSummary() {
         <View style={{ height: 24 }} />
       </KeyboardScrollView>
 
+      <SlotRecoverySheet
+        conflict={conflict}
+        creatorName={creator?.name?.split(' ')[0] ?? null}
+        chosenTime={draft.time}
+        onPickTime={(time) => {
+          setDraftTime(time);
+          setConflict(null);
+        }}
+        onRematch={() => {
+          // Keep the time; drop the specific creator so the server
+          // auto-assigns from whoever is free in this slot.
+          useBookings.getState().setDraft({ creatorId: null });
+          setConflict(null);
+          setTimeNote("We'll match you with another available creator for the same time.");
+        }}
+        onEditDetails={() => {
+          setConflict(null);
+          router.back();
+        }}
+        onClose={() => setConflict(null)}
+      />
       <View style={styles.footer}>
         {/* ONE confirmation for one action: the slide IS the payment
             commitment and opens Stripe's sheet directly. */}
@@ -409,6 +472,7 @@ const styles = StyleSheet.create({
   stripeText: { flex: 1, fontSize: 12, color: colors.grey, lineHeight: 17 },
   terms: { fontSize: 11.5, color: '#9A9A9A', lineHeight: 17, marginTop: 12, paddingHorizontal: 2 },
   link: { color: colors.yellowDark, fontWeight: '600', textDecorationLine: 'underline' },
+  timeNote: { fontSize: 12.5, fontWeight: '700', color: '#1E7A45', marginBottom: 8, textAlign: 'center' },
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,

@@ -130,6 +130,9 @@ export function targetFor(trigger: string, data: TargetData = {}): string | null
     case 'strike_issued':
     case 'suspension_applied':
       return '/creator';
+    // Where the creator re-uploads their headshot.
+    case 'headshot_rejected':
+      return '/creator/headshot';
 
     // ---- Disputes ---------------------------------------------------------
     // The evidence screen: an open dispute is a deadline, and evidence is

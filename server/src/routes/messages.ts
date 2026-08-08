@@ -55,8 +55,12 @@ async function loadThreads(userId: string): Promise<ThreadRow[]> {
     ...new Set(bookings.map((b) => (b.client_id === userId ? b.creator_id : b.client_id) as string)),
   ];
 
-  const [{ data: profiles }, { data: messages }, { data: reads }] = await Promise.all([
+  const [{ data: profiles }, { data: creatorRows }, { data: messages }, { data: reads }] = await Promise.all([
     supabaseAdmin.from('profiles').select('id, full_name, avatar_url').in('id', otherIds),
+    supabaseAdmin
+      .from('creator_profiles')
+      .select('user_id, headshot_path, headshot_status')
+      .in('user_id', otherIds),
     supabaseAdmin
       .from('messages')
       .select('booking_id, sender_id, body, created_at')
@@ -67,6 +71,16 @@ async function loadThreads(userId: string): Promise<ThreadRow[]> {
 
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
   const readAt = new Map((reads ?? []).map((r) => [r.booking_id, r.last_read_at as string]));
+  // Counterparty creators show their APPROVED headshot; clients (no
+  // creator_profiles row / no approved headshot) fall back to avatar_url.
+  const { createDownloadUrl } = await import('../storage.js');
+  const headshotById = new Map<string, string>();
+  for (const c of creatorRows ?? []) {
+    if (c.headshot_status === 'approved' && c.headshot_path) {
+      const url = await createDownloadUrl('portfolio', c.headshot_path).catch(() => null);
+      if (url) headshotById.set(c.user_id as string, url);
+    }
+  }
 
   const lastMessage = new Map<string, { body: string; created_at: string; sender_id: string }>();
   const unreadCount = new Map<string, number>();
@@ -92,7 +106,7 @@ async function loadThreads(userId: string): Promise<ThreadRow[]> {
       // `||`, not `??` — full_name can be an empty string, not just null,
       // on an account that never completed profile setup.
       other_name: other?.full_name || 'Snapt user',
-      other_avatar: other?.avatar_url ?? null,
+      other_avatar: headshotById.get(otherId) ?? other?.avatar_url ?? null,
       type: b.type,
       occasion: b.occasion,
       scheduled_at: b.scheduled_at,

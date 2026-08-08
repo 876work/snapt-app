@@ -118,6 +118,33 @@ export async function fetchDaySlots(
   return result.slots.map((s) => s.time);
 }
 
+/**
+ * Same endpoint, full slot objects — Order Summary pre-validates the chosen
+ * time (and creator) against these before asking anyone to slide.
+ */
+export async function fetchDaySlotsDetailed(
+  occasion: string,
+  date: string,
+  durationHours: number,
+  area?: string | null,
+): Promise<{ time: string; creator_ids: string[] }[] | null> {
+  const qs =
+    `occasion=${encodeURIComponent(occasion)}&date=${date}&duration_hours=${durationHours}` +
+    (area ? `&area=${encodeURIComponent(area)}` : '');
+  const result = await request<{ slots: { time: string; creator_ids: string[] }[] }>(
+    `/v1/availability?${qs}`,
+  );
+  return result?.slots ?? null;
+}
+
+/** Structured slot-conflict payload from POST /v1/bookings (409). */
+export interface SlotConflict {
+  code: 'slot_taken' | 'creator_taken';
+  error: string;
+  alternative_times: string[];
+  rematch_available: boolean;
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** True when the id came from the server (uuid) rather than the mock catalog. */
@@ -413,6 +440,9 @@ export function reportNoShowApi(id: string, attemptedContact?: boolean) {
 import type { CreatorStatus } from './store';
 
 export interface CreatorMe {
+  /** Signed URL of the uploaded headshot (any status), for self-view. */
+  headshot_url?: string | null;
+  headshot_status?: 'pending' | 'approved' | 'rejected' | null;
   status: CreatorStatus;
   specialties?: string[];
   service_type?: 'remote' | 'in_person' | 'both';
@@ -859,6 +889,42 @@ export function submitContentReport(
   });
 }
 
+/**
+ * Headshot: presign, PUT, register. Lands as PENDING — the server only
+ * shows approved headshots to clients.
+ */
+export async function uploadHeadshotApi(file: {
+  uri: string;
+  name: string;
+  mimeType?: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const target = await authedPost<{ upload_url: string; storage_path: string }>(
+    '/v1/creator/headshot/upload-url',
+    { filename: file.name, content_type: file.mimeType ?? 'image/jpeg' },
+  );
+  if (!target || 'error' in target) {
+    return { ok: false, error: (target as { error?: string })?.error ?? 'Could not start the upload.' };
+  }
+  try {
+    const blob = await (await fetch(file.uri)).blob();
+    const put = await fetch(target.upload_url, {
+      method: 'PUT',
+      headers: { 'Content-Type': file.mimeType ?? 'image/jpeg' },
+      body: blob,
+    });
+    if (!put.ok) return { ok: false, error: 'Upload failed — check your connection and retry.' };
+  } catch {
+    return { ok: false, error: 'Upload failed — check your connection and retry.' };
+  }
+  const registered = await authedPost<{ saved?: boolean; error?: string }>('/v1/creator/headshot', {
+    storage_path: target.storage_path,
+  });
+  if (!registered || ('error' in registered && registered.error)) {
+    return { ok: false, error: (registered as { error?: string })?.error ?? 'Could not save the headshot.' };
+  }
+  return { ok: true };
+}
+
 /** Presign, PUT the file bytes, and register the media row. */
 export async function uploadMediaApi(
   bookingId: string,
@@ -896,7 +962,7 @@ export async function uploadMediaApi(
 export async function createBookingApi(
   draft: BookingDraft,
   addons?: { rush?: boolean; extraPhotos?: boolean; extraRevisions?: number },
-): Promise<{ booking: Booking } | { error: string } | null> {
+): Promise<{ booking: Booking } | { error: string } | { conflict: SlotConflict } | null> {
   if (!apiUrl) return null;
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -934,8 +1000,26 @@ export async function createBookingApi(
         },
       }),
     });
-    const json = (await res.json()) as { booking?: ServerBooking; error?: string };
+    const json = (await res.json()) as {
+      booking?: ServerBooking;
+      error?: string;
+      code?: string;
+      alternative_times?: string[];
+      rematch_available?: boolean;
+    };
     if (!res.ok || !json.booking) {
+      // Slot conflicts come back structured so the UI can offer a way
+      // forward instead of a dead-end message.
+      if (json.code === 'slot_taken' || json.code === 'creator_taken') {
+        return {
+          conflict: {
+            code: json.code,
+            error: json.error ?? 'That time is no longer available',
+            alternative_times: json.alternative_times ?? [],
+            rematch_available: json.rematch_available ?? false,
+          },
+        };
+      }
       return { error: json.error ?? 'Could not create the booking. Try another time slot.' };
     }
     const b = json.booking;

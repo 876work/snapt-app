@@ -195,12 +195,37 @@ export function registerBookingRoutes(app: FastifyInstance) {
       const creators = await eligibleCreators(occasion, body.area);
       const slots = await dayAvailability(occasion, body.date, durationHours as number, body.area);
       const slot = slots.find((s) => s.time === body.time);
-      if (!slot) return reply.code(409).send({ error: 'That time is no longer available' });
+      // Slot conflicts carry RECOVERY data, not just a verdict: the nearest
+      // same-day times (for the requested creator when one was chosen), and
+      // whether keeping the time with a different creator is possible. The
+      // app renders these as a recovery sheet instead of a dead-end error.
+      const timesFor = (creatorId: string | null) =>
+        slots
+          .filter((s) => (creatorId ? s.creator_ids.includes(creatorId) : s.creator_ids.length > 0))
+          .map((s) => s.time)
+          .sort(
+            (a, b) =>
+              Math.abs(Date.parse(`${body.date}T${a}:00`) - scheduled.getTime()) -
+              Math.abs(Date.parse(`${body.date}T${b}:00`) - scheduled.getTime()),
+          )
+          .slice(0, 8);
+      if (!slot) {
+        return reply.code(409).send({
+          error: 'That time is no longer available',
+          code: 'slot_taken',
+          alternative_times: timesFor(body.creator_id ?? null),
+          rematch_available: false,
+        });
+      }
 
       if (body.creator_id) {
         if (!slot.creator_ids.includes(body.creator_id)) {
           return reply.code(409).send({
             error: 'Selected creator is not available for this slot',
+            code: 'creator_taken',
+            alternative_times: timesFor(body.creator_id),
+            // Keeping the time works: someone else can take the job.
+            rematch_available: slot.creator_ids.length > 0,
             available_creator_ids: slot.creator_ids,
           });
         }

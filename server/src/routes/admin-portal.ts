@@ -529,7 +529,7 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
     const { data: creator, error } = await supabaseAdmin
       .from('creator_profiles')
       .select(
-        'user_id, vetting_status, background_check_status, background_check_completed_at, specialties, service_type, service_radius_km, base_area, bio, portfolio_link, declared_legal_name, availability, blocked_dates, verified, promo_fee_rate, is_available, applied_at, rejection_reason, payout_methods, created_at',
+        'user_id, vetting_status, background_check_status, background_check_completed_at, specialties, service_type, service_radius_km, base_area, bio, portfolio_link, declared_legal_name, availability, blocked_dates, verified, promo_fee_rate, is_available, applied_at, rejection_reason, payout_methods, created_at, headshot_path, headshot_status',
       )
       .eq('user_id', id)
       .maybeSingle();
@@ -591,9 +591,19 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
       ...(reviewRows ?? []).slice(0, 5).map((r) => r.client_id),
     ]);
 
+    // The headshot the applicant/creator uploaded, signed for the panel.
+    // Pending ones show here FIRST — review is the whole point.
+    let headshotUrl: string | null = null;
+    if ((creator as Record<string, unknown>).headshot_path) {
+      const { createDownloadUrl } = await import('../storage.js');
+      headshotUrl = await createDownloadUrl(
+        'portfolio',
+        (creator as Record<string, unknown>).headshot_path as string,
+      ).catch(() => null);
+    }
     return {
       profile,
-      creator: { ...creatorSafe, payout_summary },
+      creator: { ...creatorSafe, payout_summary, headshot_url: headshotUrl },
       standing: await creatorStanding(id),
       strikes: strikeRows ?? [],
       earnings,

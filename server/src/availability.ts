@@ -27,6 +27,8 @@ export interface EligibleCreator {
   user_id: string;
   full_name: string;
   avatar_url: string | null;
+  headshot_path: string | null;
+  headshot_status: string | null;
   specialties: string[];
   verified: boolean;
   base_area: string | null;
@@ -56,7 +58,7 @@ function pad(n: number): string {
 export async function eligibleCreators(occasion: string, area?: string): Promise<EligibleCreator[]> {
   const { data, error } = await supabaseAdmin
     .from('creator_profiles')
-    .select('user_id, specialties, verified, base_area, service_radius_km, availability, blocked_dates, profiles!creator_profiles_user_id_fkey!inner(full_name, avatar_url)')
+    .select('user_id, specialties, verified, base_area, service_radius_km, availability, blocked_dates, headshot_path, headshot_status, profiles!creator_profiles_user_id_fkey!inner(full_name, avatar_url)')
     .eq('vetting_status', 'approved')
     .eq('is_available', true)
     .contains('specialties', [occasion]);
@@ -68,6 +70,8 @@ export async function eligibleCreators(occasion: string, area?: string): Promise
       user_id: row.user_id as string,
       full_name: profile.full_name,
       avatar_url: profile.avatar_url,
+      headshot_path: (row as Record<string, unknown>).headshot_path as string | null,
+      headshot_status: (row as Record<string, unknown>).headshot_status as string | null,
       specialties: row.specialties as string[],
       verified: row.verified as boolean,
       base_area: row.base_area as string | null,

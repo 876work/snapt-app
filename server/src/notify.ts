@@ -63,6 +63,8 @@ const TRIGGERS: Record<string, TriggerSpec> = {
   // Social bundles. proofs_ready starts a deadline, so it gets email too —
   // a missed push must not cost the client their choice.
   proofs_ready: { category: 'bookings', push: true, email: true },
+  // A rejected headshot blocks the creator's public face — actionable.
+  headshot_rejected: { category: 'account', push: true, email: false },
   selection_locked: { category: 'bookings', push: true, email: false },
   selection_autopicked: { category: 'bookings', push: true, email: false },
 };

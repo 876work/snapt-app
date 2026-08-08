@@ -3,6 +3,7 @@ import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { Text } from '../../lib/text';
+import { CreatorAvatar } from '../ui/CreatorAvatar';
 import type { FeaturedCreator } from '../../lib/api';
 import { colors } from '../../lib/theme';
 
@@ -75,6 +76,11 @@ export function FeaturedRail({
               </View>
               <View style={styles.body}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  {/* The approved headshot — server-gated, so this only ever
+                      renders a reviewed photo (initial tile otherwise). */}
+                  <View style={styles.avatarChip}>
+                    <CreatorAvatar name={c.name} photo={c.photo} textSize={10} />
+                  </View>
                   <Text style={styles.name} numberOfLines={1}>
                     {c.name}
                   </Text>
@@ -161,6 +167,13 @@ const styles = StyleSheet.create({
   },
   countLabel: { fontSize: 9.5, fontWeight: '800', color: '#fff' },
   body: { padding: 11, gap: 5 },
+  avatarChip: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    overflow: 'hidden',
+    backgroundColor: '#F1EEE7',
+  },
   name: { flex: 1, fontSize: 13, fontWeight: '800', color: colors.ink },
   tagRow: { flexDirection: 'row', gap: 5, flexWrap: 'wrap' },
   tag: { backgroundColor: '#F4F1EA', borderRadius: 7, paddingHorizontal: 7, paddingVertical: 3 },
