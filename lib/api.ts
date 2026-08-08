@@ -876,7 +876,7 @@ export async function unregisterPushTokenApi(token: string): Promise<void> {
  * screen labels must map 1:1 to the server's four tiers.
  */
 export function submitContentReport(
-  category: 'child_safety' | 'sexual_violent_hate' | 'content_policy' | 'general',
+  category: 'child_safety' | 'sexual_violent_hate' | 'content_policy' | 'general' | 'support',
   details: string,
   bookingId?: string | null,
   targetUserId?: string | null,

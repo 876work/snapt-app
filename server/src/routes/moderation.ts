@@ -20,6 +20,9 @@ const SEVERITY: Record<string, string> = {
   sexual_violent_hate: 'high',
   content_policy: 'medium',
   general: 'low',
+  // Contact Support submissions. Same pipeline, same portal queue — the
+  // screen previously discarded the user's message on "Send".
+  support: 'low',
 };
 
 const ONCALL = (process.env.ONCALL_EMAILS ?? '').split(',').map((s: string) => s.trim()).filter(Boolean);
