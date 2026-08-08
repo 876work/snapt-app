@@ -1,6 +1,6 @@
 import React from 'react';
 import { Redirect, Tabs, usePathname } from 'expo-router';
-import { Animated, Pressable, StyleSheet, View } from 'react-native';
+import { Animated, AppState, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
 import { colors, insetBottom } from '../../lib/theme';
 import { navShrinkReset, useNavShrinkAnim } from '../../lib/navShrink';
@@ -32,9 +32,17 @@ function useUnreadMessages(): number {
     };
     poll();
     const id = setInterval(poll, 25_000);
+    // Timers are suspended while the app is backgrounded, so coming back to
+    // the app could show a stale count for up to a full interval — exactly
+    // when a push has just told someone they have a new message. Re-poll the
+    // moment we're active again.
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') poll();
+    });
     return () => {
       stop = true;
       clearInterval(id);
+      sub.remove();
     };
   }, []);
   return unread;

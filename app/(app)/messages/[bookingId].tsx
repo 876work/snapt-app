@@ -83,6 +83,8 @@ export default function MessageThread() {
     { id: string; body: string; mine: boolean; created_at: string }[] | null
   >(null);
   const [draft, setDraft] = React.useState('');
+  const [sending, setSending] = React.useState(false);
+  const [sendError, setSendError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!chatEnabled || !bookingId) return;
@@ -114,12 +116,26 @@ export default function MessageThread() {
     return () => clearTimeout(t);
   }, [messages?.length]);
 
+  // The composer is cleared only once the row is confirmed written. It used
+  // to clear first and discard sendMessage's null return, so a send with no
+  // connection destroyed the typed text and showed nothing at all — no
+  // error, no pending row, no queue. Silent data loss.
+  //
+  // This is the design-neutral half of the fix: never lose the words, always
+  // say when a send failed. A real offline outbox (queue and retry) is a
+  // separate decision and is NOT implemented here.
   const send = async () => {
     const body = draft.trim();
-    if (!body || !bookingId) return;
-    setDraft('');
-    await sendMessage(bookingId, body);
-    // Realtime echo appends it; no optimistic row needed at this scale.
+    if (!body || !bookingId || sending) return;
+    setSending(true);
+    setSendError(null);
+    const sent = await sendMessage(bookingId, body);
+    setSending(false);
+    if (sent) {
+      setDraft(''); // Realtime echo appends it; no optimistic row needed.
+    } else {
+      setSendError("Not sent — check your connection, then tap send again.");
+    }
   };
 
   if (threadState === 'loading') {
@@ -191,20 +207,33 @@ export default function MessageThread() {
         </View>
       ) : (
         <View style={styles.inputWrap}>
+          {sendError && (
+            <View style={styles.sendError}>
+              <Text style={styles.sendErrorText}>{sendError}</Text>
+            </View>
+          )}
           <View style={styles.inputRow}>
             <TextInput
               placeholder={`Message ${thread.other_name.split(' ')[0]}…`}
               placeholderTextColor="#9A9A9A"
               style={styles.input}
               value={draft}
-              onChangeText={setDraft}
+              onChangeText={(t) => {
+                setDraft(t);
+                if (sendError) setSendError(null);
+              }}
               onSubmitEditing={send}
               returnKeyType="send"
+              editable={!sending}
             />
-            <Pressable onPress={send} style={styles.send} disabled={!draft.trim()}>
-              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-                <Path d="M4 12L20 4l-6 16-3-7-7-1z" stroke={colors.ink} strokeWidth={1.8} strokeLinejoin="round" />
-              </Svg>
+            <Pressable onPress={send} style={styles.send} disabled={!draft.trim() || sending}>
+              {sending ? (
+                <ActivityIndicator size="small" color={colors.ink} />
+              ) : (
+                <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                  <Path d="M4 12L20 4l-6 16-3-7-7-1z" stroke={colors.ink} strokeWidth={1.8} strokeLinejoin="round" />
+                </Svg>
+              )}
             </Pressable>
           </View>
         </View>
@@ -255,6 +284,14 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 4,
   },
   bubbleText: { fontSize: 13.5, lineHeight: 19, color: colors.ink },
+  sendError: {
+    backgroundColor: '#FDECEC',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  sendErrorText: { fontSize: 13, color: '#A3261F' },
   inputWrap: {
     paddingHorizontal: 14,
     paddingTop: 8,
