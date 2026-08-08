@@ -26,9 +26,34 @@ call() { # method path
     -H 'Content-Type: application/json'
 }
 
+# Local shape check BEFORE spending a network round trip (or an admin
+# action) on a token that was never a token. Prints nothing from the token
+# itself except its expiry — no signature, no subject, no email.
+check_token() {
+  local t; t="$(cat "$TOKEN_FILE")"
+  local segs; segs="$(awk -F. '{print NF}' <<< "$t")"
+  if [[ "${t:0:2}" != "ey" || "$segs" != "3" ]]; then
+    echo "NOT A JWT: ${#t} bytes, ${segs} dot-segments, starts '${t:0:2}'." >&2
+    echo "A Supabase access token is ~800 bytes, starts 'ey', and has 3 segments." >&2
+    return 1
+  fi
+  local payload exp now
+  payload="$(awk -F. '{print $2}' <<< "$t" | tr '_-' '/+')"
+  while (( ${#payload} % 4 )); do payload+="="; done
+  exp="$(base64 -d <<< "$payload" 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("exp",0))' 2>/dev/null || echo 0)"
+  now="$(date +%s)"
+  if [[ "$exp" == "0" ]]; then echo "Could not read exp claim." >&2; return 1; fi
+  if (( exp <= now )); then
+    echo "EXPIRED $(( (now - exp) / 60 )) min ago — grab a fresh one." >&2
+    return 1
+  fi
+  echo "Token looks valid: $(( (exp - now) / 60 )) min remaining."
+}
+
 case "${1:-}" in
-  whoami)      call GET  /v1/admin/me ;;
-  ghosts)      call GET  /v1/admin/ghost-bookings ;;
-  ghosts-clear) call POST /v1/admin/ghost-bookings/clear ;;
-  *) echo "usage: $0 {whoami|ghosts|ghosts-clear}" >&2; exit 2 ;;
+  check)       check_token ;;
+  whoami)      check_token >/dev/null && call GET  /v1/admin/me ;;
+  ghosts)      check_token >/dev/null && call GET  /v1/admin/ghost-bookings ;;
+  ghosts-clear) check_token >/dev/null && call POST /v1/admin/ghost-bookings/clear ;;
+  *) echo "usage: $0 {check|whoami|ghosts|ghosts-clear}" >&2; exit 2 ;;
 esac
