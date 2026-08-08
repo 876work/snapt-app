@@ -190,6 +190,107 @@ export interface SocialProof {
  * enough to be worth saying", so this can never render a zero or an invented
  * number.
  */
+// ---------------------------------------------------------------------------
+// Social bundles
+// ---------------------------------------------------------------------------
+
+import type { SocialTierDef } from './mock/data';
+
+export interface SocialCatalog {
+  tiers: SocialTierDef[];
+  addons: { extra_photo_usd: number; extra_video_usd: number };
+}
+
+/**
+ * LIVE bundle catalog from app_config — an admin price edit shows here with
+ * no app update. Callers fall back to the SOCIAL_TIERS mirror when offline.
+ */
+export async function fetchSocialCatalog(): Promise<SocialCatalog | null> {
+  const result = await request<{ config: Record<string, unknown> }>(`/v1/config`);
+  if (!result) return null;
+  const tiers = result.config['social_pricing_table'];
+  const addons = (result.config['social_addons'] ?? {}) as {
+    extra_photo_usd?: number;
+    extra_video_usd?: number;
+  };
+  if (!Array.isArray(tiers) || tiers.length === 0) return null;
+  return {
+    tiers: tiers as SocialTierDef[],
+    addons: {
+      extra_photo_usd: addons.extra_photo_usd ?? 12,
+      extra_video_usd: addons.extra_video_usd ?? 35,
+    },
+  };
+}
+
+export interface SelectionProof {
+  id: string;
+  content_type: string | null;
+  is_video: boolean;
+  position: number | null;
+  selected: boolean;
+  selection_source: 'client' | 'auto' | null;
+  download_url: string;
+}
+
+export interface SelectionState {
+  included: { photos: number; videos: number };
+  proofs: SelectionProof[];
+  selection_deadline_at: string | null;
+  locked: boolean;
+  addon_prices: { extra_photo_usd: number; extra_video_usd: number };
+  client_service_fee_rate: number;
+}
+
+export async function fetchSelectionApi(bookingId: string): Promise<SelectionState | null> {
+  return request<SelectionState>(`/v1/bookings/${bookingId}/selection`);
+}
+
+export interface SelectionSubmitResult {
+  locked: boolean;
+  extras_usd: number;
+  total_usd?: number;
+  extra_photos?: number;
+  extra_videos?: number;
+  client_secret?: string;
+  customer_id?: string;
+  ephemeral_key?: string;
+  error?: string;
+}
+
+export async function submitSelectionApi(
+  bookingId: string,
+  mediaIds: string[],
+): Promise<SelectionSubmitResult | null> {
+  if (!apiUrl) return null;
+  try {
+    const res = await fetch(`${apiUrl}/v1/bookings/${bookingId}/selection`, {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify({ media_ids: mediaIds }),
+    });
+    const json = (await res.json()) as SelectionSubmitResult;
+    if (!res.ok) return { locked: false, extras_usd: 0, error: json.error ?? 'Could not save your selection.' };
+    return json;
+  } catch {
+    return null;
+  }
+}
+
+export async function proofsReadyApi(bookingId: string): Promise<{ ready?: boolean; error?: string } | null> {
+  if (!apiUrl) return null;
+  try {
+    const res = await fetch(`${apiUrl}/v1/bookings/${bookingId}/proofs/ready`, {
+      method: 'POST',
+      headers: await authHeaders(),
+    });
+    const json = (await res.json()) as { ready?: boolean; error?: string };
+    return res.ok ? json : { error: json.error ?? 'Could not publish the proof gallery.' };
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchSocialProof(area?: string | null): Promise<SocialProof | null> {
   const qs = area ? `?area=${encodeURIComponent(area)}` : '';
   const result = await request<{ proof: SocialProof | null }>(`/v1/social-proof${qs}`);
@@ -480,6 +581,9 @@ export async function fetchEarnings(): Promise<{
 }
 
 export interface PayoutMethods {
+  /** Per-method availability from the admin toggle. Absent = enabled. A
+   * creator's own selected method always reports enabled for them. */
+  enabled?: Record<string, boolean>;
   selected?: string;
   methods?: Record<string, Record<string, string>>;
 }
@@ -577,7 +681,7 @@ export async function fetchSessionApi(id: string): Promise<SessionState | null> 
 
 export interface MediaItem {
   id: string;
-  kind: 'raw' | 'deliverable';
+  kind: 'raw' | 'deliverable' | 'proof';
   /** null when the file was removed by the retention job. */
   download_url: string | null;
   content_type: string | null;
@@ -758,7 +862,7 @@ export function submitContentReport(
 /** Presign, PUT the file bytes, and register the media row. */
 export async function uploadMediaApi(
   bookingId: string,
-  kind: 'raw' | 'deliverable',
+  kind: 'raw' | 'deliverable' | 'proof',
   file: { uri: string; name: string; mimeType?: string },
 ): Promise<boolean> {
   const target = await authedPost<{ upload_url: string; storage_path: string }>(
@@ -816,6 +920,9 @@ export async function createBookingApi(
         meeting_lng: draft.meetingLng ?? undefined,
         date: draft.date,
         time: draft.time,
+        // Social bundles: the tier id is the only pricing input; the server
+        // derives duration, counts and price from social_pricing_table.
+        social_tier: draft.social?.id,
         // A tapped creator (server uuid, from /v1/creators/eligible) is the
         // one actually booked; null → "Match me automatically" server-side.
         creator_id: isServerCreatorId(draft.creatorId) ? draft.creatorId : undefined,

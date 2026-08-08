@@ -46,12 +46,16 @@ export default function OrderSummary() {
   const duration = DURATIONS.find((d) => d.hours === draft.durationHours);
 
   const [addons, setAddons] = React.useState<string[]>([]);
+  // Social prices extra photos PER-UNIT at selection time (after the shoot),
+  // so the flat +10 pack would double-sell the same thing. The server
+  // ignores the flag for Social regardless — this just keeps the UI honest.
+  const visibleAddons = draft.social ? ADDONS.filter((a) => a.id !== 'extra-photos') : ADDONS;
   const [bookError, setBookError] = React.useState<string | null>(null);
 
   // Display price from the confirmed table (service type × duration); the
   // server recomputes from config at booking creation (§8).
   const base = draft.durationHours != null
-    ? packagePrice(draft.mediaKind, draft.durationHours) ?? 0
+    ? draft.social?.price_usd ?? packagePrice(draft.mediaKind, draft.durationHours) ?? 0
     : 0;
   const addonsTotal = ADDONS.filter((a) => addons.includes(a.id)).reduce((s, a) => s + a.priceUsd, 0);
   const serviceFee = (base + addonsTotal) * CLIENT_SERVICE_FEE_RATE;
@@ -138,7 +142,10 @@ export default function OrderSummary() {
                   {creator.name} · {pkgLabel}
                 </Text>
                 <Text style={styles.creatorSub}>
-                  {draft.occasion ?? '—'} · {duration?.label ?? '—'}
+                  {draft.occasion ?? '—'} ·{' '}
+                  {draft.social
+                    ? `${draft.social.label} bundle (${draft.social.duration_hours}h)`
+                    : duration?.label ?? '—'}
                 </Text>
               </View>
               <View style={styles.msgChip}>
@@ -169,7 +176,7 @@ export default function OrderSummary() {
         {/* Add-ons */}
         <Text style={styles.sectionTitle}>Add-ons</Text>
         <View style={[styles.card, { paddingVertical: 0, paddingHorizontal: 0 }]}>
-          {ADDONS.map((a, i) => {
+          {visibleAddons.map((a, i) => {
             const on = addons.includes(a.id);
             return (
               <View key={a.id}>

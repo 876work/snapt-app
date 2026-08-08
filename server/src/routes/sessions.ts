@@ -183,7 +183,12 @@ export function registerSessionRoutes(app: FastifyInstance) {
     await supabaseAdmin.from('bookings').update({ status: 'completed' }).eq('id', booking.id);
     // Starts the 7-day hold (= dispute window). Idempotency guard inside.
     await createPayoutForBooking(booking);
-    await notify(user.id, 'payout_pending', 'Payout on the way', 'Session complete — your earnings are pending and clear once the 7-day dispute window closes.', { booking_id: booking.id });
+    // Social bundles: the payout is created at DELIVERY (editing depends on
+    // the client's selection), so promising "payout on the way" here would
+    // be false. media.ts sends it when it becomes true.
+    if (typeof (booking.pricing_snapshot as Record<string, unknown>)?.['social_tier'] !== 'string') {
+      await notify(user.id, 'payout_pending', 'Payout on the way', 'Session complete — your earnings are pending and clear once the 7-day dispute window closes.', { booking_id: booking.id });
+    }
     for (const party of [booking.client_id, booking.creator_id]) {
       if (party) await notify(party, 'session_ended', 'Session wrapped', 'Your session is complete — editing comes next, and delivery lands in the app.', { booking_id: booking.id });
     }

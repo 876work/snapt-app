@@ -88,6 +88,12 @@ export interface BookingDraft {
   meetingLat: number | null;
   meetingLng: number | null;
   creatorId: string | null;
+  /**
+   * Social bundle tier — the WHOLE tier snapshot so summary can display
+   * price/counts without refetching. Server re-prices from config at
+   * creation regardless (§8). null for every other occasion.
+   */
+  social: import('../mock/data').SocialTierDef | null;
 }
 
 const emptyDraft: BookingDraft = {
@@ -102,6 +108,7 @@ const emptyDraft: BookingDraft = {
   meetingLat: null,
   meetingLng: null,
   creatorId: null,
+  social: null,
 };
 
 interface BookingState {

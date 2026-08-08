@@ -71,6 +71,16 @@ export function targetFor(trigger: string, data: TargetData = {}): string | null
     case 'session_started':
       return b ? `/session/${b}` : '/(app)/bookings';
 
+    // ---- Social bundle selection ----------------------------------------
+    // The client chooses proofs on the selection screen; the creator's
+    // outcomes land on the job, where the picks are marked.
+    case 'proofs_ready':
+      return b ? `/order/${b}/select` : '/(app)/bookings';
+    case 'selection_locked':
+      return b ? jobOffer(b) : '/creator';
+    case 'selection_autopicked':
+      return b ? order(b) : '/(app)/bookings';
+
     // ---- That delivery ---------------------------------------------------
     case 'delivery_ready':
     case 'revision_delivered':

@@ -11,8 +11,16 @@ import type { ServerBookingListItem } from './api';
  * offer notification used to land on a blank white screen.
  */
 export function bookingToOffer(b: ServerBookingListItem): JobOffer {
+  const snap = (b.pricing_snapshot ?? {}) as Record<string, unknown>;
   return {
     id: b.id,
+    social:
+      typeof snap['social_tier'] === 'string'
+        ? {
+            photos: Number(snap['included_photos'] ?? 0),
+            videos: Number(snap['included_videos'] ?? 0),
+          }
+        : null,
     title: b.occasion ? `${b.occasion} session` : 'Remote edit order',
     occasion: b.occasion ?? 'Portraits',
     payUsd:

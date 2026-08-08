@@ -12,6 +12,7 @@ import { useAuth } from '../../../lib/store';
 import { apiConfigured } from '../../../lib/api';
 import { useCreator, JobStage } from '../../../lib/store/creator';
 import { bookingToOffer, JOB_STATUSES } from '../../../lib/creatorJobs';
+import { SocialPipeline } from '../../../components/creator/SocialPipeline';
 import { formatMoney, NO_SHOW_GRACE_MINUTES } from '../../../lib/constants/business';
 import { colors, insetBottom } from '../../../lib/theme';
 
@@ -364,7 +365,14 @@ export default function CreatorJob() {
           </View>
         )}
 
-        {stage === 'upload' && (
+        {/* SOCIAL: post-session the pipeline is proofs → client selection →
+            edit the chosen set. Server state decides the phase, so this
+            renders for both local stages a social job can be in. */}
+        {job.social && (stage === 'upload' || stage === 'submitted') && !openRevision && (
+          <SocialPipeline bookingId={job.id} included={job.social} />
+        )}
+
+        {!job.social && stage === 'upload' && (
           <>
             <Text style={styles.checkinLead}>
               Upload the raw footage from today's session. The client never sees raws — they go straight
@@ -401,7 +409,7 @@ export default function CreatorJob() {
             </Pressable>
           </>
         )}
-        {stage === 'submitted' && !openRevision && (
+        {!job.social && stage === 'submitted' && !openRevision && (
           <View style={styles.successCard}>
             <View style={styles.successIcon}>
               <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
@@ -439,12 +447,15 @@ export default function CreatorJob() {
         {stage === 'session' && (
           <Button title="Wrap session — upload footage" arrow onPress={() => next('upload')} />
         )}
-        {stage === 'upload' && (
+        {!job.social && stage === 'upload' && (
           <SlideToConfirm
             label={job.type === 'remote' ? 'Slide to submit finished edit' : 'Slide to submit footage'}
             disabled={apiConfigured && picked.length === 0}
             onConfirm={submitFootage}
           />
+        )}
+        {job.social && (stage === 'upload' || stage === 'submitted') && !openRevision && (
+          <Button title="Back to jobs" variant="ghost" onPress={() => router.back()} />
         )}
         {stage === 'submitted' && openRevision && (
           <SlideToConfirm
@@ -453,7 +464,7 @@ export default function CreatorJob() {
             onConfirm={deliverRevision}
           />
         )}
-        {stage === 'submitted' && !openRevision && (
+        {!job.social && stage === 'submitted' && !openRevision && (
           <Button title="Back to jobs" variant="ghost" onPress={() => router.back()} />
         )}
       </View>

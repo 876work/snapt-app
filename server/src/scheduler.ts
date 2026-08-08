@@ -9,6 +9,11 @@ import { runRetention } from './retention.js';
 //    parties when <12h remain in the 72h window.
 // Interval-based (5 min) — swap for cron/queue infra at production cutover.
 
+async function autoPickSelections(): Promise<void> {
+  const { autoPickExpiredSelections } = await import('./routes/social.js');
+  await autoPickExpiredSelections();
+}
+
 async function releasePayouts(): Promise<void> {
   const { data: due } = await supabaseAdmin
     .from('creator_payouts')
@@ -132,7 +137,7 @@ async function staleApplications(): Promise<void> {
 
 export function startScheduler(): void {
   const tick = () =>
-    Promise.all([releasePayouts(), remindEvidenceDeadlines(), retentionDaily(), staleApplications()]).catch((err) =>
+    Promise.all([releasePayouts(), remindEvidenceDeadlines(), retentionDaily(), staleApplications(), autoPickSelections()]).catch((err) =>
       console.error('scheduler tick failed', err),
     );
   void tick();

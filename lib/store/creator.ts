@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import type { Occasion } from '../mock/data';
 
 export interface JobOffer {
+  /** Social bundle: included edited counts. null/undefined = normal job. */
+  social?: { photos: number; videos: number } | null;
   id: string;
   title: string;
   occasion: Occasion;

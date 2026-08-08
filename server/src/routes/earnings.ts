@@ -3,6 +3,7 @@ import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
 import { notify } from '../notify.js';
 import { encryptField } from '../crypto.js';
+import { enabledPayoutMethods } from '../config.js';
 
 // Creator earnings: Pending (held, inside the 7-day dispute window) →
 // Available → Paid out. Held payouts whose hold has elapsed are released
@@ -37,7 +38,15 @@ export function registerEarningsRoutes(app: FastifyInstance) {
       const { account_number_enc, account_number_last4, ...rest } = d;
       safe[m] = account_number_last4 ? { ...rest, account_number: `····${account_number_last4}` } : rest;
     }
-    return { payout_methods: { selected: pm.selected, methods: safe } };
+    // Which methods may be NEWLY selected (admin toggle). The creator's
+    // currently-selected method is always reported enabled for THEM — an
+    // admin disabling a method parks new signups, never existing setups.
+    const toggles = await enabledPayoutMethods();
+    const enabled: Record<string, boolean> = {};
+    for (const m of Object.keys(METHOD_FIELDS)) {
+      enabled[m] = toggles[m] !== false || pm.selected === m;
+    }
+    return { payout_methods: { selected: pm.selected, methods: safe, enabled } };
   });
 
   app.put<{ Body: { method?: string; details?: Record<string, string> } }>(
@@ -48,6 +57,9 @@ export function registerEarningsRoutes(app: FastifyInstance) {
       if (!method || !(method in METHOD_FIELDS)) {
         return reply.code(400).send({ error: `method must be one of ${Object.keys(METHOD_FIELDS).join(', ')}` });
       }
+      // Admin toggle: a disabled method can't be NEWLY selected. A creator
+      // who already has it selected may keep using and updating it — the
+      // check against their stored selection is below, after the row loads.
       for (const f of METHOD_FIELDS[method]) {
         const v = details?.[f]?.trim();
         if (!v) return reply.code(400).send({ error: `${f} is required for ${method}` });
@@ -69,6 +81,12 @@ export function registerEarningsRoutes(app: FastifyInstance) {
         .maybeSingle();
       if (!row) return reply.code(403).send({ error: 'Not a creator' });
       const pm = (row.payout_methods ?? {}) as { selected?: string; methods?: Record<string, unknown> };
+      const toggles = await enabledPayoutMethods();
+      if (toggles[method] === false && pm.selected !== method) {
+        return reply.code(409).send({
+          error: 'That payout method is not currently available — pick another option.',
+        });
+      }
       const methods = { ...(pm.methods ?? {}), [method]: stored };
       const next = { selected: method, methods };
       await supabaseAdmin.from('creator_profiles').update({ payout_methods: next }).eq('user_id', user.id);

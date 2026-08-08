@@ -39,12 +39,17 @@ export default function CashOut() {
   const [saved, setSaved] = React.useState<Record<string, Record<string, string>>>({});
   const [form, setForm] = React.useState<Record<string, string>>({});
   const [methodError, setMethodError] = React.useState<string | null>(null);
+  // Admin toggle: disabled methods can't be newly selected. A creator whose
+  // CURRENT method was disabled still sees it (server reports it enabled
+  // for them) — existing setups are honored, only new selections blocked.
+  const [enabled, setEnabled] = React.useState<Record<string, boolean>>({});
   React.useEffect(() => {
     import('../../lib/api').then(({ apiConfigured, fetchPayoutMethods }) => {
       if (!apiConfigured) return;
       fetchPayoutMethods().then((pm) => {
         if (!pm) return;
         setSaved(pm.methods ?? {});
+        setEnabled(pm.enabled ?? {});
         if (pm.selected) setMethod(pm.selected);
       });
     });
@@ -132,14 +137,24 @@ export default function CashOut() {
           {METHODS.map((m, i) => {
             const active = m.id === method;
             const ok = configured(m.id);
+            const off = enabled[m.id] === false;
             return (
               <View key={m.id} style={i < METHODS.length - 1 && styles.rowBorder}>
-                <Pressable onPress={() => { setMethod(m.id); setForm({}); setMethodError(null); }} style={styles.methodRow}>
+                <Pressable
+                  onPress={() => {
+                    if (off) {
+                      setMethodError('That payout method is not currently available.');
+                      return;
+                    }
+                    setMethod(m.id); setForm({}); setMethodError(null);
+                  }}
+                  style={[styles.methodRow, off && { opacity: 0.4 }]}
+                >
                   <View style={[styles.radio, active && styles.radioActive]} />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={styles.methodName}>{m.name}</Text>
-                    <Text style={[styles.methodSub, !ok && { color: '#B98600', fontWeight: '700' }]}>
-                      {methodSub(m.id, saved[m.id])}
+                    <Text style={[styles.methodSub, !ok && !off && { color: '#B98600', fontWeight: '700' }]}>
+                      {off ? 'Not currently available' : methodSub(m.id, saved[m.id])}
                     </Text>
                   </View>
                   <Text style={styles.methodEta}>{m.eta}</Text>

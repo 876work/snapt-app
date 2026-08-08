@@ -86,7 +86,13 @@ export default function OccasionAndDate() {
             return (
               <Pressable
                 key={o}
-                onPress={() => setDraft({ occasion: o })}
+                onPress={() =>
+                  setDraft(
+                    o === 'Social'
+                      ? { occasion: o, social: null, durationHours: null }
+                      : { occasion: o, social: null },
+                  )
+                }
                 style={[styles.chip, active && styles.chipActive]}
               >
                 <OccasionIcon occasion={o} />

@@ -9,6 +9,12 @@ import { notify } from '../notify.js';
 // creator/editor-side only. Clients may UPLOAD raw (remote-edit orders) but
 // no endpoint ever returns a raw download URL to a client — only final
 // deliverables are client-accessible.
+//
+// 'proof' (Social bundles) is deliberately NOT an exception to that rule:
+// proofs are a CURATED watermarked/low-res set the creator exports for the
+// client to choose from — processed output, not camera originals. Raw stays
+// invisible to clients exactly as before; proofs are client-visible because
+// selection is their entire purpose.
 
 interface BookingRow {
   id: string;
@@ -29,23 +35,35 @@ async function loadBooking(id: string, reply: FastifyReply): Promise<BookingRow 
   return data as BookingRow;
 }
 
-function bucketFor(kind: 'raw' | 'deliverable'): MediaBucket {
+type MediaKind = 'raw' | 'deliverable' | 'proof';
+const KINDS: MediaKind[] = ['raw', 'deliverable', 'proof'];
+
+// Proofs live in the deliverables bucket: they are processed exports with
+// the same lifecycle, not camera originals.
+function bucketFor(kind: MediaKind): MediaBucket {
   return kind === 'raw' ? 'raw-footage' : 'deliverables';
+}
+
+function isSocial(booking: BookingRow): boolean {
+  return typeof booking.pricing_snapshot?.['social_tier'] === 'string';
 }
 
 export function registerMediaRoutes(app: FastifyInstance) {
   app.post<{
     Params: { id: string };
-    Body: { kind?: 'raw' | 'deliverable'; filename?: string; content_type?: string };
+    Body: { kind?: MediaKind; filename?: string; content_type?: string };
   }>('/v1/bookings/:id/media/upload-url', async (request, reply) => {
     const user = requireUser(request);
     const booking = await loadBooking(request.params.id, reply);
     if (!booking) return;
     const { kind, filename, content_type } = request.body ?? {};
-    if (kind !== 'raw' && kind !== 'deliverable') {
-      return reply.code(400).send({ error: 'kind must be raw or deliverable' });
+    if (!kind || !KINDS.includes(kind)) {
+      return reply.code(400).send({ error: 'kind must be raw, deliverable, or proof' });
     }
     if (!filename) return reply.code(400).send({ error: 'filename is required' });
+    if (kind === 'proof' && !isSocial(booking)) {
+      return reply.code(400).send({ error: 'Proof galleries are for Social bundle bookings' });
+    }
 
     // Who may upload what:
     // - deliverable: assigned creator only
@@ -54,7 +72,7 @@ export function registerMediaRoutes(app: FastifyInstance) {
     const isCreator = user.id === booking.creator_id;
     const isClient = user.id === booking.client_id;
     const allowed =
-      kind === 'deliverable'
+      kind === 'deliverable' || kind === 'proof'
         ? isCreator
         : isCreator || (isClient && booking.type === 'remote');
     if (!allowed) return reply.code(403).send({ error: 'Not allowed to upload this kind' });
@@ -67,20 +85,40 @@ export function registerMediaRoutes(app: FastifyInstance) {
 
   app.post<{
     Params: { id: string };
-    Body: { kind?: 'raw' | 'deliverable'; storage_path?: string; content_type?: string };
+    Body: { kind?: MediaKind; storage_path?: string; content_type?: string };
   }>('/v1/bookings/:id/media', async (request, reply) => {
     const user = requireUser(request);
     const booking = await loadBooking(request.params.id, reply);
     if (!booking) return;
     const { kind, storage_path, content_type } = request.body ?? {};
-    if ((kind !== 'raw' && kind !== 'deliverable') || !storage_path) {
+    if (!kind || !KINDS.includes(kind) || !storage_path) {
       return reply.code(400).send({ error: 'kind and storage_path are required' });
     }
     const isCreator = user.id === booking.creator_id;
     const isClient = user.id === booking.client_id;
     const allowed =
-      kind === 'deliverable' ? isCreator : isCreator || (isClient && booking.type === 'remote');
+      kind === 'deliverable' || kind === 'proof'
+        ? isCreator
+        : isCreator || (isClient && booking.type === 'remote');
     if (!allowed) return reply.code(403).send({ error: 'Not allowed' });
+
+    let position: number | null = null;
+    if (kind === 'proof') {
+      if (!isSocial(booking)) {
+        return reply.code(400).send({ error: 'Proof galleries are for Social bundle bookings' });
+      }
+      // Selection math needs to know photo vs video, and auto-pick needs an
+      // order. Position = upload order = the creator's preference ranking.
+      if (!content_type || !/^(image|video)\//.test(content_type)) {
+        return reply.code(400).send({ error: 'Proofs need an image/* or video/* content_type' });
+      }
+      const { count } = await supabaseAdmin
+        .from('booking_media')
+        .select('id', { count: 'exact', head: true })
+        .eq('booking_id', booking.id)
+        .eq('kind', 'proof');
+      position = (count ?? 0) + 1;
+    }
 
     const { data, error } = await supabaseAdmin
       .from('booking_media')
@@ -90,6 +128,7 @@ export function registerMediaRoutes(app: FastifyInstance) {
         storage_path,
         content_type: content_type ?? null,
         uploaded_by: user.id,
+        ...(position !== null ? { position } : {}),
       })
       .select()
       .single();
@@ -118,10 +157,11 @@ export function registerMediaRoutes(app: FastifyInstance) {
 
     let query = supabaseAdmin
       .from('booking_media')
-      .select('id, kind, storage_path, content_type, created_at, deleted_at')
+      .select('id, kind, storage_path, content_type, created_at, deleted_at, position, selected_at, selection_source')
       .eq('booking_id', booking.id)
       .order('created_at', { ascending: true });
-    if (!isCreator) query = query.eq('kind', 'deliverable');
+    // Clients see deliverables and (Social) proofs; raw is never listed.
+    if (!isCreator) query = query.in('kind', ['deliverable', 'proof']);
     const { data, error } = await query;
     if (error) return reply.code(500).send({ error: error.message });
 
@@ -135,9 +175,12 @@ export function registerMediaRoutes(app: FastifyInstance) {
         content_type: m.content_type,
         created_at: m.created_at,
         deleted: m.deleted_at != null,
+        position: m.position,
+        selected: m.selected_at != null,
+        selection_source: m.selection_source,
         download_url: m.deleted_at
           ? null
-          : await createDownloadUrl(bucketFor(m.kind as 'raw' | 'deliverable'), m.storage_path),
+          : await createDownloadUrl(bucketFor(m.kind as MediaKind), m.storage_path),
       })),
     );
 
@@ -177,6 +220,18 @@ export function registerMediaRoutes(app: FastifyInstance) {
       .eq('kind', 'deliverable');
     if (!count) {
       return reply.code(409).send({ error: 'Upload at least one deliverable before delivering' });
+    }
+    // Social: the edit is DEFINED by the client's locked selection. A
+    // delivery before lock would be editing a guess.
+    if (isSocial(booking)) {
+      const { data: b } = await supabaseAdmin
+        .from('bookings')
+        .select('selections_locked_at')
+        .eq('id', booking.id)
+        .maybeSingle();
+      if (!b?.selections_locked_at) {
+        return reply.code(409).send({ error: 'Deliver after the client selection locks' });
+      }
     }
     // delivered_at anchors the retention windows (raw +30d, deliverables
     // +12mo); a revision re-delivery moves it forward (new final delivery).

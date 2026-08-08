@@ -60,6 +60,11 @@ const TRIGGERS: Record<string, TriggerSpec> = {
   // Chat. Muted by the `messages` preference rather than order_updates —
   // a chat ping is not a booking state change.
   message_received: { category: 'messages', push: true, email: false },
+  // Social bundles. proofs_ready starts a deadline, so it gets email too —
+  // a missed push must not cost the client their choice.
+  proofs_ready: { category: 'bookings', push: true, email: true },
+  selection_locked: { category: 'bookings', push: true, email: false },
+  selection_autopicked: { category: 'bookings', push: true, email: false },
 };
 
 export async function notify(

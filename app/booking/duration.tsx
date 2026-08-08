@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { Button } from '../../components/ui/Button';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
-import { DURATIONS, MediaKind, packagePrice } from '../../lib/mock/data';
+import { DURATIONS, MediaKind, packagePrice, SOCIAL_TIERS, SocialTierDef } from '../../lib/mock/data';
 import { useAuth, useBookings } from '../../lib/store';
 import { formatMoney, OCCASION_DEFAULT_DURATION_HOURS } from '../../lib/constants/business';
 import { colors, spacing, insetBottom } from '../../lib/theme';
@@ -16,10 +16,38 @@ const PKG_DESC: Record<MediaKind, string> = {
   both: 'Photos plus a highlight video — our full coverage package.',
 };
 
+/** One line describing what a bundle includes — the product IS this line. */
+function bundleContents(t: SocialTierDef): string {
+  const parts = [`${t.photos} edited photos`];
+  if (t.videos > 0) parts.push(`${t.videos} × 30-sec edited video${t.videos > 1 ? 's' : ''}`);
+  return parts.join(' + ');
+}
+
 export default function DurationAndPackage() {
   const router = useRouter();
   const currency = useAuth((s) => s.currency);
   const { draft, setDraft } = useBookings();
+  const isSocial = draft.occasion === 'Social';
+
+  // Live bundle catalog: admin price edits apply with no app update. The
+  // hardcoded mirror only covers offline/mock mode.
+  const [tiers, setTiers] = React.useState<SocialTierDef[]>(SOCIAL_TIERS);
+  React.useEffect(() => {
+    if (!isSocial) return;
+    import('../../lib/api').then(({ apiConfigured, fetchSocialCatalog }) => {
+      if (!apiConfigured) return;
+      fetchSocialCatalog().then((c) => {
+        if (c) setTiers(c.tiers);
+      });
+    });
+  }, [isSocial]);
+
+  const pickTier = (t: SocialTierDef) =>
+    setDraft({
+      social: t,
+      durationHours: t.duration_hours,
+      mediaKind: t.videos > 0 ? 'both' : 'photo',
+    });
 
   // Occasion-based smart default — pre-selected, fully overridable (§7).
   const recommendedHours = draft.occasion
@@ -38,6 +66,44 @@ export default function DurationAndPackage() {
     <View style={styles.root}>
       <ScreenHeader title="Duration & package" />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        {isSocial ? (
+          <>
+            <Text style={styles.lead}>
+              Social sessions are priced by what you take home, not by the clock. Pick a bundle —
+              you'll choose your favourite shots for editing after the shoot.
+            </Text>
+            <View style={{ gap: 10 }}>
+              {tiers.map((t) => {
+                const active = draft.social?.id === t.id;
+                return (
+                  <Pressable key={t.id} onPress={() => pickTier(t)} style={[styles.row, active && styles.rowActive]}>
+                    <View style={[styles.radio, active && styles.radioActive]}>
+                      {active && <View style={styles.radioInner} />}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.rowTitleWrap}>
+                        <Text style={styles.rowTitle}>{t.label}</Text>
+                        <View style={styles.popBadge}>
+                          <Text style={styles.popBadgeLabel}>
+                            {t.duration_hours} {t.duration_hours === 1 ? 'HOUR' : 'HOURS'}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.rowDeliv}>{bundleContents(t)}</Text>
+                    </View>
+                    <Text style={styles.rowPrice}>{formatMoney(t.price_usd, currency)}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={styles.pkgDesc}>
+              After the session your creator shares a proof gallery with more shots than your
+              bundle includes — you pick the ones you want fully edited. Want extras beyond your
+              bundle? Add them per photo or video at selection time.
+            </Text>
+          </>
+        ) : (
+        <>
         <Text style={styles.lead}>Pick how long you need your creator.</Text>
         <Text style={styles.sectionLabel}>What do you need?</Text>
         <SegmentedControl
@@ -93,21 +159,27 @@ export default function DurationAndPackage() {
             );
           })}
         </View>
+        </>
+        )}
         <View style={{ height: 24 }} />
       </ScrollView>
       <View style={styles.footer}>
         <View>
           <Text style={styles.footMetaLabel}>session</Text>
           <Text style={styles.footMetaValue}>
-            {selected != null
-              ? formatMoney(packagePrice(draft.mediaKind, selected.hours) ?? 0, currency)
-              : '—'}
+            {isSocial
+              ? draft.social
+                ? formatMoney(draft.social.price_usd, currency)
+                : '—'
+              : selected != null
+                ? formatMoney(packagePrice(draft.mediaKind, selected.hours) ?? 0, currency)
+                : '—'}
           </Text>
         </View>
         <Button
           title="Continue"
           arrow
-          disabled={!selected}
+          disabled={isSocial ? !draft.social : !selected}
           onPress={() => router.push('/booking/location')}
           style={{ flex: 1 }}
         />

@@ -142,7 +142,25 @@ export async function createPayoutForBooking(booking: BookingRow): Promise<void>
 
   const sessionPrice =
     (booking.pricing_snapshot['session_price_usd'] as number) ?? booking.price_usd;
-  const amount = round2(sessionPrice * (1 - feeRate));
+
+  // SOCIAL BUNDLES: the payout waits for DELIVERY, not session end. The
+  // work isn't done at session end (editing depends on the client's
+  // selection), and selection extras — which the creator edits — must land
+  // in the same payout. The in-memory row can be stale here (deliver
+  // updates the DB then calls us), so delivered_at is refetched.
+  let extrasUsd = 0;
+  if (typeof booking.pricing_snapshot['social_tier'] === 'string') {
+    const { data: fresh } = await supabaseAdmin
+      .from('bookings')
+      .select('delivered_at, pricing_snapshot')
+      .eq('id', booking.id)
+      .maybeSingle();
+    if (!fresh?.delivered_at) return;
+    const snap = (fresh.pricing_snapshot ?? {}) as Record<string, unknown>;
+    extrasUsd = Number(snap['social_extras_usd'] ?? 0) || 0;
+  }
+
+  const amount = round2((sessionPrice + extrasUsd) * (1 - feeRate));
 
   await supabaseAdmin.from('creator_payouts').insert({
     creator_id: booking.creator_id,

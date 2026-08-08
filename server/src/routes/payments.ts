@@ -160,6 +160,67 @@ export function registerPaymentRoutes(app: FastifyInstance) {
         const bookingId = intent.metadata?.booking_id;
         const clientId = intent.metadata?.client_id;
         if (!bookingId || !clientId) break; // not one of ours
+
+        // Social selection extras: a separate purpose so this charge is
+        // never mistaken for the booking's main payment. Payment truth
+        // arrives HERE (webhook), which is what locks the selection.
+        if (intent.metadata?.purpose === 'social_extras') {
+          const { data: b } = await supabaseAdmin
+            .from('bookings')
+            .select('id, client_id, creator_id, pricing_snapshot, selections_locked_at')
+            .eq('id', bookingId)
+            .maybeSingle();
+          if (!b) break;
+          const extrasBase = Number(intent.metadata?.extras_base_usd ?? 0) || 0;
+          const { error: exErr } = await supabaseAdmin.from('transactions').insert({
+            booking_id: bookingId,
+            user_id: clientId,
+            type: 'charge',
+            status: 'succeeded',
+            amount_usd: intent.amount_received / 100,
+            stripe_payment_intent_id: intent.id,
+            fees: {
+              kind: 'social_extras',
+              base_usd: extrasBase,
+              extra_photos: Number(intent.metadata?.extra_photos ?? 0) || 0,
+              extra_videos: Number(intent.metadata?.extra_videos ?? 0) || 0,
+            },
+          });
+          // The unique index makes webhook retries no-ops; only the first
+          // delivery updates the snapshot and locks.
+          if (!exErr && !b.selections_locked_at) {
+            const snap = (b.pricing_snapshot ?? {}) as Record<string, unknown>;
+            await supabaseAdmin
+              .from('bookings')
+              .update({
+                pricing_snapshot: {
+                  ...snap,
+                  social_extras_usd: Number(snap['social_extras_usd'] ?? 0) + extrasBase,
+                  social_extra_photos: Number(intent.metadata?.extra_photos ?? 0) || 0,
+                  social_extra_videos: Number(intent.metadata?.extra_videos ?? 0) || 0,
+                },
+              })
+              .eq('id', bookingId);
+            // The chosen rows were stamped at submit time; the webhook
+            // locks exactly that set.
+            const { data: chosen } = await supabaseAdmin
+              .from('booking_media')
+              .select('id')
+              .eq('booking_id', bookingId)
+              .eq('kind', 'proof')
+              .not('selected_at', 'is', null);
+            const { lockSelection } = await import('./social.js');
+            await lockSelection(b, (chosen ?? []).map((m) => m.id), 'client');
+            await notify(
+              clientId,
+              'payment_charged',
+              'Extra picks added',
+              `Your payment of $${(intent.amount_received / 100).toFixed(2)} went through — your full selection is locked and off to editing.`,
+              { booking_id: bookingId },
+            );
+          }
+          break;
+        }
         const { data: booking } = await supabaseAdmin
           .from('bookings')
           .select('id, price_usd, pricing_snapshot')

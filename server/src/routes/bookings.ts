@@ -8,6 +8,8 @@ import {
   packagePriceUsd,
   remoteAddonPrices,
   remotePriceUsd,
+  socialTier,
+  socialTiers,
 } from '../config.js';
 import { stripeConfigured } from '../env.js';
 import { expireStaleOffer, offerWindowMs, reassignBooking } from '../offers.js';
@@ -28,6 +30,10 @@ interface CreateBookingBody {
   duration_hours?: number;
   /** Remote-edit orders: tier key in remote_pricing_table (e.g. photos_6_10, standard, large). */
   remote_tier?: string;
+  /** Social bundles: tier id in social_pricing_table (lite/standard/full).
+   * Required when occasion is Social; duration and price come from the tier
+   * config server-side, never from the client. */
+  social_tier?: string;
   /** Add-ons (remote: rush/extra_revisions; in-person adds extra_photos). */
   addons?: { rush?: boolean; extra_photos?: boolean; extra_revisions?: number };
   area?: string;
@@ -91,6 +97,7 @@ export function registerBookingRoutes(app: FastifyInstance) {
     let durationHours: number | null = null;
     let addonsUsd = 0;
     let addonsDetail: Record<string, number> = {};
+    let socialSnapshot: Record<string, unknown> | null = null;
     if (type === 'remote') {
       if (!body.remote_tier) {
         return reply.code(400).send({ error: 'remote_tier is required for remote orders' });
@@ -102,6 +109,24 @@ export function registerBookingRoutes(app: FastifyInstance) {
           .send({ error: `No ${mediaKind} remote package for tier ${body.remote_tier}` });
       }
       sessionPrice = price;
+    } else if (body.occasion === 'Social') {
+      // SOCIAL IS BUNDLE-PRICED (deliverable counts), not duration-priced.
+      // The tier is the only client input; duration, counts and price all
+      // come from social_pricing_table so an admin edit is authoritative
+      // with no app update.
+      const tier = body.social_tier ? await socialTier(body.social_tier) : undefined;
+      if (!tier) {
+        const ids = (await socialTiers()).map((t) => t.id).join(', ');
+        return reply.code(400).send({ error: `social_tier must be one of ${ids}` });
+      }
+      durationHours = tier.duration_hours;
+      sessionPrice = tier.price_usd;
+      socialSnapshot = {
+        social_tier: tier.id,
+        social_tier_label: tier.label,
+        included_photos: tier.photos,
+        included_videos: tier.videos,
+      };
     } else {
       durationHours = Number(body.duration_hours);
       const price = await packagePriceUsd(mediaKind, durationHours);
@@ -130,7 +155,11 @@ export function registerBookingRoutes(app: FastifyInstance) {
     } else {
       const prices = await inPersonAddonPrices();
       rushUsd = body.addons?.rush ? prices.rush : 0;
-      extraPhotosUsd = body.addons?.extra_photos ? prices.extra_photos : 0;
+      // The flat extra_photos flag is the DURATION product's add-on. Social
+      // prices extra photos per-unit at selection time (social_addons), so
+      // the flag is ignored there rather than double-charging.
+      extraPhotosUsd =
+        body.addons?.extra_photos && body.occasion !== 'Social' ? prices.extra_photos : 0;
       revisionRate = prices.extra_revision;
     }
     const revisionsUsd = extraRevisions * revisionRate;
@@ -228,6 +257,7 @@ export function registerBookingRoutes(app: FastifyInstance) {
           media_kind: mediaKind,
           duration_hours: durationHours,
           remote_tier: body.remote_tier ?? null,
+          ...(socialSnapshot ?? {}),
           session_price_usd: sessionPrice,
           addons: addonsDetail,
           addons_usd: addonsUsd,

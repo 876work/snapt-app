@@ -16,6 +16,27 @@ export function packagePrice(kind: MediaKind, hours: number): number | undefined
   return PRICING_TABLE[kind][String(hours)];
 }
 
+// Social bundles: deliverable-count product (replaces duration pricing for
+// the Social occasion). This mirrors the social_pricing_table app_config
+// seed the same way PRICING_TABLE mirrors pricing_table — display fallback
+// only. The booking flow fetches the LIVE table from /v1/config first, so
+// an admin price edit shows without an app update; this mirror covers
+// offline/mock mode.
+export interface SocialTierDef {
+  id: string;
+  label: string;
+  duration_hours: number;
+  photos: number;
+  videos: number;
+  price_usd: number;
+}
+
+export const SOCIAL_TIERS: SocialTierDef[] = [
+  { id: 'lite', label: 'Lite', duration_hours: 1, photos: 5, videos: 0, price_usd: 75 },
+  { id: 'standard', label: 'Standard', duration_hours: 1.5, photos: 10, videos: 1, price_usd: 140 },
+  { id: 'full', label: 'Full', duration_hours: 2, photos: 15, videos: 2, price_usd: 200 },
+];
+
 export interface DurationOption {
   hours: number;
   label: string;

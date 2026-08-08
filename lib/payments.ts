@@ -130,6 +130,39 @@ export async function waitForCharge(bookingId: string, timeoutMs = 15_000): Prom
  * Declines and 3DS are handled inside the sheet; the user can retry there.
  * Closing it returns 'cancelled' and the caller abandons the booking.
  */
+/**
+ * Present the sheet for a Social selection-extras charge. The params come
+ * from POST /v1/bookings/:id/selection; the selection LOCKS when the
+ * webhook confirms — the caller polls the selection endpoint for `locked`
+ * rather than trusting the sheet's word.
+ */
+export async function payForSelectionExtras(params: {
+  client_secret: string;
+  customer_id?: string;
+  ephemeral_key?: string;
+}): Promise<PayOutcome> {
+  const init = await initPaymentSheet({
+    merchantDisplayName: 'Snapt App',
+    paymentIntentClientSecret: params.client_secret,
+    customerId: params.customer_id,
+    customerEphemeralKeySecret: params.ephemeral_key,
+    allowsDelayedPaymentMethods: false,
+    returnURL: RETURN_URL, // same 3DS return contract as payForBooking
+    appearance: APPEARANCE,
+  });
+  if (init.error) return { ok: false, reason: 'unavailable', message: init.error.message };
+  const { error } = await presentPaymentSheet();
+  if (error) {
+    const cancelled = error.code === 'Canceled';
+    return {
+      ok: false,
+      reason: cancelled ? 'cancelled' : 'failed',
+      message: cancelled ? undefined : error.message,
+    };
+  }
+  return { ok: true };
+}
+
 export async function payForBooking(bookingId: string, clientName?: string): Promise<PayOutcome> {
   const intent = await post<IntentResponse>('/v1/payments/intent', { booking_id: bookingId });
   if (!intent?.client_secret) {

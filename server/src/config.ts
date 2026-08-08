@@ -67,6 +67,75 @@ export async function remoteAddonPrices(): Promise<{ rush: number; extra_revisio
   return { rush: table.rush ?? 20, extra_revision: table.extra_revision ?? 15 };
 }
 
+// ---------------------------------------------------------------------------
+// Social bundles — deliverable-count product (replaces duration pricing for
+// the Social occasion). All values admin-editable; the fallbacks below only
+// cover a database missing the seed rows and mirror the migration's seeds.
+// UNCONFIRMED pricing: seeds ship confirmed=false until Don sets finals.
+// ---------------------------------------------------------------------------
+
+export interface SocialTier {
+  id: string;
+  label: string;
+  duration_hours: number;
+  /** Included EDITED photo count. */
+  photos: number;
+  /** Included edited 30-sec video count. */
+  videos: number;
+  price_usd: number;
+}
+
+const SOCIAL_TIER_FALLBACK: SocialTier[] = [
+  { id: 'lite', label: 'Lite', duration_hours: 1, photos: 5, videos: 0, price_usd: 75 },
+  { id: 'standard', label: 'Standard', duration_hours: 1.5, photos: 10, videos: 1, price_usd: 140 },
+  { id: 'full', label: 'Full', duration_hours: 2, photos: 15, videos: 2, price_usd: 200 },
+];
+
+/** The Social bundle tiers, in display order. */
+export async function socialTiers(): Promise<SocialTier[]> {
+  const config = await getConfig();
+  const rows = config['social_pricing_table'];
+  if (!Array.isArray(rows) || rows.length === 0) return SOCIAL_TIER_FALLBACK;
+  // Validate each row rather than trusting the editor: one malformed tier
+  // must not make Social unbookable or, worse, price a booking at NaN.
+  const valid = (rows as SocialTier[]).filter(
+    (t) =>
+      typeof t?.id === 'string' &&
+      typeof t?.price_usd === 'number' && t.price_usd > 0 &&
+      typeof t?.duration_hours === 'number' && t.duration_hours > 0 &&
+      Number.isInteger(t?.photos) && t.photos >= 0 &&
+      Number.isInteger(t?.videos) && t.videos >= 0,
+  );
+  return valid.length > 0 ? valid : SOCIAL_TIER_FALLBACK;
+}
+
+export async function socialTier(id: string): Promise<SocialTier | undefined> {
+  return (await socialTiers()).find((t) => t.id === id);
+}
+
+/** Per-unit prices when a client selects beyond their tier's included counts. */
+export async function socialAddonPrices(): Promise<{ extra_photo: number; extra_video: number }> {
+  const config = await getConfig();
+  const table =
+    (config['social_addons'] as { extra_photo_usd?: number; extra_video_usd?: number }) ?? {};
+  return { extra_photo: table.extra_photo_usd ?? 12, extra_video: table.extra_video_usd ?? 35 };
+}
+
+/** Hours the client has to pick proofs before top picks auto-apply. */
+export async function socialSelectionWindowHours(): Promise<number> {
+  return configNumber('social_selection_window_hours', 72);
+}
+
+/**
+ * Which payout methods a creator may NEWLY select. Absent key or method =
+ * enabled — disabling is the explicit act, so an unlisted method never
+ * silently locks creators out.
+ */
+export async function enabledPayoutMethods(): Promise<Record<string, boolean>> {
+  const config = await getConfig();
+  return (config['payout_methods_enabled'] as Record<string, boolean>) ?? {};
+}
+
 /** CONFIRMED remote-edit pricing: service type × tier key. */
 export async function remotePriceUsd(
   mediaKind: string,
