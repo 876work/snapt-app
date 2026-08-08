@@ -1,25 +1,53 @@
 import React from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
-import { BoltIcon, OccasionIcon } from '../../components/ui/Icons';
-import { QuickBookSheet } from '../../components/home/QuickBookSheet';
+import { OccasionIcon } from '../../components/ui/Icons';
+import { StateCard } from '../../components/home/StateCard';
+import { FeaturedRail } from '../../components/home/FeaturedRail';
 import { useAuth, useBookings } from '../../lib/store';
-import { AREAS, Area, OCCASIONS, Occasion, type Creator } from '../../lib/mock/data';
-import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
+import { AREAS, Area, OCCASIONS, Occasion, PRICING_TABLE } from '../../lib/mock/data';
+import { REMOTE_PACKAGES } from '../../lib/store/upload';
+import { deriveHomeState, shouldShowEducation } from '../../lib/homeState';
+import type { FeaturedCreator, SocialProof } from '../../lib/api';
+import { formatMoney } from '../../lib/constants/business';
 import { colors, insetTop } from '../../lib/theme';
 import { navShrinkOnScroll } from '../../lib/navShrink';
+
+/**
+ * Entry prices, derived from the SAME tables the booking and upload flows
+ * price from — never a hardcoded string that can drift from what someone is
+ * actually charged. Both tables mirror their app_config rows; the server
+ * remains the charging authority.
+ */
+const SESSION_FROM_USD = Math.min(...Object.values(PRICING_TABLE.photo));
+const REMOTE_FROM_USD = Math.min(
+  ...Object.values(REMOTE_PACKAGES).flatMap((tiers) => tiers.map((t) => t.priceUsd)),
+);
 
 export default function Home() {
   const router = useRouter();
   const { name, currency, setCurrency } = useAuth();
   const { resetDraft, setDraft } = useBookings();
+  const bookings = useBookings((s) => s.bookings);
   const [mode, setMode] = React.useState<'in-person' | 'remote'>('in-person');
   const [occasion, setOccasion] = React.useState<Occasion | null>(null);
   const [area, setArea] = React.useState<Area | null>(null);
   const [areaOpen, setAreaOpen] = React.useState(false);
-  const [sheetOpen, setSheetOpen] = React.useState(false);
+
+  // What this user actually has going on. Pure derivation from the store's
+  // bookings — see lib/homeState.ts for the precedence order.
+  const homeState = React.useMemo(() => deriveHomeState(bookings), [bookings]);
+  const showEducation = React.useMemo(() => shouldShowEducation(bookings), [bookings]);
+
+  /**
+   * The bell dot and the state card read the SAME source, so they can never
+   * disagree: a dot with nothing on the screen to explain it was the old
+   * behaviour (the dot was a hardcoded View that was always on).
+   */
+  const [unread, setUnread] = React.useState(0);
+  const [proof, setProof] = React.useState<SocialProof | null>(null);
 
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
@@ -30,24 +58,56 @@ export default function Home() {
     router.push('/booking/occasion');
   };
 
-  // Real approved creators in API mode (rating shows "New" until the
-  // reviews system lands; initials until avatar upload exists). Mock
-  // catalog only when no API is configured.
-  // Starts empty, NOT with two mock creators — that produced a flash of
-  // invented people on every load before the real fetch landed.
-  const [featured, setFeatured] = React.useState<Creator[]>([]);
+  // Featured creators. The SERVER decides who qualifies (published work
+  // only) — an empty array here means "nobody yet", which the rail says
+  // honestly rather than padding with avatar placeholders.
+  const [featured, setFeatured] = React.useState<FeaturedCreator[] | null>(null);
+  const [featuredLoading, setFeaturedLoading] = React.useState(true);
   React.useEffect(() => {
-    import('../../lib/api').then(({ apiConfigured, fetchFeaturedCreators }) => {
-      if (!apiConfigured) return;
-      fetchFeaturedCreators().then((list) => {
-        setFeatured((list ?? []).slice(0, 2));
-      });
+    let cancelled = false;
+    import('../../lib/api').then(async ({ apiConfigured, fetchFeaturedCreators }) => {
+      if (!apiConfigured) {
+        if (!cancelled) setFeaturedLoading(false);
+        return;
+      }
+      const list = await fetchFeaturedCreators();
+      if (cancelled) return;
+      setFeatured(list ?? []);
+      setFeaturedLoading(false);
     });
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  // Unread + social proof refresh on focus: Home is a tab and stays mounted,
+  // so a mount-only fetch would show a stale dot for the whole session.
+  useFocusEffect(
+    React.useCallback(() => {
+      let cancelled = false;
+      import('../../lib/api').then(async ({ apiConfigured, fetchUnreadNotifications, fetchSocialProof }) => {
+        if (!apiConfigured) return;
+        const [count, p] = await Promise.all([
+          fetchUnreadNotifications(),
+          fetchSocialProof(area),
+        ]);
+        if (cancelled) return;
+        setUnread(count ?? 0);
+        setProof(p);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [area]),
+  );
 
   return (
     <View style={styles.root}>
-      <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 106 }}>
+      {/* Status-bar scrim. The hero scrolls away under the clock, so content
+          was colliding with the time (same class of bug as the Meeting Point
+          header). A fixed band keeps the status bar readable at any offset. */}
+      <View pointerEvents="none" style={styles.statusScrim} />
+      <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
         {/* Yellow hero header */}
         <View style={styles.hero}>
           <Image
@@ -74,7 +134,7 @@ export default function Home() {
                   <Path d="M6 9a6 6 0 0112 0c0 5 2 6 2 6H4s2-1 2-6z" stroke={colors.ink} strokeWidth={1.8} strokeLinejoin="round" />
                   <Path d="M10 19a2 2 0 004 0" stroke={colors.ink} strokeWidth={1.8} strokeLinecap="round" />
                 </Svg>
-                <View style={styles.bellDot} />
+                {unread > 0 && <View style={styles.bellDot} />}
               </Pressable>
             </View>
           </View>
@@ -83,9 +143,20 @@ export default function Home() {
 
         {/* Overlapping content */}
         <View style={styles.content}>
+          {/* What's happening with MY stuff — above the search card whenever
+              there is anything personal to say. */}
+          <StateCard state={homeState} />
+
           {/* Booking card */}
           <View style={styles.bookCard}>
-            <Text style={styles.cardLabel}>In person or remote?</Text>
+            <View style={styles.cardHead}>
+              <Text style={[styles.cardLabel, { marginBottom: 0 }]}>In person or remote?</Text>
+              {/* From the real pricing table, not a hardcoded string. */}
+              <Text style={styles.fromPrice}>
+                Sessions from {formatMoney(SESSION_FROM_USD, currency)}
+              </Text>
+            </View>
+            <Text style={styles.pricingClaim}>Standard pricing. No haggling.</Text>
             <View style={styles.segTrack}>
               {(
                 [
@@ -101,9 +172,10 @@ export default function Home() {
 
             {mode === 'in-person' ? (
               <>
-                <Text style={[styles.cardLabel, { marginTop: 14, marginBottom: 10 }]}>
-                  What's the moment?
-                </Text>
+                <View style={[styles.cardHead, { marginTop: 14, marginBottom: 10 }]}>
+                  <Text style={[styles.cardLabel, { marginBottom: 0 }]}>What's the moment?</Text>
+                  <Text style={styles.optional}>Optional</Text>
+                </View>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -130,12 +202,13 @@ export default function Home() {
                     <Circle cx="12" cy="10" r="2.3" stroke={colors.grey} strokeWidth={1.8} />
                   </Svg>
                   <Text style={[styles.locLabel, area && { color: colors.ink, fontWeight: '700' }]}>
-                    {area ?? 'Choose your area'}
+                    {area ?? 'Choose your area (optional)'}
                   </Text>
                   <Svg width={11} height={7} viewBox="0 0 12 8" fill="none">
                     <Path d="M1 1.5L6 6.5L11 1.5" stroke={colors.greyLight} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
                   </Svg>
                 </Pressable>
+                <Text style={styles.regionNote}>Currently serving northern Saint Lucia.</Text>
                 {areaOpen && (
                   <View style={styles.areaList}>
                     {AREAS.map((a) => (
@@ -186,9 +259,12 @@ export default function Home() {
             )}
           </View>
 
-          {/* Features strip */}
+          {/* Trust row — every claim is now tappable to something real.
+              Three static, unevidenced assertions were taking prime space on
+              a marketplace nobody has used yet. */}
           <View style={styles.features}>
             <Feature
+              onPress={() => router.push('/legal/trust-safety')}
               icon={
                 <Svg width={21} height={21} viewBox="0 0 24 24" fill="none">
                   <Path d="M12 3l7 2.5v5.6c0 4.4-3 7.8-7 9.4-4-1.6-7-5-7-9.4V5.5L12 3z" stroke="#E0A400" strokeWidth={1.7} strokeLinejoin="round" />
@@ -196,20 +272,22 @@ export default function Home() {
                 </Svg>
               }
               title="Verified creators"
-              sub="Quality you can trust"
+              sub="What we check"
             />
             <View style={styles.featureDiv} />
             <Feature
+              onPress={() => router.push('/help')}
               icon={
                 <Svg width={21} height={21} viewBox="0 0 24 24" fill="none">
                   <Path d="M13 3L5 13h6l-1 8 8-11h-6l1-7z" stroke="#E0A400" strokeWidth={1.7} strokeLinejoin="round" />
                 </Svg>
               }
-              title="Fast responses"
-              sub="Most reply in minutes"
+              title="How matching works"
+              sub="Find out"
             />
             <View style={styles.featureDiv} />
             <Feature
+              onPress={() => router.push('/upload')}
               icon={
                 <Svg width={21} height={21} viewBox="0 0 24 24" fill="none">
                   <Rect x="3.5" y="5" width="17" height="14" rx="3" stroke="#E0A400" strokeWidth={1.7} />
@@ -217,64 +295,49 @@ export default function Home() {
                 </Svg>
               }
               title="Edited content"
-              sub="Available add-on"
+              sub={`From ${formatMoney(REMOTE_FROM_USD, currency)}`}
             />
           </View>
 
-          {/* Top creators */}
-          <View style={styles.creatorsHead}>
-            <Text style={styles.creatorsTitle}>Top creators near you</Text>
-            <Pressable onPress={() => router.push('/creators')} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-              <Text style={styles.seeAll}>See all</Text>
-              <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
-                <Path d="M9 6l6 6-6 6" stroke={colors.yellowDark} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
+          {/* Remote edit as a real product, not a toggle label. Someone with
+              200 photos on their phone has no idea we solve that. */}
+          <Pressable onPress={() => router.push('/upload')} style={styles.remoteCard}>
+            <View style={styles.remoteIcon}>
+              <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+                <Path d="M6.5 18a4 4 0 01-.5-7.97A5.5 5.5 0 0117 9.5a3.5 3.5 0 011 6.9" stroke={colors.ink} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+                <Path d="M12 12v6M9.5 14.2L12 11.7l2.5 2.5" stroke={colors.ink} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
               </Svg>
-            </Pressable>
-          </View>
-          <View style={styles.creatorGrid}>
-            {featured.map((c) => (
-              <View key={c.id} style={styles.creatorCard}>
-                <View style={[styles.creatorPhotoWrap, { backgroundColor: c.tint }]}>
-                  <View style={styles.creatorPhoto}><CreatorAvatar name={c.name} photo={c.photo} /></View>
-                  <View style={styles.ratingPill}>
-                    <Svg width={11} height={11} viewBox="0 0 24 24" fill={colors.yellow}>
-                      <Path d="M12 2l2.9 6.3 6.9.6-5.2 4.6 1.6 6.8L12 17.3 5.8 20.9l1.6-6.8L2.2 8.9l6.9-.6z" />
-                    </Svg>
-                    <Text style={styles.ratingText}>
-                      {c.rating != null ? c.rating.toFixed(1) : 'New'}{c.rating != null && <Text style={styles.ratingReviews}> ({c.sessions})</Text>}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.creatorBody}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Text style={styles.creatorName}>{c.name}</Text>
-                    {c.verified && (
-                      <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
-                        <Path d="M12 3l2.2 1.6 2.7-.2 1 2.5 2.3 1.4-.6 2.6.6 2.6-2.3 1.4-1 2.5-2.7-.2L12 21l-2.2-1.6-2.7.2-1-2.5L3.8 15.7l.6-2.6-.6-2.6 2.3-1.4 1-2.5 2.7.2L12 3z" fill={colors.yellow} />
-                        <Path d="M9 12l2 2 4-4" stroke="#fff" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
-                      </Svg>
-                    )}
-                  </View>
-                  <View style={styles.tagRow}>
-                    {c.specialties.slice(0, 2).map((t) => (
-                      <View key={t} style={styles.tag}>
-                        <Text style={styles.tagLabel}>{t}</Text>
-                      </View>
-                    ))}
-                  </View>
-                  <View style={styles.creatorLocRow}>
-                    <Svg width={11} height={11} viewBox="0 0 24 24" fill="none">
-                      <Path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z" stroke="#8A8377" strokeWidth={1.8} strokeLinejoin="round" />
-                      <Circle cx="12" cy="10" r="2.3" stroke="#8A8377" strokeWidth={1.8} />
-                    </Svg>
-                    <Text style={styles.creatorLoc}>{c.loc}</Text>
-                  </View>
-                </View>
-              </View>
-            ))}
-          </View>
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.remoteTitle}>Already have footage?</Text>
+              <Text style={styles.remoteSub}>
+                Get it professionally edited, from {formatMoney(REMOTE_FROM_USD, currency)}. No shoot needed.
+              </Text>
+            </View>
+            <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+              <Path d="M9 6l6 6-6 6" stroke={colors.yellowDark} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          </Pressable>
 
-          {/* How it works */}
+          {/* Social proof. Real counts only — the SERVER applies the
+              threshold, so this cannot render a zero or an invented number. */}
+          {proof && (
+            <View style={styles.proofRow}>
+              <View style={styles.proofDot} />
+              <Text style={styles.proofText}>
+                {proof.count} bookings in the last 30 days
+                {proof.area ? ` in ${proof.area}` : ''}
+              </Text>
+            </View>
+          )}
+
+          <FeaturedRail creators={featured} loading={featuredLoading} />
+
+          {/* Education, until it stops being education. Dropped entirely
+              once the user has completed a booking — a screen that keeps
+              re-explaining itself to someone who has already done it reads
+              as unfinished. */}
+          {showEducation && (
           <View style={styles.how}>
             <Text style={styles.howTitle}>How it works</Text>
             <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
@@ -316,27 +379,33 @@ export default function Home() {
               />
             </View>
           </View>
+          )}
         </View>
       </ScrollView>
 
-      {/* Global FAB */}
-      <Pressable onPress={() => setSheetOpen(true)} style={styles.fab}>
-        <BoltIcon size={24} />
-      </Pressable>
-      <QuickBookSheet open={sheetOpen} onClose={() => setSheetOpen(false)} />
     </View>
   );
 }
 
-function Feature({ icon, title, sub }: { icon: React.ReactNode; title: string; sub: string }) {
+function Feature({
+  icon,
+  title,
+  sub,
+  onPress,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  sub: string;
+  onPress: () => void;
+}) {
   return (
-    <View style={styles.feature}>
+    <Pressable onPress={onPress} style={styles.feature}>
       {icon}
       <View style={{ alignItems: 'center' }}>
         <Text style={styles.featureTitle}>{title}</Text>
         <Text style={styles.featureSub}>{sub}</Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -359,6 +428,44 @@ function HowStep({ n, title, sub, icon }: { n: number; title: string; sub: strin
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.offWhite },
+  statusScrim: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: insetTop,
+    backgroundColor: colors.yellow,
+    zIndex: 5,
+  },
+  cardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  fromPrice: { fontSize: 11.5, fontWeight: '800', color: colors.yellowDark },
+  pricingClaim: { fontSize: 10.5, color: colors.greyWarm, marginTop: 3, marginBottom: 9 },
+  optional: { fontSize: 10, fontWeight: '700', color: colors.greyLight },
+  regionNote: { fontSize: 10.5, color: colors.greyWarm, marginTop: 7, marginHorizontal: 2 },
+  remoteCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 14,
+    marginTop: 14,
+  },
+  remoteIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: colors.yellowSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  remoteTitle: { fontSize: 14, fontWeight: '800', letterSpacing: -0.3, color: colors.ink },
+  remoteSub: { fontSize: 12, color: colors.grey, lineHeight: 17, marginTop: 2 },
+  proofRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 14, paddingHorizontal: 4 },
+  proofDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#1EC46F' },
+  proofText: { fontSize: 11.5, fontWeight: '600', color: colors.greyWarm },
   hero: {
     position: 'relative',
     backgroundColor: colors.yellow,
@@ -524,51 +631,6 @@ const styles = StyleSheet.create({
   featureDiv: { width: 1, backgroundColor: '#F0EDE6', marginVertical: 3 },
   featureTitle: { fontSize: 10.5, fontWeight: '800', letterSpacing: -0.1, color: colors.ink, textAlign: 'center' },
   featureSub: { fontSize: 9.5, color: colors.greyWarm, marginTop: 2, textAlign: 'center' },
-  creatorsHead: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    marginTop: 16,
-    marginBottom: 11,
-    marginHorizontal: 2,
-  },
-  creatorsTitle: { fontSize: 14, fontWeight: '800', letterSpacing: -0.3, color: colors.ink },
-  seeAll: { fontSize: 12.5, fontWeight: '700', color: colors.yellowDark },
-  creatorGrid: { flexDirection: 'row', gap: 12 },
-  creatorCard: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.07,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
-  },
-  creatorPhotoWrap: { height: 148, position: 'relative' },
-  creatorPhoto: { width: '100%', height: '100%' },
-  ratingPill: {
-    position: 'absolute',
-    bottom: 8,
-    left: 8,
-    backgroundColor: 'rgba(255,255,255,0.95)',
-    borderRadius: 9,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  ratingText: { fontSize: 11, fontWeight: '800', color: colors.ink },
-  ratingReviews: { color: colors.greyWarm, fontWeight: '600' },
-  creatorBody: { paddingHorizontal: 11, paddingTop: 10, paddingBottom: 11 },
-  creatorName: { fontSize: 12, fontWeight: '800', letterSpacing: -0.2, color: colors.ink },
-  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 7 },
-  tag: { backgroundColor: colors.segBgAlt, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
-  tagLabel: { fontSize: 9.5, fontWeight: '600', color: '#5C574E' },
-  creatorLocRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 9 },
-  creatorLoc: { fontSize: 10, color: colors.greyWarm, fontWeight: '600' },
   how: {
     marginTop: 20,
     backgroundColor: '#FFF8E9',
@@ -608,20 +670,4 @@ const styles = StyleSheet.create({
   howDash: { width: 20, borderTopWidth: 2, borderStyle: 'dashed', borderColor: '#E6D3A0', marginTop: 20 },
   howStepTitle: { fontSize: 9.5, fontWeight: '800', letterSpacing: -0.1, color: colors.ink, textAlign: 'center' },
   howStepSub: { fontSize: 9, color: colors.greyWarm, marginTop: 2, lineHeight: 12, textAlign: 'center' },
-  fab: {
-    position: 'absolute',
-    right: 20,
-    bottom: 104,
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: colors.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.ink,
-    shadowOpacity: 0.34,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 8,
-  },
 });

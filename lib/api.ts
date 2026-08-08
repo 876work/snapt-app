@@ -136,6 +136,8 @@ interface ServerCreator {
   avatar_url: string | null;
   /** Real km from the booking area (eligible endpoint only). */
   distance_km?: number | null;
+  /** Signed portfolio image URLs (featured endpoint only). */
+  work?: string[];
 }
 
 /**
@@ -158,11 +160,46 @@ function mapServerCreators(list: ServerCreator[]): Creator[] {
   }));
 }
 
-/** Approved creators for the home "Top creators" rail (public info). */
-export async function fetchFeaturedCreators(): Promise<Creator[] | null> {
+export interface FeaturedCreator extends Creator {
+  /** Real portfolio images. The server only returns creators who have some. */
+  work: string[];
+}
+
+/**
+ * Featured creators for the home rail. The SERVER excludes anyone without
+ * published work, so an empty array here means "nobody qualifies yet" — the
+ * rail renders its honest empty state rather than avatar placeholders.
+ */
+export async function fetchFeaturedCreators(): Promise<FeaturedCreator[] | null> {
   const result = await request<{ creators: ServerCreator[] }>(`/v1/creators/featured`);
   if (!result) return null;
-  return mapServerCreators(result.creators);
+  return mapServerCreators(result.creators).map((c, i) => ({
+    ...c,
+    work: result.creators[i]?.work ?? [],
+  }));
+}
+
+export interface SocialProof {
+  kind: 'bookings_30d';
+  count: number;
+  area: string | null;
+}
+
+/**
+ * Real activity only. The THRESHOLD IS SERVER-SIDE — null here means "not
+ * enough to be worth saying", so this can never render a zero or an invented
+ * number.
+ */
+export async function fetchSocialProof(area?: string | null): Promise<SocialProof | null> {
+  const qs = area ? `?area=${encodeURIComponent(area)}` : '';
+  const result = await request<{ proof: SocialProof | null }>(`/v1/social-proof${qs}`);
+  return result?.proof ?? null;
+}
+
+/** Unread notification count — the bell dot's single source of truth. */
+export async function fetchUnreadNotifications(): Promise<number | null> {
+  const result = await request<{ unread: number }>(`/v1/notifications/unread`);
+  return result?.unread ?? null;
 }
 
 export async function fetchEligibleCreators(occasion: string, area?: string | null): Promise<Creator[] | null> {
@@ -202,6 +239,7 @@ interface ServerBooking {
   status: string;
   reschedule_count: number;
   offer_expires_at?: string | null;
+  delivered_at?: string | null;
 }
 
 export function mapServerStatus(status: string): Booking['status'] {
@@ -409,6 +447,7 @@ export function toClientBooking(b: ServerBookingListItem): Booking {
       b.pricing_snapshot?.subtotal_usd ?? b.pricing_snapshot?.session_price_usd ?? b.price_usd,
     status: mapServerStatus(b.status),
     rescheduleCount: b.reschedule_count ?? 0,
+    deliveredAt: b.delivered_at ?? null,
   } as Booking;
 }
 

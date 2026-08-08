@@ -214,16 +214,87 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       .from('creator_profiles')
       .select('user_id, specialties, verified, base_area, profiles!creator_profiles_user_id_fkey!inner(full_name, avatar_url)')
       .eq('vetting_status', 'approved')
-      .limit(6);
+      .limit(12);
+    const ids = (data ?? []).map((c: any) => c.user_id as string);
+    if (!ids.length) return { creators: [] };
+
+    // A creator with no published work does NOT appear in the featured rail.
+    // This is a photography marketplace: a card showing a coloured square
+    // with an initial sells nothing and misrepresents what we are. Only
+    // 'approved'/'auto' items count — 'pending' has not cleared moderation
+    // and must never be shown publicly.
+    const { data: shots } = await supabaseAdmin
+      .from('portfolio_items')
+      .select('creator_id, storage_path, created_at')
+      .in('creator_id', ids)
+      .in('status', ['approved', 'auto'])
+      .not('storage_path', 'is', null)
+      .order('created_at', { ascending: false });
+
+    const pathsByCreator = new Map<string, string[]>();
+    for (const shot of shots ?? []) {
+      const list = pathsByCreator.get(shot.creator_id as string) ?? [];
+      if (list.length < 3) list.push(shot.storage_path as string);
+      pathsByCreator.set(shot.creator_id as string, list);
+    }
+
+    const { createDownloadUrl } = await import('../storage.js');
+    const creators = await Promise.all(
+      (data ?? [])
+        .filter((c: any) => (pathsByCreator.get(c.user_id)?.length ?? 0) > 0)
+        .map(async (c: any) => {
+          const paths = pathsByCreator.get(c.user_id) ?? [];
+          const work = (
+            await Promise.all(
+              paths.map((path) => createDownloadUrl('portfolio', path).catch(() => null)),
+            )
+          ).filter((url): url is string => url !== null);
+          return {
+            id: c.user_id,
+            full_name: c.profiles.full_name,
+            specialties: c.specialties ?? [],
+            verified: c.verified,
+            base_area: c.base_area,
+            avatar_url: c.profiles.avatar_url,
+            /** Signed portfolio URLs, newest first. Never empty here. */
+            work,
+          };
+        }),
+    );
+    // A signed-URL failure could empty `work` after the filter above.
+    return { creators: creators.filter((c) => c.work.length > 0).slice(0, 6) };
+  });
+
+  /**
+   * Social proof, real data only. Public (no auth) — it renders above the
+   * fold for signed-out-feeling first visits too.
+   *
+   * The THRESHOLD LIVES HERE, not in the UI: the client renders whatever it
+   * is handed, so a screen can never invent a number or show a zero. Below
+   * the threshold the endpoint returns nothing at all and the component
+   * hides itself.
+   */
+  app.get<{ Querystring: { area?: string } }>('/v1/social-proof', async (request) => {
+    const MIN_BOOKINGS = 5;
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
+
+    let query = supabaseAdmin
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .gte('created_at', since.toISOString())
+      .in('status', ['confirmed', 'completed']);
+    if (request.query.area) query = query.eq('area', request.query.area);
+    const { count } = await query;
+
+    const bookings = count ?? 0;
+    if (bookings < MIN_BOOKINGS) return { proof: null };
     return {
-      creators: (data ?? []).map((c: any) => ({
-        id: c.user_id,
-        full_name: c.profiles.full_name,
-        specialties: c.specialties ?? [],
-        verified: c.verified,
-        base_area: c.base_area,
-        avatar_url: c.profiles.avatar_url,
-      })),
+      proof: {
+        kind: 'bookings_30d' as const,
+        count: bookings,
+        area: request.query.area ?? null,
+      },
     };
   });
 

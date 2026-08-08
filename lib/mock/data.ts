@@ -89,6 +89,8 @@ export interface Booking {
   priceUsd: number;
   status: BookingStatus;
   rescheduleCount: number;
+  /** Set when deliverables landed — drives the "photos are ready" state. */
+  deliveredAt?: string | null;
 }
 
 const in3Days = new Date(Date.now() + 3 * 86400_000);
