@@ -186,10 +186,18 @@ export function registerMessageRoutes(app: FastifyInstance): void {
     const bookingId = request.params.bookingId;
     const { data: booking } = await supabaseAdmin
       .from('bookings')
-      .select('client_id, creator_id')
+      .select('client_id, creator_id, status')
       .eq('id', bookingId)
       .maybeSingle();
     if (!booking || (booking.client_id !== user.id && booking.creator_id !== user.id)) {
+      return reply.code(404).send({ error: 'Not found' });
+    }
+    // Same gate as loadThreads: no thread exists until a creator is attached
+    // AND the offer is accepted. This endpoint skipped it, so a ping could
+    // notify someone about a conversation their own inbox refused to show —
+    // observed live on 2026-08-08 (message_received on a still-pending
+    // booking). Same 404 as non-participants so nothing leaks.
+    if (!booking.creator_id || booking.status === 'pending') {
       return reply.code(404).send({ error: 'Not found' });
     }
     const recipient = booking.client_id === user.id ? booking.creator_id : booking.client_id;
