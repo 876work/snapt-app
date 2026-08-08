@@ -44,24 +44,32 @@ RESP="$(curl -sS --max-time 60 -X POST \
 unset PASSWORD BODY
 
 umask 077
-if ! python3 - "$OUT" <<'PY' <<<"$RESP"
-import sys, json
-out = sys.argv[1]
-raw = sys.stdin.read()
+# NOTE: the response is passed in the ENVIRONMENT, not on stdin. A heredoc
+# program plus a `<<<` here-string is two stdin redirects — the last wins,
+# so python would read the JSON as its own source and silently do nothing.
+if ! RESP="$RESP" OUT="$OUT" python3 <<'PY'
+import base64, json, os, sys, time
+
+out = os.environ["OUT"]
 try:
-    d = json.loads(raw)
+    d = json.loads(os.environ["RESP"])
 except Exception:
-    print("Unreadable response from Supabase.", file=sys.stderr); sys.exit(1)
+    print("Unreadable response from Supabase.", file=sys.stderr)
+    sys.exit(1)
+
 tok = d.get("access_token")
 if not tok:
     # Surface the reason WITHOUT echoing anything secret.
-    print(f"No token: {d.get('error_description') or d.get('msg') or d.get('error') or 'sign-in refused'}", file=sys.stderr)
+    reason = d.get("error_description") or d.get("msg") or d.get("error") or "sign-in refused"
+    print(f"No token: {reason}", file=sys.stderr)
     sys.exit(1)
-open(out, "w").write(tok)
-import base64, time
-p = tok.split(".")[1]
-p += "=" * (-len(p) % 4)
-claims = json.loads(base64.urlsafe_b64decode(p))
+
+with open(out, "w") as fh:
+    fh.write(tok)
+
+payload = tok.split(".")[1]
+payload += "=" * (-len(payload) % 4)
+claims = json.loads(base64.urlsafe_b64decode(payload))
 print(f"Token written to {out} — {int((claims['exp'] - time.time()) / 60)} min remaining.")
 PY
 then
