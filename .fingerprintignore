@@ -1,0 +1,9 @@
+# Files that must NOT enter the runtime fingerprint.
+#
+# The fingerprint decides which OTA updates a build may receive. It should
+# change only when the NATIVE binary meaningfully changes. eas.json is build
+# orchestration — channels, submit ids, profiles — none of which alters the
+# compiled app, yet on 2026-08-08 a two-line ascAppId addition re-fingerprinted
+# the project and orphaned a freshly built binary (build 12, 8a2b6845…) before
+# it even reached TestFlight.
+eas.json
