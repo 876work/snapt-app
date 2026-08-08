@@ -38,6 +38,9 @@ export default function ReschedulePick() {
   const [time, setTime] = React.useState<string | null>(null);
   const [flags, setFlags] = React.useState<Record<string, boolean | undefined>>({});
   const [slots, setSlots] = React.useState<string[]>([]);
+  // Three genuinely different outcomes that all used to render as
+  // "Checking availability…" forever, or worse as six invented times.
+  const [slotState, setSlotState] = React.useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [error, setError] = React.useState<string | null>(null);
 
   const occasion = booking?.occasion ?? 'Events';
@@ -72,13 +75,27 @@ export default function ReschedulePick() {
     if (!date) return;
     setTime(null);
     if (!apiConfigured) {
+      // No server at all — sample times so the flow is explorable.
       setSlots(MOCK_TIMES);
+      setSlotState('ready');
       return;
     }
     let cancelled = false;
     setSlots([]);
+    setSlotState('loading');
     fetchDaySlots(occasion, date, durationHours).then((s) => {
-      if (!cancelled) setSlots(s ?? MOCK_TIMES);
+      if (cancelled) return;
+      // NEVER fall back to invented times here. A fabricated slot list
+      // gets picked, submitted, and rejected at the server — or books a
+      // time no creator was actually matched for. (This was the last
+      // surviving `?? MOCK` fallback.)
+      if (s == null) {
+        setSlots([]);
+        setSlotState('error');
+        return;
+      }
+      setSlots(s);
+      setSlotState('ready');
     });
     return () => {
       cancelled = true;
@@ -143,8 +160,17 @@ export default function ReschedulePick() {
         <Text style={[styles.sectionLabel, { marginTop: 22 }]}>Pick a time</Text>
         {date == null ? (
           <Text style={styles.hint}>Choose a date above to see open times.</Text>
-        ) : slots.length === 0 ? (
+        ) : slotState === 'loading' ? (
           <Text style={styles.hint}>Checking availability…</Text>
+        ) : slotState === 'error' ? (
+          <Text style={styles.hint}>
+            Couldn't load open times just now. Check your connection and pick the date again —
+            your booking is unchanged.
+          </Text>
+        ) : slots.length === 0 ? (
+          <Text style={styles.hint}>
+            No open times on this date for a {durationHours}-hour session. Try another day.
+          </Text>
         ) : (
           <View style={styles.timeWrap}>
             {slots.map((t) => {
