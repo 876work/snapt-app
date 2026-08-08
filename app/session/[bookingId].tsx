@@ -109,15 +109,23 @@ export default function SessionDay() {
   const [chatDraft, setChatDraft] = React.useState('');
   const [chatSending, setChatSending] = React.useState(false);
   const [chatError, setChatError] = React.useState<string | null>(null);
+  const [chatHistoryFailed, setChatHistoryFailed] = React.useState(false);
   React.useEffect(() => {
     if (!chatEnabled || !bookingId) return;
     let uid: string | null = null;
     let unsub = () => {};
     supabase?.auth.getUser().then(({ data }) => {
       uid = data.user?.id ?? null;
-      fetchMessages(bookingId).then((msgs) =>
-        setChatMessages(msgs.map((m) => ({ id: m.id, body: m.body, mine: m.sender_id === uid }))),
-      );
+      fetchMessages(bookingId).then((msgs) => {
+        // null = the read failed. Don't render that as an empty conversation.
+        if (msgs === null) {
+          setChatHistoryFailed(true);
+          setChatMessages([]);
+          return;
+        }
+        setChatHistoryFailed(false);
+        setChatMessages(msgs.map((m) => ({ id: m.id, body: m.body, mine: m.sender_id === uid })));
+      });
       unsub = subscribeToMessages(bookingId, (m) =>
         setChatMessages((prev) => [
           ...(prev ?? []),
@@ -545,7 +553,13 @@ export default function SessionDay() {
             <KeyboardScrollView style={styles.chatBody}>
               {/* Real chat (Supabase Realtime) when configured; scripted
                   message in mock mode. */}
-              {chatMessages === null ? (
+              {chatHistoryFailed ? (
+                <View style={styles.chatError}>
+                  <Text style={styles.chatErrorText}>
+                    Couldn't load earlier messages — a connection problem, not lost history.
+                  </Text>
+                </View>
+              ) : chatMessages === null ? (
                 <View style={styles.chatMsgRow}>
                   {creator && (
                     <View style={styles.chatMsgAvatar}>

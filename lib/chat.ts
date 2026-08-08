@@ -14,13 +14,23 @@ export interface ChatMessage {
 
 export const chatEnabled = supabaseConfigured;
 
-export async function fetchMessages(bookingId: string): Promise<ChatMessage[]> {
+/**
+ * Thread history, or `null` if the read FAILED.
+ *
+ * The distinction matters: this used to discard `error` and return `[]`, so a
+ * dropped connection or a denied read rendered as "No messages yet — say
+ * hello." on a conversation that might hold weeks of history. A failure that
+ * looks like an empty room is worse than an error, because the user believes
+ * it and acts on it. `[]` now means genuinely empty and nothing else.
+ */
+export async function fetchMessages(bookingId: string): Promise<ChatMessage[] | null> {
   if (!supabase) return [];
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('messages')
     .select('*')
     .eq('booking_id', bookingId)
     .order('created_at', { ascending: true });
+  if (error) return null;
   return (data as ChatMessage[]) ?? [];
 }
 

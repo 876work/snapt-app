@@ -85,6 +85,8 @@ export default function MessageThread() {
   const [draft, setDraft] = React.useState('');
   const [sending, setSending] = React.useState(false);
   const [sendError, setSendError] = React.useState<string | null>(null);
+  const [historyFailed, setHistoryFailed] = React.useState(false);
+  const [reloadKey, setReloadKey] = React.useState(0);
 
   React.useEffect(() => {
     if (!chatEnabled || !bookingId) return;
@@ -93,9 +95,19 @@ export default function MessageThread() {
     import('../../../lib/supabase').then(({ supabase }) => {
       supabase?.auth.getUser().then(({ data }) => {
         uid = data.user?.id ?? null;
-        fetchMessages(bookingId).then((msgs) =>
-          setMessages(msgs.map((m) => ({ id: m.id, body: m.body, mine: m.sender_id === uid, created_at: m.created_at }))),
-        );
+        fetchMessages(bookingId).then((msgs) => {
+          // null means the read failed. Showing an empty thread here would
+          // tell someone their history is gone.
+          if (msgs === null) {
+            setHistoryFailed(true);
+            setMessages([]);
+            return;
+          }
+          setHistoryFailed(false);
+          setMessages(
+            msgs.map((m) => ({ id: m.id, body: m.body, mine: m.sender_id === uid, created_at: m.created_at })),
+          );
+        });
         unsub = subscribeToMessages(bookingId, (m) => {
           setMessages((prev) => [
             ...(prev ?? []),
@@ -108,7 +120,7 @@ export default function MessageThread() {
       });
     });
     return () => unsub();
-  }, [bookingId, markRead]);
+  }, [bookingId, markRead, reloadKey]);
 
   React.useEffect(() => {
     // New message, either direction — keep the latest line in view.
@@ -182,6 +194,16 @@ export default function MessageThread() {
         {messages === null ? (
           <View style={styles.centre}>
             <ActivityIndicator color={colors.yellowDark} />
+          </View>
+        ) : historyFailed ? (
+          <View style={styles.centre}>
+            <Text style={styles.emptyBody}>
+              Couldn't load this conversation. Your messages are safe — this is a connection
+              problem, not lost history.
+            </Text>
+            <Pressable onPress={() => setReloadKey((k) => k + 1)} style={styles.retry}>
+              <Text style={styles.retryLabel}>Try again</Text>
+            </Pressable>
           </View>
         ) : messages.length === 0 ? (
           <View style={styles.centre}>
@@ -284,6 +306,14 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 4,
   },
   bubbleText: { fontSize: 13.5, lineHeight: 19, color: colors.ink },
+  retry: {
+    marginTop: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: colors.yellow,
+  },
+  retryLabel: { fontSize: 14, color: colors.ink },
   sendError: {
     backgroundColor: '#FDECEC',
     borderRadius: 10,
