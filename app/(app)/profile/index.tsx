@@ -30,6 +30,8 @@ export default function Profile() {
     creatorStatus,
   } = useAuth();
   const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
   const [updBusy, setUpdBusy] = React.useState(false);
   const [updStatus, setUpdStatus] = React.useState<string | null>(null);
 
@@ -376,16 +378,36 @@ export default function Profile() {
             </View>
             <Text style={styles.deleteTitle}>Delete your account?</Text>
             <Text style={styles.deleteSub}>
-              This permanently removes your profile, bookings, messages, and history. This can't be
-              undone.
+              Your account closes immediately and you'll be signed out. Your personal data is
+              permanently removed after a 30-day grace period — contact hello@snaptcarib.app within
+              those 30 days if you change your mind. Completed payment records are kept without
+              your personal details, as our Data Retention Policy describes.
             </Text>
+            {deleteError ? <Text style={styles.deleteError}>{deleteError}</Text> : null}
             <View style={{ marginTop: 18 }}>
               <SlideToConfirm
-                label="Slide to delete account"
-                onConfirm={() => {
+                label={deleting ? 'Closing your account…' : 'Slide to delete account'}
+                disabled={deleting}
+                onConfirm={async () => {
+                  setDeleting(true);
+                  setDeleteError(null);
+                  const { deleteAccountApi, apiConfigured } = await import('../../../lib/api');
+                  if (!apiConfigured) {
+                    // Mock mode keeps the old demo behaviour.
+                    setDeleteOpen(false);
+                    signOutEverywhere();
+                    router.replace('/(auth)/welcome');
+                    return;
+                  }
+                  const result = await deleteAccountApi();
+                  setDeleting(false);
+                  if (!result || 'error' in result) {
+                    // Guards land here too (unfinished booking, unpaid
+                    // earnings) — the server's message says what to resolve.
+                    setDeleteError(result?.error ?? "Couldn't delete your account — check your connection and try again.");
+                    return;
+                  }
                   setDeleteOpen(false);
-                  // Phase 0: signs out only. Real account deletion is a
-                  // server-side job (auth user + cascade) — Phase 3.
                   signOutEverywhere();
                   router.replace('/(auth)/welcome');
                 }}
@@ -607,6 +629,7 @@ const styles = StyleSheet.create({
   },
   deleteTitle: { fontSize: 20, fontWeight: '800', letterSpacing: -0.3, color: colors.ink, textAlign: 'center' },
   deleteSub: { fontSize: 13.5, color: colors.grey, lineHeight: 20, textAlign: 'center', marginTop: 10, paddingHorizontal: 6 },
+  deleteError: { fontSize: 12.5, fontWeight: '600', color: colors.error, textAlign: 'center', marginTop: 12 },
   cancelBtn: {
     height: 52,
     borderRadius: 14,

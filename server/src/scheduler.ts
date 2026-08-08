@@ -135,9 +135,14 @@ async function staleApplications(): Promise<void> {
   }
 }
 
+async function purgeAccounts(): Promise<void> {
+  const { purgeDeletedAccounts } = await import('./account-purge.js');
+  await purgeDeletedAccounts();
+}
+
 export function startScheduler(): void {
   const tick = () =>
-    Promise.all([releasePayouts(), remindEvidenceDeadlines(), retentionDaily(), staleApplications(), autoPickSelections()]).catch((err) =>
+    Promise.all([releasePayouts(), remindEvidenceDeadlines(), retentionDaily(), staleApplications(), autoPickSelections(), purgeAccounts()]).catch((err) =>
       console.error('scheduler tick failed', err),
     );
   void tick();

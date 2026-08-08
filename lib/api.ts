@@ -875,6 +875,15 @@ export async function unregisterPushTokenApi(token: string): Promise<void> {
  * server's auto-assigned severity and its consequence automation — the
  * screen labels must map 1:1 to the server's four tiers.
  */
+/**
+ * Real account deletion: soft delete with a 30-day grace period. The server
+ * refuses (409, with a reason) while a booking is unfinished or creator
+ * earnings are unpaid.
+ */
+export function deleteAccountApi() {
+  return authedPost<{ deleted: boolean; grace_days?: number }>(`/v1/account/delete`, {});
+}
+
 export function submitContentReport(
   category: 'child_safety' | 'sexual_violent_hate' | 'content_policy' | 'general' | 'support',
   details: string,
