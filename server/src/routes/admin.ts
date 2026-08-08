@@ -44,14 +44,56 @@ export function registerAdminRoutes(app: FastifyInstance) {
     return rows.filter((b) => !paid.has(b.id));
   }
 
+  /**
+   * ORPHANED JOB OFFERS: "New job offer" notifications whose booking is
+   * cancelled or gone.
+   *
+   * findGhosts() only sees bookings still sitting at 'pending'. A ghost the
+   * app cleaned up client-side is already 'cancelled' with creator_id
+   * nulled — but the creator's inbox still holds the offer push, deep-
+   * linking to a job that no longer exists. That is the offer-history
+   * pollution, and it is invisible to the booking-side query.
+   */
+  async function findOrphanOffers() {
+    const { data: offers } = await supabaseAdmin
+      .from('notifications')
+      .select('id, user_id, created_at, data')
+      .eq('trigger_type', 'offer_received');
+    const rows = (offers ?? []).map((n) => ({
+      ...n,
+      booking_id: ((n.data ?? {}) as Record<string, unknown>).booking_id as string | undefined,
+    }));
+    const ids = [...new Set(rows.map((r) => r.booking_id).filter(Boolean))] as string[];
+    if (ids.length === 0) return rows.filter((r) => !r.booking_id);
+    const { data: bookings } = await supabaseAdmin
+      .from('bookings')
+      .select('id, status')
+      .in('id', ids);
+    const alive = new Map((bookings ?? []).map((b) => [b.id as string, b.status as string]));
+    // Orphan = booking deleted, or cancelled (the offer is moot either way).
+    return rows.filter((r) => {
+      if (!r.booking_id) return true;
+      const status = alive.get(r.booking_id);
+      return status === undefined || status === 'cancelled';
+    });
+  }
+
   app.get('/v1/admin/ghost-bookings', async (request, reply) => {
     const adminId = await requireAdmin(request, reply);
     if (!adminId) return;
     const ghosts = await findGhosts();
+    const orphans = await findOrphanOffers();
     return {
       count: ghosts.length,
       with_creator_offer: ghosts.filter((g) => g.creator_id).length,
       bookings: ghosts,
+      orphan_offers: orphans.length,
+      orphan_offer_creators: new Set(orphans.map((o) => o.user_id)).size,
+      orphan_offer_rows: orphans.map((o) => ({
+        user_id: o.user_id,
+        booking_id: o.booking_id ?? null,
+        created_at: o.created_at,
+      })),
     };
   });
 
@@ -59,7 +101,10 @@ export function registerAdminRoutes(app: FastifyInstance) {
     const adminId = await requireAdmin(request, reply);
     if (!adminId) return;
     const ghosts = await findGhosts();
-    if (ghosts.length === 0) return { cleared: 0, bookings: [] };
+    const orphansBefore = await findOrphanOffers();
+    if (ghosts.length === 0 && orphansBefore.length === 0) {
+      return { cleared: 0, offers_withdrawn: 0, bookings: [] };
+    }
 
     // Cancelled, not deleted: the row stays as history (and keeps any
     // foreign keys intact), but it leaves the creator's offer queue and
@@ -88,12 +133,25 @@ export function registerAdminRoutes(app: FastifyInstance) {
         .eq('data->>booking_id', g.id);
     }
 
+    // Re-scan AFTER the cancels above: those just orphaned their own
+    // offers, so this sweep catches both the pre-existing strays and the
+    // ones this run created.
+    const orphans = await findOrphanOffers();
+    for (const o of orphans) {
+      await supabaseAdmin.from('notifications').delete().eq('id', o.id);
+    }
     await audit(adminId, 'ghost_bookings_cleared', 'checkout', {
       count: ids.length,
       with_creator_offer: offerCreators.length,
+      orphan_offers_deleted: orphans.length,
       booking_ids: ids,
     });
-    return { cleared: ids.length, offers_withdrawn: offerCreators.length, bookings: ids };
+    return {
+      cleared: ids.length,
+      offers_withdrawn: orphans.length,
+      orphan_offer_creators: new Set(orphans.map((o) => o.user_id)).size,
+      bookings: ids,
+    };
   });
 
   app.get('/v1/admin/alerts', async (request, reply) => {
