@@ -42,6 +42,56 @@ export default function RemoteOrderSummary() {
   const total = pkg.priceUsd + addonsTotal + serviceFee;
 
 
+  // Paid order whose files did not all land — retry targets this id rather
+  // than starting a second checkout.
+  const [paidBookingId, setPaidBookingId] = React.useState<string | null>(null);
+  const [uploading, setUploading] = React.useState(false);
+
+  /** Upload every queued file, one at a time, with live per-file progress. */
+  const uploadAll = async (bookingId: string): Promise<number> => {
+    const { uploadRawFile } = await import('../../lib/rawUpload');
+    const { setFileStatus } = useUpload.getState();
+    setUploading(true);
+    let failures = 0;
+    for (const f of useUpload.getState().files) {
+      if (!f.uri || f.status === 'done') continue;
+      setFileStatus(f.id, { status: 'uploading', progress: 0, error: undefined });
+      const r = await uploadRawFile(
+        bookingId,
+        {
+          uri: f.uri,
+          name: f.name ?? 'upload.jpg',
+          mimeType: f.mimeType,
+          sizeBytes: Math.round(f.sizeMb * 1048576),
+        },
+        (fraction) => setFileStatus(f.id, { progress: fraction }),
+      );
+      if (r.ok) {
+        setFileStatus(f.id, { status: 'done', progress: 1 });
+      } else {
+        failures += 1;
+        setFileStatus(f.id, { status: 'failed', error: r.error });
+      }
+    }
+    setUploading(false);
+    return failures;
+  };
+
+  const retryUploads = async () => {
+    if (!paidBookingId) return;
+    setOrderError(null);
+    const failures = await uploadAll(paidBookingId);
+    if (failures > 0) {
+      setOrderError(
+        `${failures} ${failures === 1 ? 'file is' : 'files are'} still failing. Check your connection — your order is paid and safe.`,
+      );
+      return;
+    }
+    reset();
+    router.dismissAll();
+    router.replace(`/bookings/${paidBookingId}`);
+  };
+
   const placeOrder = async () => {
     const { apiConfigured } = await import('../../lib/api');
     if (apiConfigured) {
@@ -58,19 +108,18 @@ export default function RemoteOrderSummary() {
       });
 
       if (outcome.ok) {
-        // Source footage attaches to the order the webhook created. Without
-        // an id yet the upload waits for the user to open the order — the
-        // payment is safe either way.
+        // Source footage attaches to the order the webhook created.
         if (outcome.bookingId) {
-          const { uploadMediaApi } = await import('../../lib/api');
-          for (const f of files) {
-            if (f.uri) {
-              await uploadMediaApi(outcome.bookingId, 'raw', {
-                uri: f.uri,
-                name: f.name ?? 'upload.jpg',
-                mimeType: f.mimeType,
-              });
-            }
+          const failures = await uploadAll(outcome.bookingId);
+          if (failures > 0) {
+            // PAID, but the editor has nothing to work from. Never navigate
+            // away quietly — the client keeps the screen, the files, and a
+            // retry, and admin is told so it cannot rot unnoticed.
+            setOrderError(
+              `Payment went through, but ${failures} ${failures === 1 ? 'file' : 'files'} didn't upload. Tap Retry — your order is safe and nothing is lost.`,
+            );
+            setPaidBookingId(outcome.bookingId);
+            return false;
           }
         }
         reset();
@@ -198,7 +247,34 @@ export default function RemoteOrderSummary() {
       </KeyboardScrollView>
 
       <View style={styles.footer}>
+        {/* Per-file upload state, pinned above the button. A silent failed
+            upload on a PAID order is a dispute waiting to happen. */}
+        {(uploading || paidBookingId) && (
+          <View style={styles.uploadPanel}>
+            {files.filter((f) => f.uri).map((f) => (
+              <View key={f.id} style={styles.uploadRow}>
+                <Text style={styles.uploadName} numberOfLines={1}>
+                  {f.name ?? 'file'}
+                </Text>
+                {f.status === 'done' ? (
+                  <Text style={styles.uploadDone}>uploaded</Text>
+                ) : f.status === 'failed' ? (
+                  <Text style={styles.uploadFailed}>{f.error ?? 'failed'}</Text>
+                ) : f.status === 'uploading' ? (
+                  <Text style={styles.uploadPct}>{Math.round((f.progress ?? 0) * 100)}%</Text>
+                ) : (
+                  <Text style={styles.uploadPct}>waiting</Text>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
         {orderError ? <Text style={styles.footerError}>{orderError}</Text> : null}
+        {paidBookingId && !uploading && (
+          <Pressable onPress={retryUploads} style={styles.retryBtn}>
+            <Text style={styles.retryLabel}>Retry upload</Text>
+          </Pressable>
+        )}
         <View style={styles.payBar}>
           <Text style={styles.payBarLabel}>You're paying (USD)</Text>
           <Text style={styles.payBarValue}>{formatMoney(total, 'USD')}</Text>
@@ -288,6 +364,22 @@ const styles = StyleSheet.create({
     borderTopColor: '#F0F0F0',
   },
   footerError: { fontSize: 12.5, fontWeight: '700', color: '#A32C2C', textAlign: 'center', marginBottom: 10 },
+  uploadPanel: { gap: 4, marginBottom: 10, maxHeight: 140 },
+  uploadRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  uploadName: { flex: 1, fontSize: 11.5, color: colors.grey },
+  uploadPct: { fontSize: 11.5, fontWeight: '800', color: colors.ink },
+  uploadDone: { fontSize: 11.5, fontWeight: '800', color: '#1E7A45' },
+  uploadFailed: { fontSize: 11, fontWeight: '800', color: '#A32C2C', maxWidth: 160, textAlign: 'right' },
+  retryBtn: {
+    height: 46,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: colors.yellow,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  retryLabel: { fontSize: 14, fontWeight: '800', color: colors.ink },
   payBar: {
     flexDirection: 'row',
     alignItems: 'center',

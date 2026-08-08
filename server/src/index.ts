@@ -53,6 +53,11 @@ registerAuth(app);
 app.get('/v1/health', async () => ({
   ok: true,
   stripe_configured: stripeConfigured,
+  // Which storage backend is actually live. No secrets — just whether R2
+  // credentials resolved or we fell back to Supabase Storage. Without this
+  // "did the file land in R2?" is unanswerable from outside.
+  storage_driver: process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID &&
+    process.env.R2_SECRET_ACCESS_KEY && process.env.R2_BUCKET ? 'r2' : 'supabase',
 }));
 
 registerConfigRoutes(app);

@@ -38,6 +38,15 @@ async function loadBooking(id: string, reply: FastifyReply): Promise<BookingRow 
 type MediaKind = 'raw' | 'deliverable' | 'proof';
 const KINDS: MediaKind[] = ['raw', 'deliverable', 'proof'];
 
+// Upload limits, enforced HERE. The app checks the same rules to give a
+// good error message, but the client is not the authority: a presigned URL
+// handed out without validation is an open door to the bucket.
+const ACCEPTED_MIME = /^(image\/(jpeg|jpg|png|heic|heif|webp)|video\/(mp4|quicktime|x-m4v))$/i;
+const MAX_IMAGE_BYTES = 50 * 1024 * 1024;   // 50MB
+const MAX_VIDEO_BYTES = 750 * 1024 * 1024;  // 750MB
+/** Locked product rule: 15 client source files per remote order. */
+const MAX_RAW_FILES = 15;
+
 // Proofs live in the deliverables bucket: they are processed exports with
 // the same lifecycle, not camera originals.
 function bucketFor(kind: MediaKind): MediaBucket {
@@ -51,7 +60,7 @@ function isSocial(booking: BookingRow): boolean {
 export function registerMediaRoutes(app: FastifyInstance) {
   app.post<{
     Params: { id: string };
-    Body: { kind?: MediaKind; filename?: string; content_type?: string };
+    Body: { kind?: MediaKind; filename?: string; content_type?: string; size_bytes?: number };
   }>('/v1/bookings/:id/media/upload-url', async (request, reply) => {
     const user = requireUser(request);
     const booking = await loadBooking(request.params.id, reply);
@@ -63,6 +72,35 @@ export function registerMediaRoutes(app: FastifyInstance) {
     if (!filename) return reply.code(400).send({ error: 'filename is required' });
     if (kind === 'proof' && !isSocial(booking)) {
       return reply.code(400).send({ error: 'Proof galleries are for Social bundle bookings' });
+    }
+
+    if (kind === 'raw') {
+      const ct = content_type ?? '';
+      if (!ACCEPTED_MIME.test(ct)) {
+        return reply.code(400).send({
+          error: 'Unsupported file type. Send JPG, PNG, HEIC, WEBP, MP4 or MOV.',
+        });
+      }
+      const declared = Number(request.body?.size_bytes ?? 0);
+      const cap = ct.startsWith('video') ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+      if (declared > cap) {
+        return reply.code(400).send({
+          error: `That file is too large — ${ct.startsWith('video') ? '750MB' : '50MB'} is the limit per ${ct.startsWith('video') ? 'video' : 'image'}.`,
+        });
+      }
+      // The 15-file ceiling is a product rule, so it is checked against what
+      // is ALREADY registered — not against what the client claims to hold.
+      const { count } = await supabaseAdmin
+        .from('booking_media')
+        .select('id', { count: 'exact', head: true })
+        .eq('booking_id', booking.id)
+        .eq('kind', 'raw')
+        .is('deleted_at', null);
+      if ((count ?? 0) >= MAX_RAW_FILES) {
+        return reply.code(409).send({
+          error: `This order already has the maximum of ${MAX_RAW_FILES} files.`,
+        });
+      }
     }
 
     // Who may upload what:

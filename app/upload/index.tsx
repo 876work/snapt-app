@@ -5,19 +5,35 @@ import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
-import { MAX_FILES, MAX_TOTAL_GB, useUpload } from '../../lib/store/upload';
+import {
+  MAX_FILES,
+  MAX_IMAGE_MB,
+  MAX_TOTAL_GB,
+  MAX_VIDEO_MB,
+  useUpload,
+  type RejectedFile,
+} from '../../lib/store/upload';
 import { colors, insetBottom } from '../../lib/theme';
 
 export default function UploadFootage() {
   const router = useRouter();
-  const { files, note, setNote, addFile, addPicked } = useUpload();
+  const { files, note, setNote, addPicked, removeFile } = useUpload();
+  const [rejected, setRejected] = React.useState<RejectedFile[]>([]);
+
+  // The picker is real in every mode — it reads files off the device and
+  // does not need a server. Only the UPLOAD needs one, and that happens
+  // after payment.
   const pick = async () => {
-    const { supabaseConfigured } = await import('../../lib/supabase');
-    if (!supabaseConfigured) return addFile(); // mock mode keeps demo files
+    setRejected([]);
     const ImagePicker = await import('expo-image-picker');
-    const result = await ImagePicker.launchImageLibraryAsync({ allowsMultipleSelection: true, quality: 1 });
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images', 'videos'],
+      allowsMultipleSelection: true,
+      selectionLimit: MAX_FILES,
+      quality: 1,
+    });
     if (result.canceled) return;
-    addPicked(
+    const bad = addPicked(
       result.assets.map((a, i) => ({
         uri: a.uri,
         name: a.fileName ?? `upload-${Date.now()}-${i}.jpg`,
@@ -25,7 +41,17 @@ export default function UploadFootage() {
         sizeMb: Math.round(((a.fileSize ?? 0) / 1048576) * 10) / 10,
       })),
     );
+    setRejected(bad);
   };
+
+  const rejectLine = (r: RejectedFile) =>
+    r.reason === 'count'
+      ? `${r.name} — not added, ${MAX_FILES} files is the maximum per order`
+      : r.reason === 'type'
+        ? `${r.name} — unsupported file type`
+        : r.reason === 'size'
+          ? `${r.name} — over the ${MAX_IMAGE_MB}MB image / ${MAX_VIDEO_MB}MB video limit`
+          : `${r.name} — would exceed the ${MAX_TOTAL_GB}GB total`;
   const atLimit = files.length >= MAX_FILES;
   const totalMb = files.reduce((s, f) => s + f.sizeMb, 0);
   const usage = totalMb >= 1000 ? `${(totalMb / 1000).toFixed(1)}GB` : `${totalMb}MB`;
@@ -35,7 +61,8 @@ export default function UploadFootage() {
       <ScreenHeader title="Upload footage" />
       <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <Text style={styles.lead}>
-          Send us your raw photos or video and we'll make them shine. Add as many files as you like.
+          Send us your raw photos or video and we'll make them shine. Up to {MAX_FILES} files per
+          order.
         </Text>
 
         {!atLimit ? (
@@ -47,7 +74,10 @@ export default function UploadFootage() {
               </Svg>
             </View>
             <Text style={styles.dropTitle}>Add photos or video</Text>
-            <Text style={styles.dropSub}>JPG, PNG, MP4, MOV · up to {MAX_TOTAL_GB}GB total</Text>
+            <Text style={styles.dropSub}>
+              JPG, PNG, HEIC, MP4, MOV · {MAX_IMAGE_MB}MB per image, {MAX_VIDEO_MB}MB per video ·{' '}
+              {MAX_TOTAL_GB}GB total
+            </Text>
           </Pressable>
         ) : (
           <View style={styles.limitCard}>
@@ -74,12 +104,39 @@ export default function UploadFootage() {
             {usage} of {MAX_TOTAL_GB}GB
           </Text>
         </View>
+        {rejected.length > 0 && (
+          <View style={styles.rejectCard}>
+            <Text style={styles.rejectTitle}>
+              {rejected.length} {rejected.length === 1 ? 'file was' : 'files were'} not added
+            </Text>
+            {rejected.map((r, i) => (
+              <Text key={`${r.name}-${i}`} style={styles.rejectLine}>
+                • {rejectLine(r)}
+              </Text>
+            ))}
+          </View>
+        )}
+
+        {files.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>No files yet</Text>
+            <Text style={styles.emptyBody}>
+              Add the photos or video you want edited. They upload once your order is paid, and only
+              your assigned editor can see them.
+            </Text>
+          </View>
+        ) : (
         <View style={styles.grid}>
           {files.map((f) => (
             <View key={f.id} style={[styles.thumb, { backgroundColor: f.tint }]}>
               {f.thumb && (
                 <Image source={f.thumb} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
               )}
+              <Pressable onPress={() => removeFile(f.id)} style={styles.removeBtn} hitSlop={6}>
+                <Svg width={11} height={11} viewBox="0 0 24 24" fill="none">
+                  <Path d="M6 6l12 12M18 6L6 18" stroke="#fff" strokeWidth={3} strokeLinecap="round" />
+                </Svg>
+              </Pressable>
               <View style={styles.typeBadge}>
                 <Text style={styles.typeBadgeLabel}>{f.type}</Text>
               </View>
@@ -91,6 +148,7 @@ export default function UploadFootage() {
             </View>
           ))}
         </View>
+        )}
 
         <Text style={styles.noteTitle}>Anything we should know?</Text>
         <TextInput
@@ -104,8 +162,14 @@ export default function UploadFootage() {
         <View style={{ height: 24 }} />
       </KeyboardScrollView>
       <View style={styles.footer}>
-        <Text style={styles.footerCount}>{files.length} files{'\n'}ready</Text>
-        <Pressable onPress={() => router.push('/upload/packages')} style={styles.cta}>
+        <Text style={styles.footerCount}>
+          {files.length} {files.length === 1 ? 'file' : 'files'}{'\n'}ready
+        </Text>
+        <Pressable
+          onPress={() => files.length > 0 && router.push('/upload/packages')}
+          disabled={files.length === 0}
+          style={[styles.cta, files.length === 0 && { opacity: 0.45 }]}
+        >
           <Text style={styles.ctaLabel}>Continue</Text>
           <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
             <Path d="M5 12h14M13 6l6 6-6 6" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
@@ -192,6 +256,39 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   sizeBadgeLabel: { fontSize: 8.5, fontWeight: '700', color: '#fff' },
+  rejectCard: {
+    borderWidth: 1,
+    borderColor: '#F1DADA',
+    backgroundColor: '#FDF3F3',
+    borderRadius: 14,
+    padding: 13,
+    marginBottom: 12,
+    gap: 3,
+  },
+  rejectTitle: { fontSize: 13, fontWeight: '800', color: '#A32C2C' },
+  rejectLine: { fontSize: 12, color: '#8C3A2E', lineHeight: 17 },
+  emptyCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 18,
+    alignItems: 'center',
+    gap: 5,
+  },
+  emptyTitle: { fontSize: 14.5, fontWeight: '800', color: colors.ink },
+  emptyBody: { fontSize: 12.5, color: colors.grey, lineHeight: 18, textAlign: 'center' },
+  removeBtn: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(26,26,26,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   noteTitle: { fontSize: 15, fontWeight: '800', letterSpacing: -0.2, color: colors.ink, marginTop: 24, marginBottom: 10 },
   noteInput: {
     minHeight: 90,

@@ -8,10 +8,14 @@ export interface UploadFile {
   thumb: number | { uri: string } | null; // asset, picked-file preview, or tint-only
   tint: string;
   oversize?: boolean;
-  /** Real picked file (API mode) — uploaded as raw after order creation. */
+  /** Real picked file — uploaded as raw once the order is paid for. */
   uri?: string;
   name?: string;
   mimeType?: string;
+  /** Per-file upload lifecycle. A silent failure on a paid order is a dispute. */
+  status?: 'queued' | 'uploading' | 'done' | 'failed';
+  progress?: number;
+  error?: string;
 }
 
 export interface EditStyle {
@@ -35,6 +39,22 @@ export const EDIT_STYLES: EditStyle[] = [
 // It happens to equal the top photo tier (11–15) but was set independently.
 export const MAX_FILES = 15;
 export const MAX_TOTAL_GB = 1.5;
+
+// Per-file ceilings. A phone photo is 2-8MB and a minute of 4K is ~350MB,
+// so these are generous for real source material while stopping a single
+// file from eating the whole order budget. Mirrored server-side — the
+// client check is for a good error message, not for enforcement.
+export const MAX_IMAGE_MB = 50;
+export const MAX_VIDEO_MB = 750;
+export const ACCEPTED_MIME = /^(image\/(jpeg|jpg|png|heic|heif|webp)|video\/(mp4|quicktime|x-m4v))$/i;
+
+/** Why a picked file was rejected — surfaced per file, never silently dropped. */
+export type RejectReason = 'count' | 'type' | 'size' | 'total';
+
+export interface RejectedFile {
+  name: string;
+  reason: RejectReason;
+}
 
 export interface RemotePackage {
   /** Key in the remote_pricing_table app_config row. */
@@ -79,8 +99,12 @@ interface UploadState {
   styleId: string;
   /** Selected remote package tier (key in REMOTE_PACKAGES[mediaKind]). */
   tier: string;
-  addFile: () => void;
-  addPicked: (files: { uri: string; name: string; mimeType?: string; sizeMb: number }[]) => void;
+  /** Returns what was REJECTED so the screen can say so out loud. */
+  addPicked: (
+    files: { uri: string; name: string; mimeType?: string; sizeMb: number }[],
+  ) => RejectedFile[];
+  removeFile: (id: string) => void;
+  setFileStatus: (id: string, patch: Partial<UploadFile>) => void;
   setNote: (n: string) => void;
   setMediaKind: (k: MediaKind) => void;
   setStyleId: (id: string) => void;
@@ -88,42 +112,66 @@ interface UploadState {
   reset: () => void;
 }
 
-const DEMO_POOL: Omit<UploadFile, 'id'>[] = [
-  { type: 'JPG', sizeMb: 8, thumb: require('../../assets/design/bookings/p1.webp'), tint: '#F2C14E' },
-  { type: 'MP4', sizeMb: 412, thumb: require('../../assets/design/bookings/p2.webp'), tint: '#6FD3E0' },
-  { type: 'JPG', sizeMb: 12, thumb: require('../../assets/design/bookings/p3.webp'), tint: '#F2A0B5' },
-  { type: 'MOV', sizeMb: 260, thumb: require('../../assets/design/bookings/p4.webp'), tint: '#8ED7A6' },
-  { type: 'PNG', sizeMb: 22, thumb: require('../../assets/design/bookings/p5.webp'), tint: '#E8863D' },
-];
+// DEMO_POOL was DELETED (2026-08-08). The store used to initialise with
+// three fake files — and reset() put them back after every order — so the
+// Upload Footage screen opened showing thumbnails of stock photos the user
+// had never chosen. Worse: those fakes carried no `uri`, so they were
+// skipped at upload time. Someone who picked nothing still saw "3 files
+// ready", could pay, and the order arrived with no source material at all.
+// Same class as SEED_BOOKINGS/CREATORS. Do not reintroduce.
 
 export const useUpload = create<UploadState>((set, get) => ({
-  files: DEMO_POOL.slice(0, 3).map((f, i) => ({ ...f, id: `f${i}` })),
+  files: [],
   note: '',
   mediaKind: 'photo',
   styleId: 'warm',
   tier: 'photos_1_5',
-  addFile: () => {
-    const { files } = get();
-    if (files.length >= MAX_FILES) return;
-    const next = DEMO_POOL[files.length % DEMO_POOL.length];
-    set({ files: [...files, { ...next, id: `f${Date.now()}` }] });
+  addPicked: (picked) => {
+    const existing = get().files;
+    const rejected: RejectedFile[] = [];
+    const accepted: UploadFile[] = [];
+    let runningMb = existing.reduce((sum, f) => sum + f.sizeMb, 0);
+
+    for (const f of picked) {
+      const label = f.name || 'file';
+      // ORDER MATTERS: count first, so the 16th file is refused for the
+      // reason the user will understand, not for an incidental size rule.
+      if (existing.length + accepted.length >= MAX_FILES) {
+        rejected.push({ name: label, reason: 'count' });
+        continue;
+      }
+      const isVideo = (f.mimeType ?? '').startsWith('video');
+      if (f.mimeType && !ACCEPTED_MIME.test(f.mimeType)) {
+        rejected.push({ name: label, reason: 'type' });
+        continue;
+      }
+      if (f.sizeMb > (isVideo ? MAX_VIDEO_MB : MAX_IMAGE_MB)) {
+        rejected.push({ name: label, reason: 'size' });
+        continue;
+      }
+      if (runningMb + f.sizeMb > MAX_TOTAL_GB * 1000) {
+        rejected.push({ name: label, reason: 'total' });
+        continue;
+      }
+      runningMb += f.sizeMb;
+      accepted.push({
+        id: `p${Date.now()}-${accepted.length}`,
+        type: (isVideo ? 'MP4' : 'JPG') as UploadFile['type'],
+        sizeMb: f.sizeMb,
+        thumb: { uri: f.uri },
+        tint: '#F2C14E',
+        uri: f.uri,
+        name: f.name,
+        mimeType: f.mimeType,
+        status: 'queued',
+      });
+    }
+    if (accepted.length) set({ files: [...existing, ...accepted] });
+    return rejected;
   },
-  addPicked: (picked) =>
-    set((s) => ({
-      files: [
-        ...s.files,
-        ...picked.slice(0, Math.max(0, MAX_FILES - s.files.length)).map((f, i) => ({
-          id: `p${Date.now()}-${i}`,
-          type: (f.mimeType?.includes('video') ? 'MP4' : 'JPG') as UploadFile['type'],
-          sizeMb: f.sizeMb,
-          thumb: { uri: f.uri },
-          tint: '#F2C14E',
-          uri: f.uri,
-          name: f.name,
-          mimeType: f.mimeType,
-        })),
-      ],
-    })),
+  removeFile: (id) => set((s) => ({ files: s.files.filter((f) => f.id !== id) })),
+  setFileStatus: (id, patch) =>
+    set((s) => ({ files: s.files.map((f) => (f.id === id ? { ...f, ...patch } : f)) })),
   setNote: (note) => set({ note }),
   setMediaKind: (mediaKind) =>
     set((s) => ({
@@ -139,7 +187,7 @@ export const useUpload = create<UploadState>((set, get) => ({
   setTier: (tier) => set({ tier }),
   reset: () =>
     set({
-      files: DEMO_POOL.slice(0, 3).map((f, i) => ({ ...f, id: `f${i}` })),
+      files: [],
       note: '',
       mediaKind: 'photo',
       styleId: 'warm',
