@@ -123,7 +123,7 @@ export function registerBookingRoutes(app: FastifyInstance) {
       'Your creator accepted — you\'re locked in. Full details are in your bookings.',
       { booking_id: booking.id },
     );
-    await notify(user.id, 'booking_confirmed', 'Booking locked in', 'You accepted this job — it\'s on your schedule. Details in Jobs.', { booking_id: booking.id });
+    await notify(user.id, 'booking_confirmed', 'Booking locked in', 'You accepted this job — it\'s on your schedule. Details in Jobs.', { booking_id: booking.id, audience: 'creator' });
     return { accepted: true, status: 'confirmed' };
   });
 

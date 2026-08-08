@@ -28,6 +28,11 @@ export interface TargetData {
   doc_slug?: string;
   /** Explicit override. Set by a caller that knows better than the map. */
   deep_link?: string;
+  /**
+   * Which side of the booking the recipient is on, for triggers both parties
+   * receive. Only booking_confirmed branches on it today.
+   */
+  audience?: 'client' | 'creator';
 }
 
 const booking = (id: string) => `/(app)/bookings/${id}`;
@@ -59,6 +64,12 @@ export function targetFor(trigger: string, data: TargetData = {}): string | null
 
     // ---- That booking ----------------------------------------------------
     case 'booking_confirmed':
+      // Fires to BOTH parties on acceptance. The map alone is role-blind, so
+      // the creator's "Booking locked in" used to deep-link them into the
+      // CLIENT booking screen. The sender declares the audience; the target
+      // stays resolved here once, shared by bell and push as always.
+      if (b && data.audience === 'creator') return jobOffer(b);
+      return b ? booking(b) : '/(app)/bookings';
     case 'booking_cancelled_by_creator':
     case 'client_cancelled':
     case 'reschedule_confirmed':
