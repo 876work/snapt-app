@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { useAuth } from '../../lib/store';
 import {
@@ -32,6 +32,9 @@ const STATE_STYLE: Record<string, { bg: string; color: string; label: string }> 
 };
 
 export default function CreatorEarnings() {
+  // Set when a payout notification opened this screen — marks the row the
+  // message was about instead of leaving them to match amounts by eye.
+  const { highlight } = useLocalSearchParams<{ highlight?: string }>();
   const router = useRouter();
   const currency = useAuth((s) => s.currency);
 
@@ -144,7 +147,14 @@ export default function CreatorEarnings() {
           {rows.map((p, i) => {
             const st = STATE_STYLE[p.state];
             return (
-              <View key={p.id} style={[styles.payoutRow, i < rows.length - 1 && styles.rowBorder]}>
+              <View
+                key={p.id}
+                style={[
+                  styles.payoutRow,
+                  i < rows.length - 1 && styles.rowBorder,
+                  p.id === highlight && styles.payoutHighlight,
+                ]}
+              >
                 <View style={styles.payoutAvatar} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -170,6 +180,12 @@ export default function CreatorEarnings() {
 }
 
 const styles = StyleSheet.create({
+  payoutHighlight: {
+    backgroundColor: '#FFFBEF',
+    borderLeftWidth: 3,
+    borderLeftColor: colors.yellow,
+    paddingLeft: 15,
+  },
   root: { flex: 1, backgroundColor: colors.offWhite },
   body: { paddingHorizontal: 22, paddingTop: 8 },
   balanceCard: { backgroundColor: colors.ink, borderRadius: 18, padding: 20, paddingHorizontal: 22 },

@@ -58,6 +58,7 @@ export async function reassignBooking(
         'assignment_failed_refunded',
         'We couldn\'t match your booking',
         'No creator was available for your slot, so we cancelled it and refunded you in full — session cost and service fee. Try another date or time.',
+        { booking_id: full.id },
       );
     }
     await supabaseAdmin
@@ -114,6 +115,7 @@ export async function reassignBooking(
       'offer_received',
       'New job offer',
       `A ${booking.occasion ?? 'session'} booking near ${booking.area ?? 'you'} is waiting — accept within the offer window.`,
+      { booking_id: booking.id },
     );
   }
   return { creator_id: nextCreator };

@@ -11,6 +11,7 @@ import { apiConfigured, fetchMyBookings } from '../../lib/api';
 import { CREATOR_PLATFORM_FEE_RATE, formatMoney } from '../../lib/constants/business';
 import { colors, insetTop, insetBottom } from '../../lib/theme';
 import { navShrinkOnScroll } from '../../lib/navShrink';
+import { bookingToOffer, JOB_STATUSES, stageForStatus } from '../../lib/creatorJobs';
 
 export default function CreatorHome() {
   const router = useRouter();
@@ -51,31 +52,12 @@ export default function CreatorHome() {
     if (!apiConfigured) return;
     fetchMyBookings().then((bookings) => {
       if (!bookings) return;
-      const mine = bookings.filter((b) => ['pending', 'confirmed', 'completed'].includes(b.status));
-      const jobs: JobOffer[] = mine.map((b) => ({
-        id: b.id,
-        title: b.occasion ? `${b.occasion} session` : 'Remote edit order',
-        occasion: b.occasion ?? 'Portraits',
-        payUsd:
-          Math.round(
-            (b.pricing_snapshot?.session_price_usd ?? b.price_usd) *
-              (1 - CREATOR_PLATFORM_FEE_RATE) *
-              100,
-          ) / 100,
-        when: b.scheduled_at
-          ? `${new Date(b.scheduled_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${new Date(b.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} · ${b.duration_hours} hrs`
-          : 'Remote · deliver in-app',
-        loc: b.area ?? 'Remote edit',
-        distanceKm: 0,
-        meetingLat: b.meeting_lat,
-        meetingLng: b.meeting_lng,
-        directions: b.meeting_point,
-        urgent: b.status === 'pending',
-        expiresAt: b.status === 'pending' ? b.offer_expires_at ?? undefined : undefined,
-        type: b.type === 'in_person' ? 'in-person' : 'remote',
-      }));
+      const mine = bookings.filter((b) => JOB_STATUSES.includes(b.status));
+      // Shared with the job detail screen so a deep-linked offer renders
+      // identically to one opened from this list.
+      const jobs: JobOffer[] = mine.map(bookingToOffer);
       setOffers(jobs);
-      for (const b of mine) setStage(b.id, b.status === 'pending' ? 'offer' : b.status === 'completed' ? 'submitted' : 'accepted');
+      for (const b of mine) setStage(b.id, stageForStatus(b.status));
     });
   }, []);
 

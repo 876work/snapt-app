@@ -495,9 +495,10 @@ export async function applyDecision(
   const parked = patch.name_review_required === true || blocked || expired;
   const message = verificationMessage(rollup, parked, session.attempt < MAX_ATTEMPTS);
   if (message) {
-    await notify(session.user_id, message.trigger, message.title, message.body, {
-      deep_link: '/creator',
-    });
+    // No explicit deep_link: notification-targets.ts routes every
+    // verification outcome to /creator, which reads the live status and
+    // renders approved / parked / rejected. One definition, not two.
+    await notify(session.user_id, message.trigger, message.title, message.body);
   }
 
   return { rollup, verdict, duplicates: duplicateFlags(flags).length };

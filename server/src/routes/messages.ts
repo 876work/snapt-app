@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
+import { notify } from '../notify.js';
 
 /**
  * The Messages tab: a list view onto the SAME per-booking threads that
@@ -149,5 +150,73 @@ export function registerMessageRoutes(app: FastifyInstance): void {
         { onConflict: 'booking_id,user_id' },
       );
     return { read: true };
+  });
+
+  /**
+   * Fan out a chat notification to the OTHER participant.
+   *
+   * Chat messages are written client-side straight to Supabase under RLS, so
+   * the server never sees a send — which is why a message has never produced
+   * a notification of any kind. Rather than move the write (and risk the one
+   * part of chat that currently works), the sender pings this after a
+   * successful insert and the server does the fan-out.
+   *
+   * It trusts the caller for nothing: participation is checked here, the
+   * recipient is derived from the booking rather than supplied, and the body
+   * is read back from the database rather than taken from the request.
+   */
+  app.post<{ Params: { bookingId: string } }>('/v1/messages/:bookingId/notify', async (request, reply) => {
+    const user = requireUser(request);
+    const bookingId = request.params.bookingId;
+    const { data: booking } = await supabaseAdmin
+      .from('bookings')
+      .select('client_id, creator_id')
+      .eq('id', bookingId)
+      .maybeSingle();
+    if (!booking || (booking.client_id !== user.id && booking.creator_id !== user.id)) {
+      return reply.code(404).send({ error: 'Not found' });
+    }
+    const recipient = booking.client_id === user.id ? booking.creator_id : booking.client_id;
+    if (!recipient) return { notified: false, reason: 'no_counterparty' };
+
+    // The message body comes from the table, never the request — a caller
+    // cannot use this endpoint to put words in someone else's notification.
+    const { data: last } = await supabaseAdmin
+      .from('messages')
+      .select('body, sender_id, created_at')
+      .eq('booking_id', bookingId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!last || last.sender_id !== user.id) return { notified: false, reason: 'no_message' };
+
+    // One ping per thread per 5 minutes. A back-and-forth exchange should
+    // buzz someone's phone once, not once per line.
+    const since = new Date(Date.now() - 5 * 60_000).toISOString();
+    const { count } = await supabaseAdmin
+      .from('notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', recipient)
+      .eq('trigger_type', 'message_received')
+      .eq('data->>booking_id', bookingId)
+      .gte('created_at', since);
+    if ((count ?? 0) > 0) return { notified: false, reason: 'throttled' };
+
+    const { data: sender } = await supabaseAdmin
+      .from('profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .maybeSingle();
+    // '||' not '??': a fresh profile has full_name '', which is not null.
+    const name = (sender?.full_name || '').split(' ')[0] || 'Your booking';
+    const preview = String(last.body ?? '');
+    await notify(
+      recipient,
+      'message_received',
+      `New message from ${name}`,
+      preview.length > 120 ? `${preview.slice(0, 117)}…` : preview,
+      { booking_id: bookingId, thread_id: bookingId },
+    );
+    return { notified: true };
   });
 }

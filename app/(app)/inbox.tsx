@@ -6,6 +6,8 @@ import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { colors } from '../../lib/theme';
 import { navShrinkOnScroll } from '../../lib/navShrink';
 import { apiBase, authHeaders } from '../../lib/api';
+import { isCreatorTarget, resolveTarget } from '../../lib/notificationTarget';
+import { useAuth } from '../../lib/store';
 
 /**
  * The notification inbox.
@@ -40,42 +42,17 @@ interface Item {
 const CRITICAL = new Set(['account', 'safety']);
 
 /**
- * Where a tap lands. A notification that opens a list is barely better than
- * no notification — these go to the thing the notification is about.
+ * Where a tap lands — read from the row, not decided here.
+ *
+ * This screen used to carry its own trigger→route map, which is how it came
+ * to disagree with push (which had no routing at all) and how it ended up
+ * pointing delivery notifications at /(app)/bookings/{id}/delivery, a route
+ * that has never existed. The destination is now resolved once on the
+ * server and stored on the row, so a bell tap and a banner tap are the same
+ * string. See lib/notificationTarget.ts.
  */
 function destinationFor(item: Item): string | null {
-  const bookingId = (item.data?.booking_id ?? item.data?.bookingId) as string | undefined;
-  const deepLink = item.data?.deep_link as string | undefined;
-  if (deepLink) return deepLink;
-
-  switch (item.trigger_type) {
-    case 'offer_received':
-      return '/creator';
-    case 'delivery_ready':
-    case 'revision_delivered':
-    case 'revision_requested':
-      return bookingId ? `/(app)/bookings/${bookingId}/delivery` : '/(app)/bookings';
-    case 'payout_pending':
-    case 'payout_available':
-    case 'payout_paid':
-      return '/creator/earnings';
-    case 'payment_charged':
-    case 'refund_processed':
-    case 'fee_charged':
-    case 'assignment_failed_refunded':
-      return '/profile/payments';
-    case 'application_approved':
-    case 'application_rejected':
-    case 'application_submitted':
-      return '/creator';
-    case 'strike_issued':
-    case 'suspension_applied':
-      return '/creator';
-    case 'promotion':
-      return null;
-    default:
-      return bookingId ? `/(app)/bookings/${bookingId}` : null;
-  }
+  return resolveTarget(item.trigger_type, item.data);
 }
 
 function ago(iso: string): string {
@@ -87,6 +64,7 @@ function ago(iso: string): string {
 
 export default function Inbox() {
   const router = useRouter();
+  const creatorStatus = useAuth((s) => s.creatorStatus);
   const [tab, setTab] = React.useState<(typeof TABS)[number]['key']>('all');
   const [items, setItems] = React.useState<Item[]>([]);
   const [unread, setUnread] = React.useState(0);
@@ -145,7 +123,16 @@ export default function Inbox() {
   const open = (item: Item) => {
     if (!item.read_at) void markRead([item.id]);
     const to = destinationFor(item);
-    if (to) router.push(to as never);
+    if (!to) return;
+    // Same access rule the push tap handler applies: a creator-only screen
+    // opened while not an approved creator goes to /creator, whose layout
+    // lands them on the screen for their actual status rather than a
+    // locked-out blank.
+    if (isCreatorTarget(to) && creatorStatus !== 'approved') {
+      router.push('/creator');
+      return;
+    }
+    router.push(to as never);
   };
 
   return (

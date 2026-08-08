@@ -1,11 +1,12 @@
 import React from 'react';
-import { Tabs, usePathname } from 'expo-router';
+import { Redirect, Tabs, usePathname } from 'expo-router';
 import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
 import { colors, insetBottom } from '../../lib/theme';
 import { navShrinkReset, useNavShrinkAnim } from '../../lib/navShrink';
 import { BookingsIcon, HomeIcon, MessagesIcon, ProfileIcon } from '../../components/ui/Icons';
 import { apiBase, authHeaders } from '../../lib/api';
+import { useAuth } from '../../lib/store';
 
 const TABS: { name: string; label: string; Icon: (p: { color: string }) => React.JSX.Element }[] = [
   { name: 'home', label: 'Home', Icon: HomeIcon },
@@ -86,6 +87,20 @@ const TAB_ROOTS = ['/home', '/bookings', '/messages', '/profile'];
 
 export default function AppLayout() {
   const pathname = usePathname();
+  const signedIn = useAuth((s) => s.signedIn);
+  const hydrated = useAuth((s) => s.hydrated);
+
+  // Safety net for links that reach a signed-in-only screen without a
+  // session — an OS-level snapt:// link, or a notification tap racing
+  // session restore. Without it these screens render their chrome over
+  // failing 401 fetches, which reads as a broken app rather than a locked
+  // one.
+  //
+  // Deliberately does NOT park a pending link: only a notification tap is
+  // real intent. Saving the path here would mean signing out from Profile
+  // and then being dropped back on Profile at the next sign-in.
+  if (hydrated && !signedIn) return <Redirect href="/(auth)/login" />;
+
   return (
     <Tabs
       tabBar={(props) => (TAB_ROOTS.includes(pathname) ? <PillTabBar {...props} /> : null)}

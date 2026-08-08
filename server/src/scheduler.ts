@@ -25,6 +25,7 @@ async function releasePayouts(): Promise<void> {
       'payout_available',
       'Earnings available',
       `$${Number(p.amount_usd).toFixed(2)} cleared the holding window — cash out any time.`,
+      { payout_id: p.id },
     );
   }
 }
@@ -48,7 +49,8 @@ async function remindEvidenceDeadlines(): Promise<void> {
     for (const party of [b?.client_id, b?.creator_id]) {
       if (party) {
         await notify(party, 'dispute_opened', 'Evidence window closing soon',
-          'Less than 12 hours left to add evidence to your open dispute — after that the review proceeds on what has been submitted.');
+          'Less than 12 hours left to add evidence to your open dispute — after that the review proceeds on what has been submitted.',
+          { booking_id: d.booking_id, dispute_id: d.id });
       }
     }
     await supabaseAdmin

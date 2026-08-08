@@ -140,16 +140,17 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
         .update({ status: 'cancelled', cancelled_by: user.id, cancelled_at: new Date().toISOString() })
         .eq('id', booking.id);
       if (booking.creator_id) {
-        await notify(booking.creator_id, 'client_cancelled', 'Booking cancelled by client', 'A booking on your schedule was cancelled — the slot is free again.');
+        await notify(booking.creator_id, 'client_cancelled', 'Booking cancelled by client', 'A booking on your schedule was cancelled — the slot is free again.', { booking_id: booking.id });
       }
       if (quote.chargeUsd > 0) {
-        await notify(user.id, 'fee_charged', 'Cancellation fee applied', `A late-cancellation charge of $${quote.chargeUsd.toFixed(2)} applied per the ${quote.tier} notice tier.`);
+        await notify(user.id, 'fee_charged', 'Cancellation fee applied', `A late-cancellation charge of $${quote.chargeUsd.toFixed(2)} applied per the ${quote.tier} notice tier.`, { booking_id: booking.id });
       }
       await notify(
         user.id,
         'refund_processed',
         'Cancellation confirmed',
         `Your booking is cancelled. Refund on its way: $${quote.refundUsd.toFixed(2)} to your original payment method within 5–10 business days.`,
+        { booking_id: booking.id },
       );
       return { cancelled_by: 'client', ...quote };
     }
@@ -167,6 +168,7 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
       'booking_cancelled_by_creator',
       'Your creator had to cancel',
       'Full refund issued automatically. Want us to rematch you with another great creator for the same slot? Open the booking to choose.',
+      { booking_id: booking.id },
     );
     return {
       cancelled_by: 'creator',
@@ -254,12 +256,13 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
         'reschedule_confirmed',
         'Booking rescheduled',
         quote.free ? 'Your new time is locked in — no charge.' : `Your new time is locked in. A $${quote.feeUsd.toFixed(2)} reschedule charge applied.`,
+        { booking_id: booking.id },
       );
       if (!quote.free && quote.feeUsd > 0) {
-        await notify(user.id, 'fee_charged', 'Reschedule fee applied', `A $${quote.feeUsd.toFixed(2)} reschedule charge applied (24–48h window).`);
+        await notify(user.id, 'fee_charged', 'Reschedule fee applied', `A $${quote.feeUsd.toFixed(2)} reschedule charge applied (24–48h window).`, { booking_id: booking.id });
       }
       if (booking.creator_id) {
-        await notify(booking.creator_id, 'reschedule_confirmed', 'A booking moved', 'A session on your schedule was rescheduled — check Jobs for the new time.');
+        await notify(booking.creator_id, 'reschedule_confirmed', 'A booking moved', 'A session on your schedule was rescheduled — check Jobs for the new time.', { booking_id: booking.id });
       }
       return { rescheduled: true, scheduled_at: scheduled.toISOString(), ...quote };
     },
@@ -302,7 +305,7 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
           .from('bookings')
           .update({ status: 'no_show', no_show_reported_by: user.id })
           .eq('id', booking.id);
-        await notify(user.id, 'refund_processed', 'Full refund on its way', 'Sorry about the no-show. Your full refund is processing, and we can rematch you — open the booking to choose.');
+        await notify(user.id, 'refund_processed', 'Full refund on its way', 'Sorry about the no-show. Your full refund is processing, and we can rematch you — open the booking to choose.', { booking_id: booking.id });
         return {
           reported: 'creator_no_show',
           refundUsd: booking.price_usd,
@@ -340,7 +343,7 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
           no_show_attempted_contact: true,
         })
         .eq('id', booking.id);
-      await notify(booking.client_id, 'no_show_reported', 'No-show reported on your session', 'Your creator reported a no-show after the grace period. Per policy the booking is charged in full. Reply via Help & Support to dispute.');
+      await notify(booking.client_id, 'no_show_reported', 'No-show reported on your session', 'Your creator reported a no-show after the grace period. Per policy the booking is charged in full. Reply via Help & Support to dispute.', { booking_id: booking.id });
       return { reported: 'client_no_show', client_refund: 0, creator_payout: 'standard' };
     },
   );

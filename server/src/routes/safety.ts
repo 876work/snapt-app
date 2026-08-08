@@ -104,7 +104,7 @@ export function registerSafetyRoutes(app: FastifyInstance) {
           console.error('[safety] SOS filed but ONCALL_EMAILS is not configured');
         }
       }
-      await notify(user.id, 'safety_report_received', 'We got your report', 'Our team has been alerted and is reviewing your report right now.');
+      await notify(user.id, 'safety_report_received', 'We got your report', 'Our team has been alerted and is reviewing your report right now.', { booking_id: booking.id });
       return { reported: true, escalated: type === 'sos' };
     },
   );

@@ -34,6 +34,26 @@ export async function sendMessage(bookingId: string, body: string): Promise<Chat
     .select()
     .single();
   if (error) return null;
+  // Tell the server so the other participant gets a notification. Chat
+  // writes bypass the API entirely (RLS, direct to Supabase), so without
+  // this ping a message is the one event in the app that never reaches
+  // anyone who isn't already looking at the thread.
+  //
+  // Deliberately not awaited and never able to throw: the message is
+  // already saved and on its way over Realtime. A notification failure must
+  // not make a sent message look unsent.
+  void (async () => {
+    try {
+      const { apiBase, authHeaders } = await import('./api');
+      if (!apiBase) return;
+      await fetch(`${apiBase}/v1/messages/${bookingId}/notify`, {
+        method: 'POST',
+        headers: await authHeaders(),
+      });
+    } catch {
+      /* best effort */
+    }
+  })();
   return data as ChatMessage;
 }
 

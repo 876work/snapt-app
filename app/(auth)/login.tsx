@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { AuthDecor, AuthInput, BackCircle, LogoTile, SocialButtons } from '../../components/auth/AuthBits';
 import { signInWithEmail } from '../../lib/auth';
 import { colors, insetBottom, insetTop } from '../../lib/theme';
+import { landingAfterAuth } from '../../lib/notificationTarget';
 
 // CD design login: socials first, then email + password, forgot link,
 // yellow Log in pinned to the bottom with the Sign up switch line.
@@ -25,7 +26,9 @@ export default function Login() {
       setError(result.error);
       return;
     }
-    router.replace('/(app)/home');
+    // A notification tapped while signed out parked its destination —
+    // finish there rather than dropping them on Home.
+    router.replace((await landingAfterAuth()) as never);
   };
 
   return (

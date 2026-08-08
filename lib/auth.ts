@@ -286,7 +286,7 @@ export function initAuth(): void {
     const state = useAuth.getState();
     if (session?.user) {
       const meta = (session.user.user_metadata ?? {}) as { full_name?: string };
-      state.signIn(meta.full_name ?? '', session.user.email ?? '');
+      state.signIn(meta.full_name ?? '', session.user.email ?? '', session.user.id);
       // The profiles row is canonical for display name/phone (metadata only
       // carries the signup name) — hydrate it so Edit profile shows saved
       // values and the phone reaches screens that render it.

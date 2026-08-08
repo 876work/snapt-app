@@ -76,7 +76,7 @@ export function registerSessionRoutes(app: FastifyInstance) {
     if (Object.keys(patch).length > 0) {
       await supabaseAdmin.from('sessions').update(patch).eq('id', session.id);
       if (role === 'creator') {
-        await notify(booking.client_id, 'session_started', 'Your creator is here', 'They\'ve checked in at the meeting point — share your safety code to begin.');
+        await notify(booking.client_id, 'session_started', 'Your creator is here', 'They\'ve checked in at the meeting point — share your safety code to begin.', { booking_id: booking.id });
       }
     }
     return { session: { ...session, ...patch } };
@@ -183,9 +183,9 @@ export function registerSessionRoutes(app: FastifyInstance) {
     await supabaseAdmin.from('bookings').update({ status: 'completed' }).eq('id', booking.id);
     // Starts the 7-day hold (= dispute window). Idempotency guard inside.
     await createPayoutForBooking(booking);
-    await notify(user.id, 'payout_pending', 'Payout on the way', 'Session complete — your earnings are pending and clear once the 7-day dispute window closes.');
+    await notify(user.id, 'payout_pending', 'Payout on the way', 'Session complete — your earnings are pending and clear once the 7-day dispute window closes.', { booking_id: booking.id });
     for (const party of [booking.client_id, booking.creator_id]) {
-      if (party) await notify(party, 'session_ended', 'Session wrapped', 'Your session is complete — editing comes next, and delivery lands in the app.');
+      if (party) await notify(party, 'session_ended', 'Session wrapped', 'Your session is complete — editing comes next, and delivery lands in the app.', { booking_id: booking.id });
     }
     return { completed: true, payout: 'held_7_days' };
   });

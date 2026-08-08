@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { KeyboardScrollView } from '../../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -11,6 +11,7 @@ import { SlideToConfirm } from '../../../components/ui/SlideToConfirm';
 import { useAuth } from '../../../lib/store';
 import { apiConfigured } from '../../../lib/api';
 import { useCreator, JobStage } from '../../../lib/store/creator';
+import { bookingToOffer, JOB_STATUSES } from '../../../lib/creatorJobs';
 import { formatMoney, NO_SHOW_GRACE_MINUTES } from '../../../lib/constants/business';
 import { colors, insetBottom } from '../../../lib/theme';
 
@@ -38,7 +39,57 @@ export default function CreatorJob() {
   const [actionError, setActionError] = React.useState<string | null>(null);
   const [picked, setPicked] = React.useState<{ uri: string; name: string; mimeType?: string }[]>([]);
 
-  if (!job) return null;
+  // DEEP LINK SELF-HYDRATION. Opening this screen from a notification never
+  // runs the Jobs list, so the offer store is empty and `job` is undefined.
+  // Previously that rendered `null` — a blank white screen with no way back,
+  // which is exactly what a tapped job-offer push produced on a cold start.
+  const { setOffers } = useCreator();
+  const [hydrating, setHydrating] = React.useState(!job && apiConfigured);
+  React.useEffect(() => {
+    if (job || !apiConfigured) return;
+    let cancelled = false;
+    import('../../../lib/api').then(({ fetchMyBookings }) =>
+      fetchMyBookings().then((bookings) => {
+        if (cancelled) return;
+        if (bookings) {
+          setOffers(bookings.filter((b) => JOB_STATUSES.includes(b.status)).map(bookingToOffer));
+        }
+        setHydrating(false);
+      }),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [job, setOffers]);
+
+  if (hydrating) {
+    return (
+      <View style={styles.gone}>
+        <ActivityIndicator color={colors.yellowDark} />
+      </View>
+    );
+  }
+
+  // Genuinely not there: the offer expired and was reassigned, the booking
+  // was cancelled, or it was never this creator's. Say which, and give them
+  // somewhere to go — an offer that lapsed is normal, not an error.
+  if (!job) {
+    return (
+      <View style={styles.gone}>
+        <ScreenHeader title="Job offer" />
+        <View style={styles.goneBody}>
+          <Text style={styles.goneTitle}>This offer is no longer available</Text>
+          <Text style={styles.goneText}>
+            It was either accepted by another creator, withdrawn, or the accept window closed.
+            Offers hold for a short time so clients aren't left waiting.
+          </Text>
+          <Pressable onPress={() => router.replace('/creator')} style={styles.goneCta}>
+            <Text style={styles.goneCtaLabel}>See my jobs</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
   const next = (s: JobStage) => setStage(job.id, s);
 
   // Real endpoint calls in API mode (Phase 3 session/media pipeline);
@@ -411,6 +462,20 @@ export default function CreatorJob() {
 }
 
 const styles = StyleSheet.create({
+  gone: { flex: 1, backgroundColor: colors.offWhite, justifyContent: 'center' },
+  goneBody: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 34, gap: 10 },
+  goneTitle: { fontSize: 18, fontWeight: '800', letterSpacing: -0.4, color: colors.ink, textAlign: 'center' },
+  goneText: { fontSize: 13.5, color: colors.grey, lineHeight: 20, textAlign: 'center' },
+  goneCta: {
+    height: 50,
+    borderRadius: 15,
+    backgroundColor: colors.yellow,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+    marginTop: 18,
+  },
+  goneCtaLabel: { fontSize: 14.5, fontWeight: '800', color: colors.ink },
   root: { flex: 1, backgroundColor: colors.offWhite },
   body: { paddingHorizontal: 22, paddingTop: 8 },
   card: {

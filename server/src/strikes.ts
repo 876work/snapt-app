@@ -36,6 +36,7 @@ export async function recordStrike(
     'strike_issued',
     'Reliability strike recorded',
     `A ${type.replace('_', ' ')} strike (weight ${weight}) was added to your account. Current standing: ${standing.tierLabel}. Strikes expire ${windowDays} days after they occur.`,
+    { booking_id: bookingId ?? undefined },
   );
   if (standing.tier >= 3) {
     // Doc §6: suspension is its own always-push notification; doc §7:

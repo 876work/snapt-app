@@ -168,7 +168,8 @@ export function registerEarningsRoutes(app: FastifyInstance) {
       },
     });
     await notify(user.id, 'payout_pending', 'Cash-out requested',
-      `Your $${total.toFixed(2)} payout request is with our team — you'll be notified the moment it's sent.`);
+      `Your $${total.toFixed(2)} payout request is with our team — you'll be notified the moment it's sent.`,
+      rows.length === 1 ? { payout_id: rows[0].id } : {});
     return { requested_usd: total, count: rows.length };
   });
 }

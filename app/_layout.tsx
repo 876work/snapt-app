@@ -13,6 +13,7 @@ import {
 } from '@expo-google-fonts/inter';
 import { initAuth } from '../lib/auth';
 import { ApiErrorOverlay } from '../components/ui/ApiErrorOverlay';
+import { NotificationRouter } from '../components/NotificationRouter';
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { Text } from '../lib/text';
@@ -114,6 +115,11 @@ export default function RootLayout() {
             urlScheme="snapt"
           >
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#FAFAFA' } }} />
+            {/* Routes notification taps to the thing they are about.
+                Inside the router (it needs useRouter) but rendering
+                nothing, and mounted for the app's whole life so a cold-start
+                tap is still replayed once auth has hydrated. */}
+            <NotificationRouter />
           </StripeProvider>
         </KeyboardAvoidingView>
         <ApiErrorOverlay />

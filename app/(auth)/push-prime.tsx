@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/Button';
 import { useAuth } from '../../lib/store';
 import { realAuth } from '../../lib/auth';
 import { colors } from '../../lib/theme';
+import { landingAfterAuth } from '../../lib/notificationTarget';
 
 // Permission priming — shown once before the native OS push dialog fires.
 // "Not now" is respected: no in-app re-prompt; re-enable lives in
@@ -16,12 +17,12 @@ export default function PushPrime() {
   const { name = '', email = '' } = useLocalSearchParams<{ name?: string; email?: string }>();
   const signIn = useAuth((s) => s.signIn);
 
-  const finish = () => {
+  const finish = async () => {
     // Real mode: the Supabase session (established at signup or code verify)
     // drives the store via onAuthStateChange — a mock signIn here would fake
     // a signed-in UI with no session behind it.
     if (!realAuth) signIn(String(name) || 'You', String(email));
-    router.replace('/(app)/home');
+    router.replace((await landingAfterAuth()) as never);
   };
 
   const enable = async () => {

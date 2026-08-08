@@ -7,6 +7,7 @@ import { TextField } from '../../components/ui/TextField';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { completePasswordReset, realAuth } from '../../lib/auth';
 import { colors } from '../../lib/theme';
+import { landingAfterAuth } from '../../lib/notificationTarget';
 
 export default function ForgotReset() {
   const router = useRouter();
@@ -28,7 +29,7 @@ export default function ForgotReset() {
     }
     // Real mode: the recovery session is now a normal signed-in session.
     if (realAuth) {
-      router.replace('/(app)/home');
+      router.replace((await landingAfterAuth()) as never);
       return;
     }
     router.dismissTo('/(auth)/login');

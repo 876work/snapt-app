@@ -185,8 +185,8 @@ export function registerMediaRoutes(app: FastifyInstance) {
       .update({ status: 'completed', delivered_at: new Date().toISOString() })
       .eq('id', booking.id);
     await createPayoutForBooking(booking);
-    await notify(booking.client_id, 'delivery_ready', 'Your content is ready!', 'Your edited files are delivered — open the app to view, download, and rate your experience.');
-    await notify(user.id, 'payout_pending', 'Payout on the way', 'Delivery made — your earnings are pending and clear once the 7-day dispute window closes.');
+    await notify(booking.client_id, 'delivery_ready', 'Your content is ready!', 'Your edited files are delivered — open the app to view, download, and rate your experience.', { booking_id: booking.id });
+    await notify(user.id, 'payout_pending', 'Payout on the way', 'Delivery made — your earnings are pending and clear once the 7-day dispute window closes.', { booking_id: booking.id });
     return { delivered: true, payout: 'held_7_days' };
   });
 }

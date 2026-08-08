@@ -1,5 +1,6 @@
 import { supabaseAdmin } from './supabase.js';
 import { sendEmail } from './email.js';
+import { targetFor, type TargetData } from './notification-targets.js';
 
 // Central notification dispatcher (handoff §13): every backend state change
 // routes through here, never per-feature ad-hoc sends.
@@ -56,6 +57,9 @@ const TRIGGERS: Record<string, TriggerSpec> = {
   verification_result: { category: 'account', push: true, email: false },
   verification_failed: { category: 'account', push: true, email: true },
   files_expiring: { category: 'bookings', push: true, email: true }, // retention: 30d/7d download warnings
+  // Chat. Muted by the `messages` preference rather than order_updates —
+  // a chat ping is not a booking state change.
+  message_received: { category: 'messages', push: true, email: false },
 };
 
 export async function notify(
@@ -63,11 +67,16 @@ export async function notify(
   trigger: keyof typeof TRIGGERS | string,
   title: string,
   body: string,
-  /** Deep-link payload, e.g. { booking_id }. Drives where a tap lands. */
-  data: Record<string, unknown> = {},
+  /** Resource ids, e.g. { booking_id }. Drives where a tap lands. */
+  data: TargetData & Record<string, unknown> = {},
 ): Promise<void> {
   const spec = TRIGGERS[trigger] ?? { category: 'account' as Category, push: false, email: false };
   const channels = ['in_app', ...(spec.push ? ['push'] : []), ...(spec.email ? ['email'] : [])];
+  // Resolved ONCE, here, and then carried by both channels. The inbox row
+  // and the push notification hold the same string, so tapping the bell and
+  // tapping the banner cannot land in different places.
+  const target = targetFor(trigger, data);
+  const payload = target ? { ...data, target } : data;
   try {
     // WRITE FIRST. The row is the record; delivery is best-effort on top of
     // it. Nothing below can prevent it being saved.
@@ -78,7 +87,7 @@ export async function notify(
       title,
       body,
       channels,
-      data,
+      data: payload,
     });
     if (spec.email) {
       const { data: profile } = await supabaseAdmin
@@ -96,16 +105,17 @@ export async function notify(
       // messages / booking_reminders / promotions prefs gate triggers that
       // don't exist yet (chat push, session reminders, marketing).
       let muted = false;
-      if (spec.category === 'bookings') {
+      if (spec.category === 'bookings' || spec.category === 'messages') {
         const { data: p } = await supabaseAdmin
           .from('profiles')
           .select('notification_prefs')
           .eq('id', userId)
           .maybeSingle();
         const prefs = (p?.notification_prefs ?? {}) as Record<string, boolean>;
-        muted = prefs.order_updates === false;
+        muted =
+          spec.category === 'messages' ? prefs.messages === false : prefs.order_updates === false;
       }
-      if (!muted) await sendPush(userId, title, body, trigger);
+      if (!muted) await sendPush(userId, title, body, trigger, payload);
     }
   } catch (err) {
     console.error('notify failed', trigger, err);
@@ -151,7 +161,7 @@ export async function sendPromotion(
   }
   let pushed = 0;
   for (const userId of userIds) {
-    const ok = await sendPush(userId, title, body, 'promotion');
+    const ok = await sendPush(userId, title, body, 'promotion', data);
     if (ok) pushed += 1;
   }
   return { written, pushed };
@@ -164,7 +174,14 @@ export async function sendPromotion(
  * table; this function is transport only. Dead tokens (uninstalled devices)
  * are pruned on DeviceNotRegistered.
  */
-async function sendPush(userId: string, title: string, body: string, trigger: string): Promise<boolean> {
+async function sendPush(
+  userId: string,
+  title: string,
+  body: string,
+  trigger: string,
+  /** Carried to the device so a tap can route without a round trip. */
+  payload: Record<string, unknown> = {},
+): Promise<boolean> {
   const { data: tokens } = await supabaseAdmin
     .from('push_tokens')
     .select('token')
@@ -175,7 +192,18 @@ async function sendPush(userId: string, title: string, body: string, trigger: st
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(
-        tokens.map((t) => ({ to: t.token, title, body, sound: 'default', data: { trigger } })),
+        // `uid` rides along so the app can tell that a notification was for
+        // a DIFFERENT account before it opens someone else's booking. A
+        // token outlives a sign-out by design (we only prune on
+        // DeviceNotRegistered), so this is a real case, not a theoretical
+        // one.
+        tokens.map((t) => ({
+          to: t.token,
+          title,
+          body,
+          sound: 'default',
+          data: { ...payload, trigger, uid: userId },
+        })),
       ),
     });
     const json = (await res.json()) as {

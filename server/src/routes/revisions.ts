@@ -58,7 +58,8 @@ export function registerRevisionRoutes(app: FastifyInstance) {
       if (error) return reply.code(500).send({ error: error.message });
       if (booking.creator_id) {
         await notify(booking.creator_id, 'revision_requested', 'Revision requested',
-          'The client asked for changes to their delivery — see what they need and re-deliver in the app.');
+          'The client asked for changes to their delivery — see what they need and re-deliver in the app.',
+          { booking_id: booking.id });
       }
       return reply.code(201).send({ revision });
     },
@@ -102,7 +103,8 @@ export function registerRevisionRoutes(app: FastifyInstance) {
       .update({ pricing_snapshot: { ...snapshot, addons } })
       .eq('id', booking.id);
     await notify(user.id, 'payment_charged', 'Extra revision round added',
-      `$${charge.toFixed(2)} charged — you can now request another revision on this order.`);
+      `$${charge.toFixed(2)} charged — you can now request another revision on this order.`,
+      { booking_id: booking.id });
     return reply.code(201).send({ purchased: true, charged_usd: charge });
   });
 
@@ -139,7 +141,8 @@ export function registerRevisionRoutes(app: FastifyInstance) {
         .update({ delivered_at: new Date().toISOString() })
         .eq('id', booking.id);
       await notify(booking.client_id, 'revision_delivered', 'Your revision is ready',
-        'The updated files are in — open the app to view and download them.');
+        'The updated files are in — open the app to view and download them.',
+        { booking_id: booking.id });
       return { delivered: true };
     },
   );

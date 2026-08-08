@@ -1,5 +1,5 @@
 import React from 'react';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
 import { Text } from '../../../lib/text';
@@ -74,6 +74,11 @@ export default function PaymentsAndReceipts() {
     setTxnsState('ready');
   }, []);
 
+  // A payment notification opens THIS receipt, not the list. Without the
+  // marker the user lands on a page of similar-looking rows and has to work
+  // out which one the message was about.
+  const { highlight } = useLocalSearchParams<{ highlight?: string }>();
+
   // useFocusEffect, not a mount-once effect: a refund issued while the app is
   // open (book → cancel minutes later) should appear without a restart.
   useFocusEffect(
@@ -103,7 +108,14 @@ export default function PaymentsAndReceipts() {
             <Text style={styles.txnNote}>No payments yet. Charges and refunds appear here.</Text>
           )}
           {txns.map((t, i) => (
-            <View key={t.id} style={[styles.row, i < txns.length - 1 && styles.rowBorder]}>
+            <View
+              key={t.id}
+              style={[
+                styles.row,
+                i < txns.length - 1 && styles.rowBorder,
+                t.id === highlight && styles.rowHighlight,
+              ]}
+            >
               <View style={[styles.txnIcon, { backgroundColor: t.tint }]}>
                 {t.kind === 'edit' && (
                   <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
@@ -144,6 +156,12 @@ export default function PaymentsAndReceipts() {
 }
 
 const styles = StyleSheet.create({
+  rowHighlight: {
+    backgroundColor: '#FFFBEF',
+    borderLeftWidth: 3,
+    borderLeftColor: colors.yellow,
+    paddingLeft: 15,
+  },
   root: { flex: 1, backgroundColor: colors.offWhite },
   body: { paddingHorizontal: spacing.screenX, paddingTop: 14, paddingBottom: insetBottom + 24 },
   mockNote: { fontSize: 11.5, color: colors.grey, marginBottom: 10 },

@@ -258,6 +258,7 @@ export function registerBookingRoutes(app: FastifyInstance) {
         'offer_received',
         'New job offer',
         `A ${body.occasion ?? 'session'} booking near ${body.area ?? 'you'} is waiting — accept within the offer window.`,
+        { booking_id: booking.id },
       );
     }
     return reply.code(201).send({ booking });
@@ -294,8 +295,9 @@ export function registerBookingRoutes(app: FastifyInstance) {
       'booking_confirmed',
       'Your booking is confirmed',
       'Your creator accepted — you\'re locked in. Full details are in your bookings.',
+      { booking_id: booking.id },
     );
-    await notify(user.id, 'booking_confirmed', 'Booking locked in', 'You accepted this job — it\'s on your schedule. Details in Jobs.');
+    await notify(user.id, 'booking_confirmed', 'Booking locked in', 'You accepted this job — it\'s on your schedule. Details in Jobs.', { booking_id: booking.id });
     return { accepted: true, status: 'confirmed' };
   });
 

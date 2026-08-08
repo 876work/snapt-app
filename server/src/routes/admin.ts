@@ -253,7 +253,8 @@ export function registerAdminRoutes(app: FastifyInstance) {
         })
         .eq('id', booking.id);
       await notify(creatorId, 'offer_received', 'New job offer',
-        `A ${booking.occasion ?? 'session'} booking near ${booking.area ?? 'you'} was assigned to you — accept within the offer window.`);
+        `A ${booking.occasion ?? 'session'} booking near ${booking.area ?? 'you'} was assigned to you — accept within the offer window.`,
+        { booking_id: booking.id });
       await audit(adminId, 'manual_dispatch', booking.id, { creator_id: creatorId });
       return { assigned: true };
     },
@@ -405,7 +406,11 @@ export function registerAdminRoutes(app: FastifyInstance) {
       .is('resolved_at', null)
       .filter('detail->>creator_id', 'eq', creatorId);
     await audit(adminId, 'payout_fulfilled', creatorId, { amount_usd: total, payout_ids: rows.map((r) => r.id) });
-    await notify(creatorId, 'payout_paid', 'Payout sent', `$${total.toFixed(2)} has been sent to your payout method.`);
+    // Highlight the row only when this fulfilment WAS one row. A batch has
+    // no single "the payout record" to open, and picking one arbitrarily
+    // would point at a number that isn't the one in the message.
+    await notify(creatorId, 'payout_paid', 'Payout sent', `$${total.toFixed(2)} has been sent to your payout method.`,
+      rows.length === 1 ? { payout_id: rows[0].id } : {});
     return { fulfilled: true, amount_usd: total };
   });
 

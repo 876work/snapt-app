@@ -168,7 +168,9 @@ export function registerPaymentRoutes(app: FastifyInstance) {
         if (!booking) break;
         // Unique partial index on (stripe_payment_intent_id, type='charge')
         // makes retries a no-op.
-        const { error: insErr } = await supabaseAdmin.from('transactions').insert({
+        // .select() so the receipt notification can point at THIS row
+        // rather than the payments list.
+        const { data: txn, error: insErr } = await supabaseAdmin.from('transactions').insert({
           booking_id: bookingId,
           user_id: clientId,
           type: 'charge',
@@ -176,13 +178,14 @@ export function registerPaymentRoutes(app: FastifyInstance) {
           amount_usd: intent.amount_received / 100,
           stripe_payment_intent_id: intent.id,
           fees: booking.pricing_snapshot,
-        });
+        }).select('id').maybeSingle();
         if (!insErr) {
           await notify(
             clientId,
             'payment_charged',
             'Payment received',
             `Your payment of $${(intent.amount_received / 100).toFixed(2)} went through — receipt under Profile → Payments & receipts.`,
+            { booking_id: bookingId, transaction_id: txn?.id },
           );
         }
         break;

@@ -23,6 +23,12 @@ export type CreatorStatus =
 
 interface AuthState {
   signedIn: boolean;
+  /**
+   * Supabase auth user id. Needed to tell whether a push notification was
+   * addressed to THIS account — a device token outlives a sign-out, so a
+   * tap can arrive for a previous user.
+   */
+  userId: string | null;
   /** True once persisted-session restore has settled (immediately in mock mode). */
   hydrated: boolean;
   name: string;
@@ -31,7 +37,7 @@ interface AuthState {
   currency: Currency;
   mode: AppMode;
   creatorStatus: CreatorStatus;
-  signIn: (name: string, email: string) => void;
+  signIn: (name: string, email: string, userId?: string | null) => void;
   signOut: () => void;
   setHydrated: () => void;
   setCurrency: (c: Currency) => void;
@@ -42,6 +48,7 @@ interface AuthState {
 
 export const useAuth = create<AuthState>((set) => ({
   signedIn: false,
+  userId: null,
   hydrated: false,
   name: '',
   email: '',
@@ -49,8 +56,10 @@ export const useAuth = create<AuthState>((set) => ({
   currency: 'USD',
   mode: 'client',
   creatorStatus: 'not_applied',
-  signIn: (name, email) => set({ signedIn: true, name, email }),
-  signOut: () => set({ signedIn: false, name: '', email: '', mode: 'client', creatorStatus: 'not_applied' }),
+  signIn: (name, email, userId) =>
+    set({ signedIn: true, name, email, ...(userId !== undefined ? { userId } : {}) }),
+  signOut: () =>
+    set({ signedIn: false, userId: null, name: '', email: '', mode: 'client', creatorStatus: 'not_applied' }),
   setHydrated: () => set({ hydrated: true }),
   setCurrency: (currency) => set({ currency }),
   // Selected mode persists across relaunches (restored in initAuth) but is

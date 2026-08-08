@@ -95,7 +95,8 @@ export function registerModerationRoutes(app: FastifyInstance) {
         }
       }
       await notify(user.id, 'safety_report_received', 'We got your report',
-        'Our moderation team has been alerted and is reviewing it now.');
+        'Our moderation team has been alerted and is reviewing it now.',
+        booking_id ? { booking_id } : {});
       return reply.code(201).send({ report_id: report.id, severity });
     },
   );

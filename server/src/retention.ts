@@ -198,6 +198,7 @@ async function sendExpiryWarnings(dryRun: boolean, deliverableDays: number): Pro
         'files_expiring',
         daysBefore === 30 ? 'Your files expire in 30 days' : 'Last chance — files expire in 7 days',
         `The delivered files from your Snapt booking are available until ${dateLabel}. Download them to your device before then — after that date they are permanently removed.`,
+        { booking_id: b.id as string },
       );
       await supabaseAdmin
         .from('bookings')
