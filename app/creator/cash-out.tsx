@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { SlideToConfirm } from '../../components/ui/SlideToConfirm';
+import { RadioDot } from '../../components/ui/RadioDot';
 import { useAuth } from '../../lib/store';
 import { formatMoney } from '../../lib/constants/business';
 import { colors, insetBottom } from '../../lib/theme';
@@ -150,7 +151,7 @@ export default function CashOut() {
                   }}
                   style={[styles.methodRow, off && { opacity: 0.4 }]}
                 >
-                  <View style={[styles.radio, active && styles.radioActive]} />
+                  <RadioDot selected={active} />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={styles.methodName}>{m.name}</Text>
                     <Text style={[styles.methodSub, !ok && !off && { color: '#B98600', fontWeight: '700' }]}>
@@ -218,8 +219,6 @@ const styles = StyleSheet.create({
   },
   methodRow: { flexDirection: 'row', alignItems: 'center', gap: 13, paddingVertical: 15, paddingHorizontal: 16 },
   rowBorder: { borderBottomWidth: 1, borderBottomColor: '#F4F1EA' },
-  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#D8D2C4' },
-  radioActive: { borderWidth: 6, borderColor: colors.yellow },
   methodName: { fontSize: 13.5, fontWeight: '700', color: colors.ink },
   methodSub: { fontSize: 11, color: colors.greyWarm, marginTop: 2 },
   methodEta: { fontSize: 10, color: '#9A948B', fontWeight: '600' },

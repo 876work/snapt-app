@@ -4,6 +4,8 @@ import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
+import { SegmentedControl } from '../../components/ui/SegmentedControl';
+import { RadioDot } from '../../components/ui/RadioDot';
 import { EDIT_STYLES, REMOTE_PACKAGES, useUpload } from '../../lib/store/upload';
 import { useAuth } from '../../lib/store';
 import { formatMoney } from '../../lib/constants/business';
@@ -24,28 +26,24 @@ export default function ChooseYourEdit() {
   const selStyle = EDIT_STYLES.find((s) => s.id === styleId) ?? EDIT_STYLES[0];
   const packages = REMOTE_PACKAGES[mediaKind];
 
-  const segs: { v: MediaKind; label: string }[] = [
-    { v: 'photo', label: 'Photos' },
-    { v: 'video', label: 'Video' },
-    { v: 'both', label: 'Both' },
-  ];
 
   return (
     <View style={styles.root}>
       <ScreenHeader title="Choose your edit" />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <Text style={styles.lead}>What kind of edit do you need?</Text>
-        <View style={styles.segTrack}>
-          {segs.map((s) => (
-            <Pressable
-              key={s.v}
-              onPress={() => setMediaKind(s.v)}
-              style={[styles.seg, mediaKind === s.v && styles.segActive]}
-            >
-              <Text style={[styles.segLabel, mediaKind === s.v && styles.segLabelActive]}>{s.label}</Text>
-            </Pressable>
-          ))}
-        </View>
+        {/* Shared control, same emoji labels as Duration & package. The
+            local copy here had drifted: no emoji, and a WHITE active pill
+            against the shared control's black one. */}
+        <SegmentedControl
+          options={[
+            { value: 'photo' as MediaKind, label: '📷 Photos' },
+            { value: 'video' as MediaKind, label: '🎥 Video' },
+            { value: 'both' as MediaKind, label: '🎁 Both' },
+          ]}
+          value={mediaKind}
+          onChange={setMediaKind}
+        />
 
         <Text style={styles.sectionTitle}>Pick a package</Text>
         <View style={{ gap: 10, marginBottom: 4 }}>
@@ -58,7 +56,7 @@ export default function ChooseYourEdit() {
                 onPress={() => setTier(p.tier)}
                 style={[styles.tierRow, active && styles.tierRowActive]}
               >
-                <View style={[styles.tierRadio, active && styles.tierRadioActive]} />
+                <RadioDot selected={active} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <Text style={styles.tierName}>{p.name}</Text>
@@ -148,18 +146,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.offWhite },
   body: { paddingHorizontal: 22, paddingTop: 8 },
   lead: { fontSize: 14, color: colors.grey, lineHeight: 20, marginBottom: 16 },
-  segTrack: { flexDirection: 'row', gap: 6, backgroundColor: colors.segBg, borderRadius: 13, padding: 5 },
-  seg: { flex: 1, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  segActive: {
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  segLabel: { fontSize: 13, fontWeight: '600', color: colors.grey },
-  segLabelActive: { color: colors.ink, fontWeight: '800' },
   sectionTitle: { fontSize: 15, fontWeight: '800', letterSpacing: -0.2, color: colors.ink, marginTop: 24, marginBottom: 12 },
   tierRow: {
     flexDirection: 'row',
@@ -172,8 +158,6 @@ const styles = StyleSheet.create({
     padding: 15,
   },
   tierRowActive: { borderColor: colors.yellow, backgroundColor: colors.yellowSoft },
-  tierRadio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.greyLight },
-  tierRadioActive: { borderWidth: 6, borderColor: colors.yellow },
   tierName: { fontSize: 14.5, fontWeight: '700', color: colors.ink },
   tierDesc: { fontSize: 12, color: colors.grey, marginTop: 3 },
   tierPrice: { fontSize: 15, fontWeight: '800', color: colors.ink },

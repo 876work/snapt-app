@@ -7,6 +7,7 @@ import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { useAuth } from '../../lib/store';
 import { Currency, getXcdPerUsd } from '../../lib/constants/business';
 import { colors } from '../../lib/theme';
+import { RadioDot } from '../../components/ui/RadioDot';
 
 // Built per-render so the peg reflects the server-synced rate, not the
 // bundled fallback captured at import time.
@@ -38,7 +39,7 @@ export default function OnboardingCurrency() {
               onPress={() => setChoice(o.value)}
               style={[styles.option, active && styles.optionActive]}
             >
-              <View style={[styles.radio, active && styles.radioActive]} />
+              <RadioDot selected={active} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.optionTitle}>{o.title}</Text>
                 <Text style={styles.optionSub}>{o.sub}</Text>
@@ -75,14 +76,6 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   optionActive: { borderColor: colors.yellow, backgroundColor: colors.yellowSoft },
-  radio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: colors.greyLight,
-  },
-  radioActive: { borderWidth: 6, borderColor: colors.yellow },
   optionTitle: { fontSize: 15, fontWeight: '800', color: colors.ink },
   optionSub: { fontSize: 12, color: colors.grey, marginTop: 3, lineHeight: 16.5 },
 });
