@@ -88,7 +88,9 @@ async function loadThreads(userId: string): Promise<ThreadRow[]> {
     return {
       booking_id: b.id,
       other_id: otherId,
-      other_name: other?.full_name ?? 'Snapt user',
+      // `||`, not `??` — full_name can be an empty string, not just null,
+      // on an account that never completed profile setup.
+      other_name: other?.full_name || 'Snapt user',
       other_avatar: other?.avatar_url ?? null,
       type: b.type,
       occasion: b.occasion,
