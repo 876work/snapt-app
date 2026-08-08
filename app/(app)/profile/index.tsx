@@ -8,6 +8,7 @@ import { LEGAL_DOCS } from '../../../lib/mock/legal';
 import { useAuth } from '../../../lib/store';
 import { signOutEverywhere } from '../../../lib/auth';
 import * as Updates from 'expo-updates';
+import Constants from 'expo-constants';
 import { colors, spacing, insetTop, insetBottom } from '../../../lib/theme';
 import { navShrinkOnScroll } from '../../../lib/navShrink';
 
@@ -311,6 +312,12 @@ export default function Profile() {
             instead of failing silently. */}
         <View style={styles.updBlock}>
           <Text style={styles.updTitle}>Build &amp; updates</Text>
+          <Text style={styles.updLine}>
+            App: v{Constants.nativeApplicationVersion ?? '?'} (build {Constants.nativeBuildVersion ?? '?'}) · code{' '}
+            {/* Stamped by scripts/publish-ota.sh at publish time; the factory
+                bundle has no stamp, and its identity is the build number. */}
+            {process.env.EXPO_PUBLIC_COMMIT ?? 'factory'}
+          </Text>
           <Text style={styles.updLine}>
             Bundle: {Updates.updateId ?? 'embedded (factory bundle)'}
           </Text>
