@@ -123,9 +123,6 @@ export default function AppLayout() {
       <Tabs.Screen name="profile" />
       <Tabs.Screen name="creators" options={{ href: null }} />
       <Tabs.Screen name="inbox" options={{ href: null }} />
-      {/* No longer a tab — Payment methods still lives here, reached from
-          Profile → Account. */}
-      <Tabs.Screen name="wallet" options={{ href: null }} />
     </Tabs>
   );
 }

@@ -33,16 +33,6 @@ export function BookingsIcon({ color }: { color: string }) {
   );
 }
 
-export function WalletIcon({ color }: { color: string }) {
-  return (
-    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-      <Rect x="3" y="6" width="18" height="13" rx="3" stroke={color} strokeWidth={1.9} />
-      <Path d="M15 12.5h3" stroke={color} strokeWidth={1.9} strokeLinecap="round" />
-      <Path d="M3 9.5h18" stroke={color} strokeWidth={1.9} />
-    </Svg>
-  );
-}
-
 export function MessagesIcon({ color }: { color: string }) {
   return (
     <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">

@@ -197,16 +197,10 @@ export default function Profile() {
               </Svg>
             }
           />
-          <ListRow
-            label="Payment methods"
-            onPress={() => router.push('/(app)/wallet')}
-            icon={
-              <Svg width={21} height={21} viewBox="0 0 24 24" fill="none">
-                <Rect x="3" y="6" width="18" height="12.5" rx="3" stroke={colors.grey} strokeWidth={1.8} />
-                <Path d="M3 10h18" stroke={colors.grey} strokeWidth={1.8} />
-              </Svg>
-            }
-          />
+          {/* No "Payment methods" row. Cards are entered ONLY inside Stripe's
+              PaymentSheet at checkout; the screen that lived here showed two
+              hardcoded cards and collected numbers into a local list. Charge
+              history stays under Payments & receipts below. */}
           <ListRow
             label="Payments & receipts"
             onPress={() => router.push('/profile/payments')}
