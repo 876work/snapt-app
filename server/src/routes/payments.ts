@@ -263,6 +263,16 @@ export function registerPaymentRoutes(app: FastifyInstance) {
               `Your payment of $${(intent.amount_received / 100).toFixed(2)} went through — receipt under Profile → Payments & receipts.`,
               { booking_id: r.booking_id },
             );
+          } else if (r.retryable) {
+            // TELL STRIPE THE TRUTH. Returning 200 after failing to create the
+            // booking is exactly how 16 paid checkouts produced nothing while
+            // every delivery looked clean: Stripe's retry machinery cannot see
+            // a handler that reports its own failure as success.
+            request.log.error(
+              { intent: intent.id, reason: r.reason },
+              'booking creation failed for a paid intent — returning 500 so Stripe retries',
+            );
+            return reply.code(500).send({ error: 'booking_creation_failed', reason: r.reason });
           }
           break;
         }

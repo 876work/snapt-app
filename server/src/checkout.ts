@@ -23,7 +23,7 @@ export async function createBookingFromPaidIntent(intent: {
   id: string;
   amount_received: number;
   metadata?: Record<string, string> | null;
-}): Promise<{ created: boolean; booking_id?: string; reason?: string }> {
+}): Promise<{ created: boolean; booking_id?: string; reason?: string; retryable?: boolean }> {
   const md = (intent.metadata ?? {}) as Record<string, string>;
   const clientId = md.client_id;
   if (!clientId) return { created: false, reason: 'no_client' };
@@ -44,7 +44,28 @@ export async function createBookingFromPaidIntent(intent: {
     })
     .select('id')
     .maybeSingle();
-  if (claimErr) return { created: false, reason: 'already_processed' };
+  if (claimErr) {
+    // 23505 is the unique index over (stripe_payment_intent_id, type='charge')
+    // doing its job: a genuine duplicate delivery, which is a SUCCESS — the
+    // booking already exists from the first one.
+    //
+    // Anything else is a real fault, and treating it as a duplicate is what
+    // hid this bug. The claim was failing 23502 (booking_id NOT NULL) on every
+    // checkout; we reported success, Stripe saw 2xx, and no booking was ever
+    // created. A failure must be loud and must be retried.
+    if (claimErr.code === '23505') return { created: false, reason: 'already_processed' };
+    await supabaseAdmin.from('admin_alerts').insert({
+      alert_type: 'checkout_claim_failed',
+      detail: {
+        intent: intent.id,
+        client_id: clientId,
+        paid_usd: paidUsd,
+        code: claimErr.code,
+        error: claimErr.message,
+      },
+    });
+    return { created: false, reason: 'claim_failed', retryable: true };
+  }
 
   const body: CreateBookingBody = unpackBookingParams(md);
   // Re-price and re-check availability at PAYMENT time, not slide time.
@@ -96,7 +117,9 @@ export async function createBookingFromPaidIntent(intent: {
       alert_type: 'checkout_booking_insert_failed',
       detail: { intent: intent.id, client_id: clientId, paid_usd: paidUsd, error: error?.message },
     });
-    return { created: false, reason: 'insert_failed' };
+    // Retryable: the money is real and the booking is not. Let Stripe come
+    // back rather than closing the case with a 2xx.
+    return { created: false, reason: 'insert_failed', retryable: true };
   }
 
   // Attach the charge to its booking now that one exists.
@@ -126,6 +149,17 @@ export async function createBookingFromPaidIntent(intent: {
       rushUsd > 0
         ? `A ${body.occasion ?? 'session'} booking near ${body.area ?? 'you'} — the client paid for rush delivery, so edits are due within hours of the session. Pays extra. Accept within the offer window.`
         : `A ${body.occasion ?? 'session'} booking near ${body.area ?? 'you'} is waiting — accept within the offer window.`,
+      { booking_id: booking.id },
+    );
+    // The client hears it too. Until now the happy path notified only the
+    // CREATOR: the person who had just paid got a `payment_charged` email
+    // receipt (push: false) and nothing in the app at all, so a successful
+    // booking looked exactly like a failed one from their side.
+    await notify(
+      clientId,
+      'booking_confirmed',
+      'Booking confirmed',
+      `You're booked${body.occasion ? ` for ${body.occasion}` : ''}. We've offered the job to your creator — you'll hear the moment they accept.`,
       { booking_id: booking.id },
     );
   } else if (q.type === 'in_person') {
