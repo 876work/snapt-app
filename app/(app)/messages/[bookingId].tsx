@@ -21,18 +21,21 @@ interface Thread {
   other_name: string;
   other_avatar: string | null;
   type: 'in_person' | 'remote';
-  occasion: string;
+  /** null on remote orders — they have no occasion step. */
+  occasion: string | null;
   scheduled_at: string | null;
   status: string;
   delivered_at: string | null;
   closed: boolean;
 }
 
+// Mirrors the inbox list: a null occasion must never reach a template literal.
 function subjectFor(t: Thread): string {
-  if (t.type === 'remote') return `Remote order · ${t.occasion}`;
-  if (!t.scheduled_at) return t.occasion;
+  if (t.type === 'remote') return t.occasion ? `Remote order · ${t.occasion}` : 'Remote order';
+  const label = t.occasion ?? 'Session';
+  if (!t.scheduled_at) return label;
   const d = new Date(t.scheduled_at);
-  return `${t.occasion} · ${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`;
+  return `${label} · ${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`;
 }
 
 export default function MessageThread() {

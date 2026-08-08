@@ -22,7 +22,9 @@ interface ThreadRow {
   other_name: string;
   other_avatar: string | null;
   type: string;
-  occasion: string;
+  // Nullable for real: only in-person bookings collect an occasion. Remote
+  // edit orders have no occasion step, so this is null for most of them.
+  occasion: string | null;
   scheduled_at: string | null;
   status: string;
   delivered_at: string | null;
@@ -108,7 +110,7 @@ async function loadThreads(userId: string): Promise<ThreadRow[]> {
       other_name: other?.full_name || 'Snapt user',
       other_avatar: headshotById.get(otherId) ?? other?.avatar_url ?? null,
       type: b.type,
-      occasion: b.occasion,
+      occasion: b.occasion ?? null,
       scheduled_at: b.scheduled_at,
       status: b.status,
       delivered_at: b.delivered_at,

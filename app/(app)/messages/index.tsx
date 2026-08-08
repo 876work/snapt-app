@@ -19,7 +19,8 @@ interface Thread {
   other_name: string;
   other_avatar: string | null;
   type: 'in_person' | 'remote';
-  occasion: string;
+  /** null on remote orders — they have no occasion step. */
+  occasion: string | null;
   scheduled_at: string | null;
   status: string;
   last_message: { body: string; created_at: string; mine: boolean } | null;
@@ -27,11 +28,15 @@ interface Thread {
   closed: boolean;
 }
 
+// Remote orders carry no occasion, so every branch has to survive a null one.
+// Interpolating it directly printed the literal string "Remote order · null"
+// to anyone with a remote order in their inbox.
 function subjectFor(t: Thread): string {
-  if (t.type === 'remote') return `Remote order · ${t.occasion}`;
-  if (!t.scheduled_at) return t.occasion;
+  if (t.type === 'remote') return t.occasion ? `Remote order · ${t.occasion}` : 'Remote order';
+  const label = t.occasion ?? 'Session';
+  if (!t.scheduled_at) return label;
   const d = new Date(t.scheduled_at);
-  return `${t.occasion} · ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+  return `${label} · ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
 }
 
 function ago(iso: string): string {
