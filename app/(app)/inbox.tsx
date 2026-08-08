@@ -63,7 +63,7 @@ function destinationFor(item: Item): string | null {
     case 'refund_processed':
     case 'fee_charged':
     case 'assignment_failed_refunded':
-      return '/(app)/wallet';
+      return '/profile/payments';
     case 'application_approved':
     case 'application_rejected':
     case 'application_submitted':

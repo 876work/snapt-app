@@ -1,17 +1,43 @@
 import React from 'react';
 import { Tabs, usePathname } from 'expo-router';
-import { Animated, Pressable, StyleSheet } from 'react-native';
+import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
 import { colors, insetBottom } from '../../lib/theme';
 import { navShrinkReset, useNavShrinkAnim } from '../../lib/navShrink';
-import { BookingsIcon, HomeIcon, ProfileIcon, WalletIcon } from '../../components/ui/Icons';
+import { BookingsIcon, HomeIcon, MessagesIcon, ProfileIcon } from '../../components/ui/Icons';
+import { apiBase, authHeaders } from '../../lib/api';
 
 const TABS: { name: string; label: string; Icon: (p: { color: string }) => React.JSX.Element }[] = [
   { name: 'home', label: 'Home', Icon: HomeIcon },
   { name: 'bookings', label: 'Bookings', Icon: BookingsIcon },
-  { name: 'wallet', label: 'Wallet', Icon: WalletIcon },
+  { name: 'messages', label: 'Messages', Icon: MessagesIcon },
   { name: 'profile', label: 'Profile', Icon: ProfileIcon },
 ];
+
+/** Polled from the root layout (always mounted) so the badge is live on
+ * every tab, not just while Messages itself is on screen. */
+function useUnreadMessages(): number {
+  const [unread, setUnread] = React.useState(0);
+  React.useEffect(() => {
+    if (!apiBase) return;
+    let stop = false;
+    const poll = async () => {
+      try {
+        const res = await fetch(`${apiBase}/v1/messages/unread`, { headers: await authHeaders() });
+        if (!stop && res.ok) setUnread(((await res.json()) as { unread: number }).unread);
+      } catch {
+        /* next poll corrects it */
+      }
+    };
+    poll();
+    const id = setInterval(poll, 25_000);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+  }, []);
+  return unread;
+}
 
 interface TabBarProps {
   state: { index: number; routes: { name: string; key: string }[] };
@@ -20,6 +46,7 @@ interface TabBarProps {
 
 function PillTabBar({ state, navigation }: TabBarProps) {
   const { opacity, scale } = useNavShrinkAnim();
+  const unread = useUnreadMessages();
   return (
     <Animated.View style={[styles.bar, { opacity, transform: [{ scale }] }]}>
       {TABS.map((tab) => {
@@ -35,7 +62,14 @@ function PillTabBar({ state, navigation }: TabBarProps) {
             }}
             style={[styles.item, active && styles.itemActive]}
           >
-            <tab.Icon color={active ? colors.ink : 'rgba(255,255,255,0.75)'} />
+            <View>
+              <tab.Icon color={active ? colors.ink : 'rgba(255,255,255,0.75)'} />
+              {tab.name === 'messages' && unread > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeLabel}>{unread > 9 ? '9+' : unread}</Text>
+                </View>
+              )}
+            </View>
             {active && <Text style={styles.label}>{tab.label}</Text>}
           </Pressable>
         );
@@ -48,7 +82,7 @@ function PillTabBar({ state, navigation }: TabBarProps) {
 // screens (booking detail, cancel/reschedule, profile edit, …) carry their
 // own headers and bottom CTAs — the absolutely-positioned bar was covering
 // footer buttons/sliders (reported on the reschedule screen, 2026-08-04).
-const TAB_ROOTS = ['/home', '/bookings', '/wallet', '/profile'];
+const TAB_ROOTS = ['/home', '/bookings', '/messages', '/profile'];
 
 export default function AppLayout() {
   const pathname = usePathname();
@@ -62,10 +96,13 @@ export default function AppLayout() {
     >
       <Tabs.Screen name="home" />
       <Tabs.Screen name="bookings" />
-      <Tabs.Screen name="wallet" />
+      <Tabs.Screen name="messages" />
       <Tabs.Screen name="profile" />
       <Tabs.Screen name="creators" options={{ href: null }} />
       <Tabs.Screen name="inbox" options={{ href: null }} />
+      {/* No longer a tab — Payment methods still lives here, reached from
+          Profile → Account. */}
+      <Tabs.Screen name="wallet" options={{ href: null }} />
     </Tabs>
   );
 }
@@ -100,4 +137,19 @@ const styles = StyleSheet.create({
   },
   itemActive: { backgroundColor: colors.yellow, paddingHorizontal: 16 },
   label: { fontSize: 12.5, fontWeight: '800', color: colors.ink },
+  badge: {
+    position: 'absolute',
+    top: -5,
+    right: -7,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    backgroundColor: colors.error,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: colors.ink,
+  },
+  badgeLabel: { fontSize: 9, fontWeight: '800', color: '#fff' },
 });

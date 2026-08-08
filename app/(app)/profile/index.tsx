@@ -203,6 +203,16 @@ export default function Profile() {
               </Svg>
             }
           />
+          <ListRow
+            label="Payments & receipts"
+            onPress={() => router.push('/profile/payments')}
+            icon={
+              <Svg width={21} height={21} viewBox="0 0 24 24" fill="none">
+                <Path d="M6 3.5h9l3 3v14h-12v-17z" stroke={colors.grey} strokeWidth={1.8} strokeLinejoin="round" />
+                <Path d="M9 10h6M9 13.5h6M9 17h3.5" stroke={colors.grey} strokeWidth={1.7} strokeLinecap="round" />
+              </Svg>
+            }
+          />
           {creatorStatus === 'approved' && (
             <ListRow
               label="Specialties"

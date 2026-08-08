@@ -182,7 +182,7 @@ export function registerPaymentRoutes(app: FastifyInstance) {
             clientId,
             'payment_charged',
             'Payment received',
-            `Your payment of $${(intent.amount_received / 100).toFixed(2)} went through — receipt in your wallet.`,
+            `Your payment of $${(intent.amount_received / 100).toFixed(2)} went through — receipt under Profile → Payments & receipts.`,
           );
         }
         break;

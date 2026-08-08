@@ -1,7 +1,7 @@
 import React from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { KeyboardScrollView } from '../../../components/ui/KeyboardScrollView';
-import { Text, TextInput } from '../../../lib/text';
+import { Text } from '../../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { CreatorAvatar } from '../../../components/ui/CreatorAvatar';
@@ -36,7 +36,6 @@ export default function OrderTracker() {
   const creator = creatorById(booking?.creatorId ?? null) ?? creatorById('jordan');
 
   const [step, setStep] = React.useState<Step>(1);
-  const [chatOpen, setChatOpen] = React.useState(false);
   const copy = STEP_COPY[step];
   const firstName = creator?.name.split(' ')[0] ?? 'your editor';
 
@@ -187,68 +186,14 @@ export default function OrderTracker() {
         )}
       </View>
 
-      <Pressable onPress={() => setChatOpen(true)} style={styles.chatFab}>
+      {/* Opens the real thread (Messages tab list points at the same
+          screen) — this used to be a modal with hardcoded messages and a
+          send button that sent nothing. */}
+      <Pressable onPress={() => router.push(`/(app)/messages/${id}` as never)} style={styles.chatFab}>
         <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
           <Path d="M4 6a2 2 0 012-2h12a2 2 0 012 2v7a2 2 0 01-2 2H10l-4.5 3.5V15H6a2 2 0 01-2-2V6z" stroke={colors.ink} strokeWidth={1.8} strokeLinejoin="round" />
         </Svg>
       </Pressable>
-
-      <Modal visible={chatOpen} transparent animationType="slide" onRequestClose={() => setChatOpen(false)}>
-        <View style={styles.sheetBackdrop}>
-          <Pressable style={{ flex: 1 }} onPress={() => setChatOpen(false)} />
-          <View style={styles.chatSheet}>
-            <View style={styles.chatHead}>
-              {creator && (
-                <View style={styles.chatAvatar}>
-                  <CreatorAvatar name={creator.name} photo={creator.photo} />
-                </View>
-              )}
-              <View style={{ flex: 1 }}>
-                <Text style={styles.chatName}>{firstName}</Text>
-                <Text style={styles.chatRole}>Your creator</Text>
-              </View>
-              <Pressable onPress={() => setChatOpen(false)} style={styles.chatClose}>
-                <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-                  <Path d="M6 6l12 12M18 6L6 18" stroke={colors.ink} strokeWidth={2} strokeLinecap="round" />
-                </Svg>
-              </Pressable>
-            </View>
-            <View style={{ padding: 14, paddingHorizontal: 16 }}>
-              <View style={styles.chatMsgRow}>
-                {creator && (
-                  <View style={styles.chatMsgAvatar}>
-                    <CreatorAvatar name={creator.name} photo={creator.photo} />
-                  </View>
-                )}
-                <View style={styles.chatBubbleThem}>
-                  <Text style={styles.chatText}>
-                    Got your files — I'll have a first cut over to you shortly. Any must-keep shots?
-                  </Text>
-                </View>
-              </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
-                <View style={styles.chatBubbleMe}>
-                  <Text style={styles.chatText}>The sunset clips are the priority — thank you! 🙌</Text>
-                </View>
-              </View>
-            </View>
-            <View style={{ paddingHorizontal: 14, paddingBottom: 14, paddingTop: 4 }}>
-              <View style={styles.chatInputRow}>
-                <TextInput
-                  placeholder={`Message ${firstName}…`}
-                  placeholderTextColor="#9A9A9A"
-                  style={styles.chatInput}
-                />
-                <View style={styles.chatSend}>
-                  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-                    <Path d="M4 12L20 4l-6 16-3-7-7-1z" stroke={colors.ink} strokeWidth={1.8} strokeLinejoin="round" />
-                  </Svg>
-                </View>
-              </View>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -453,71 +398,5 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 6 },
     elevation: 8,
-  },
-  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(26,26,26,0.45)' },
-  chatSheet: {
-    backgroundColor: colors.offWhite,
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    paddingTop: 14,
-  },
-  chatHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 11,
-    paddingHorizontal: 16,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F1F1',
-  },
-  chatAvatar: { width: 34, height: 34, borderRadius: 17, overflow: 'hidden', backgroundColor: '#EFEBE3' },
-  chatName: { fontSize: 14, fontWeight: '700', color: colors.ink },
-  chatRole: { fontSize: 11.5, color: colors.grey },
-  chatClose: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.segBgAlt,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chatMsgRow: { flexDirection: 'row', gap: 9, alignItems: 'flex-end', marginBottom: 12 },
-  chatMsgAvatar: { width: 26, height: 26, borderRadius: 13, overflow: 'hidden', backgroundColor: '#EFEBE3' },
-  chatBubbleThem: {
-    maxWidth: '82%',
-    backgroundColor: colors.segBgAlt,
-    borderRadius: 14,
-    borderBottomLeftRadius: 4,
-    padding: 10,
-    paddingHorizontal: 13,
-  },
-  chatBubbleMe: {
-    maxWidth: '82%',
-    backgroundColor: colors.yellow,
-    borderRadius: 14,
-    borderBottomRightRadius: 4,
-    padding: 10,
-    paddingHorizontal: 13,
-  },
-  chatText: { fontSize: 13, lineHeight: 18, color: colors.ink },
-  chatInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: colors.offWhite,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 14,
-    padding: 6,
-    paddingLeft: 14,
-  },
-  chatInput: { flex: 1, fontSize: 14, color: colors.ink, padding: 0 },
-  chatSend: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: colors.yellow,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });

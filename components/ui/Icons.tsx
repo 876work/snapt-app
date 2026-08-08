@@ -43,6 +43,19 @@ export function WalletIcon({ color }: { color: string }) {
   );
 }
 
+export function MessagesIcon({ color }: { color: string }) {
+  return (
+    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M4 6.5a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2H10.5L5 20.5V16.5H6a2 2 0 01-2-2v-8z"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
 export function ProfileIcon({ color }: { color: string }) {
   return (
     <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">

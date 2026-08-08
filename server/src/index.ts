@@ -22,6 +22,7 @@ import { registerPolicyRoutes } from './routes/policies.js';
 import { registerModerationRoutes } from './routes/moderation.js';
 import { registerPushRoutes } from './routes/push.js';
 import { registerReviewRoutes } from './routes/reviews.js';
+import { registerMessageRoutes } from './routes/messages.js';
 import { startScheduler } from './scheduler.js';
 
 // trustProxy: Render terminates TLS at its proxy — without this every
@@ -56,6 +57,7 @@ app.get('/v1/health', async () => ({
 registerConfigRoutes(app);
 
 registerNotificationRoutes(app);
+registerMessageRoutes(app);
 registerPaymentRoutes(app);
 registerCreatorRoutes(app);
 registerBookingRoutes(app);
