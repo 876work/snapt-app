@@ -70,11 +70,29 @@ export function registerAdminRoutes(app: FastifyInstance) {
       .select('id, status')
       .in('id', ids);
     const alive = new Map((bookings ?? []).map((b) => [b.id as string, b.status as string]));
-    // Orphan = booking deleted, or cancelled (the offer is moot either way).
+    // A cancelled booking that was PAID is real history: the job existed,
+    // the client was charged, the offer genuinely went out. Erasing that
+    // would be deleting a record, not cleaning up test detritus. Only
+    // offers whose booking was never paid for (or no longer exists at all)
+    // are clearable.
+    const cancelledIds = [...alive.entries()]
+      .filter(([, status]) => status === 'cancelled')
+      .map(([id]) => id);
+    const paid = new Set<string>();
+    if (cancelledIds.length > 0) {
+      const { data: charges } = await supabaseAdmin
+        .from('transactions')
+        .select('booking_id')
+        .eq('type', 'charge')
+        .eq('status', 'succeeded')
+        .in('booking_id', cancelledIds);
+      for (const c of charges ?? []) paid.add(c.booking_id as string);
+    }
     return rows.filter((r) => {
-      if (!r.booking_id) return true;
+      if (!r.booking_id) return true; // no target at all
       const status = alive.get(r.booking_id);
-      return status === undefined || status === 'cancelled';
+      if (status === undefined) return true; // booking gone
+      return status === 'cancelled' && !paid.has(r.booking_id);
     });
   }
 
