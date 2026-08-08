@@ -6,7 +6,6 @@ import {
   isCreatorTarget,
   resolveTarget,
   setPendingLink,
-  takePendingLink,
   type NotificationData,
 } from '../lib/notificationTarget';
 
