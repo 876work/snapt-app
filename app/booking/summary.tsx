@@ -7,13 +7,12 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { Button } from '../../components/ui/Button';
 import { Divider } from '../../components/ui/Misc';
-import { SlideToConfirm } from '../../components/ui/SlideToConfirm';
 import { DURATIONS, packagePrice } from '../../lib/mock/data';
 import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { creatorById, useAuth, useBookings } from '../../lib/store';
-import { apiConfigured, createBookingApi, fetchDaySlotsDetailed, isServerCreatorId, SlotConflict } from '../../lib/api';
+import { apiConfigured, fetchDaySlotsDetailed, isServerCreatorId, SlotConflict } from '../../lib/api';
 import { SlotRecoverySheet } from '../../components/booking/SlotRecoverySheet';
-import { abandonBooking, payForBooking, waitForCharge } from '../../lib/payments';
+import { checkoutBooking } from '../../lib/payments';
 import {
   CANCEL_FULL_REFUND_HOURS,
   CLIENT_SERVICE_FEE_RATE,
@@ -111,59 +110,48 @@ export default function OrderSummary() {
 
   const book = async () => {
     if (apiConfigured) {
-      // Server computes price + fees + add-ons and re-validates the slot (§8).
-      const result = await createBookingApi(useBookings.getState().draft, {
-        rush: addons.includes('rush'),
-        extraPhotos: addons.includes('extra-photos'),
-        extraRevisions: addons.includes('revision') ? 1 : 0,
+      const draftNow = useBookings.getState().draft;
+      // ONE call: prices server-side and opens the sheet. NOTHING is
+      // created — no booking, no creator assignment, no offer clock, no
+      // push — until Stripe confirms the payment via webhook.
+      const outcome = await checkoutBooking({
+        type: draftNow.type === 'in-person' ? 'in_person' : 'remote',
+        occasion: draftNow.occasion,
+        media_kind: draftNow.mediaKind,
+        duration_hours: draftNow.durationHours,
+        social_tier: draftNow.social?.id,
+        area: draftNow.area,
+        meeting_point: draftNow.meetingPoint || undefined,
+        meeting_lat: draftNow.meetingLat ?? undefined,
+        meeting_lng: draftNow.meetingLng ?? undefined,
+        date: draftNow.date,
+        time: draftNow.time,
+        creator_id: isServerCreatorId(draftNow.creatorId) ? draftNow.creatorId : undefined,
+        addons: {
+          rush: addons.includes('rush'),
+          extra_photos: addons.includes('extra-photos'),
+          extra_revisions: addons.includes('revision') ? 1 : 0,
+        },
       });
-      if (result && 'booking' in result) {
-        // Booking exists but is UNPAID until Stripe's webhook says otherwise.
-        // The sheet collects the card (and runs any 3DS challenge) on-device.
-        const outcome = await payForBooking(result.booking.id);
-        if (!outcome.ok) {
-          // NEVER claim "nothing was charged" without checking. A 3DS
-          // challenge can succeed while the sheet reports cancelled (e.g.
-          // the user closes the browser themselves) — money moved, and the
-          // webhook is the authority. Ask the server before deciding.
-          const alreadyPaid = await waitForCharge(result.booking.id, 6000);
-          if (alreadyPaid) {
-            useBookings.getState().addServerBooking(result.booking);
-            router.dismissAll();
-            router.replace(`/bookings/${result.booking.id}`);
-            return true;
-          }
-          await abandonBooking(result.booking.id);
-          setBookError(
-            outcome.reason === 'cancelled'
-              ? 'Payment cancelled — nothing was charged.'
-              : outcome.message ?? 'Payment failed — no charge was made. Please try again.',
-          );
-          return false; // slider unlocks for a retry
-        }
-        // Paid: wait for the webhook to ledger it. If it's slow the booking
-        // is still good — the webhook finishes the job either way.
-        await waitForCharge(result.booking.id);
-        useBookings.getState().addServerBooking(result.booking);
+
+      if (outcome.ok) {
         router.dismissAll();
-        router.replace(`/bookings/${result.booking.id}`);
+        // The webhook creates the booking; if it hasn't landed yet the
+        // booking is still coming, so the list is the honest destination.
+        router.replace(outcome.bookingId ? `/bookings/${outcome.bookingId}` : '/(app)/bookings');
         return true;
       }
-      if (result && 'conflict' in result) {
-        // The slot vanished between arrival and the slide. Recovery sheet,
-        // not a dead-end string.
-        setConflict(result.conflict);
-        return false; // slider unlocks; the sheet offers the way forward
+      if (outcome.reason === 'conflict') {
+        setConflict(outcome.conflict);
+        return false;
       }
-      if (result && 'error' in result) {
-        setBookError(result.error);
-        return false; // slider unlocks so the user can retry
-      }
-      // API unreachable. In API mode this must be an ERROR — the old
-      // fallthrough created a fake local booking with no payment behind
-      // it, which read as either "nothing happened" or a broken booking.
-      setBookError("Couldn't reach the server — check your connection and slide again.");
-      return false;
+      // Cancelled or declined: nothing exists to clean up.
+      setBookError(
+        outcome.reason === 'cancelled'
+          ? 'Payment cancelled — nothing was charged and nothing was booked.'
+          : outcome.message ?? 'Payment failed — no charge was made. Please try again.',
+      );
+      return false; // slider unlocks for a retry
     }
     const booking = confirmDraft(base + addonsTotal);
     router.dismissAll();
@@ -329,18 +317,19 @@ export default function OrderSummary() {
         onClose={() => setConflict(null)}
       />
       <View style={styles.footer}>
-        {/* Failures render HERE, pinned above the slider — a message up in
+        {/* Failures render HERE, pinned above the button — a message up in
             the scroll content can sit outside the viewport at the exact
-            moment someone wonders why their slide did nothing. */}
+            moment someone wonders why nothing happened. */}
         {bookError ? <Text style={styles.footerError}>{bookError}</Text> : null}
-        {/* ONE confirmation for one action: the slide IS the payment
-            commitment and opens Stripe's sheet directly. */}
-        <SlideToConfirm
-          label="Slide to confirm & pay"
-          value={formatMoney(total, 'USD')}
-          valueLabel="You're paying (USD)"
-          onConfirm={book}
-        />
+        <View style={styles.payBar}>
+          <Text style={styles.payBarLabel}>You're paying (USD)</Text>
+          <Text style={styles.payBarValue}>{formatMoney(total, 'USD')}</Text>
+        </View>
+        {/* A PLAIN BUTTON, not slide-to-confirm. The slider is reserved for
+            irreversible commitments; this opens Stripe's sheet, where the
+            Pay button is the single real confirmation. Two commit gestures
+            for one action taught people to swipe past the one that counts. */}
+        <Button title="Continue to payment" arrow onPress={book} />
       </View>
     </View>
   );
@@ -481,6 +470,18 @@ const styles = StyleSheet.create({
   link: { color: colors.yellowDark, fontWeight: '600', textDecorationLine: 'underline' },
   timeNote: { fontSize: 12.5, fontWeight: '700', color: '#1E7A45', marginBottom: 8, textAlign: 'center' },
   footerError: { fontSize: 12.5, fontWeight: '700', color: '#A32C2C', textAlign: 'center', marginBottom: 10 },
+  payBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.ink,
+    borderRadius: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  payBarLabel: { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.62)' },
+  payBarValue: { fontSize: 16, fontWeight: '800', color: '#fff', letterSpacing: -0.3 },
   // NO flexDirection:'row' — a leftover from the pre-restructure
   // <meta><Button> pair. With the single SlideToConfirm child it squeezed
   // the whole checkout control to content width (the cut-off "Slide…"

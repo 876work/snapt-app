@@ -4,6 +4,7 @@ import { requireStripe } from '../stripe.js';
 import { supabaseAdmin } from '../supabase.js';
 import { env } from '../env.js';
 import { notify } from '../notify.js';
+import type { CreateBookingBody } from '../booking-quote.js';
 
 /**
  * Stripe payments — PaymentSheet integration (test mode).
@@ -19,6 +20,90 @@ import { notify } from '../notify.js';
  */
 export function registerPaymentRoutes(app: FastifyInstance) {
   // Client checkout: PaymentIntent + customer + ephemeral key for the sheet.
+  /**
+   * CHECKOUT: price the booking and open a PaymentIntent. Creates NOTHING.
+   *
+   * Replaces the old two-step (POST /v1/bookings → /v1/payments/intent),
+   * which put a real booking and a live creator offer on the board before
+   * the card sheet had even opened. The booking is now created by the
+   * webhook once Stripe confirms — see checkout.ts.
+   */
+  app.post<{ Body: CreateBookingBody }>('/v1/checkout/intent', async (request, reply) => {
+    const user = requireUser(request);
+    const stripe = requireStripe();
+    const { quoteBooking, isQuoteFailure, packBookingParams } = await import('../booking-quote.js');
+
+    const result = await quoteBooking(user.id, request.body ?? {});
+    if (isQuoteFailure(result)) {
+      const { status, ...rest } = result.failure;
+      return reply.code(status).send(rest);
+    }
+    const quote = result.quote;
+
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('stripe_customer_id, full_name, email')
+      .eq('id', user.id)
+      .maybeSingle();
+    let customerId = profile?.stripe_customer_id ?? null;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        name: profile?.full_name || undefined,
+        email: profile?.email || undefined,
+        metadata: { user_id: user.id },
+      });
+      customerId = customer.id;
+      await supabaseAdmin.from('profiles').update({ stripe_customer_id: customerId }).eq('id', user.id);
+    }
+    const ephemeralKey = await stripe.ephemeralKeys.create(
+      { customer: customerId },
+      { apiVersion: '2025-08-27.basil' },
+    );
+
+    // The booking INPUTS ride in metadata; the webhook re-prices from
+    // config rather than trusting a number that took a round trip.
+    const intent = await stripe.paymentIntents.create({
+      amount: Math.round(quote.total * 100),
+      currency: 'usd',
+      customer: customerId,
+      metadata: {
+        purpose: 'booking_checkout',
+        client_id: user.id,
+        ...packBookingParams(request.body ?? {}),
+      },
+      automatic_payment_methods: { enabled: true },
+    });
+    return {
+      client_secret: intent.client_secret,
+      customer_id: customerId,
+      ephemeral_key: ephemeralKey.secret,
+      amount_usd: quote.total,
+      payment_intent_id: intent.id,
+    };
+  });
+
+  /**
+   * Did the webhook finish creating the booking for this intent? The app
+   * polls this after the sheet reports success — the server's word, never
+   * the client's.
+   */
+  app.get<{ Querystring: { payment_intent_id?: string } }>(
+    '/v1/checkout/status',
+    async (request, reply) => {
+      const user = requireUser(request);
+      const pi = request.query.payment_intent_id;
+      if (!pi) return reply.code(400).send({ error: 'payment_intent_id is required' });
+      const { data: txn } = await supabaseAdmin
+        .from('transactions')
+        .select('booking_id, user_id')
+        .eq('stripe_payment_intent_id', pi)
+        .eq('type', 'charge')
+        .maybeSingle();
+      if (!txn || txn.user_id !== user.id) return { paid: false, booking_id: null };
+      return { paid: true, booking_id: txn.booking_id ?? null };
+    },
+  );
+
   app.post<{ Body: { booking_id: string } }>('/v1/payments/intent', async (request, reply) => {
     const user = requireUser(request);
     const stripe = requireStripe();
@@ -159,7 +244,28 @@ export function registerPaymentRoutes(app: FastifyInstance) {
         const intent = event.data.object;
         const bookingId = intent.metadata?.booking_id;
         const clientId = intent.metadata?.client_id;
-        if (!bookingId || !clientId) break; // not one of ours
+        // booking_checkout intents legitimately have NO booking_id — the
+        // booking doesn't exist until the handler below creates it.
+        if (!clientId) break; // not one of ours
+        if (!bookingId && intent.metadata?.purpose !== 'booking_checkout') break;
+
+        // CHECKOUT: this is where a booking is born. Before this existed,
+        // the row + creator offer + push all fired at slide time, on an
+        // unpaid booking.
+        if (intent.metadata?.purpose === 'booking_checkout') {
+          const { createBookingFromPaidIntent } = await import('../checkout.js');
+          const r = await createBookingFromPaidIntent(intent as never);
+          if (r.created && r.booking_id) {
+            await notify(
+              clientId,
+              'payment_charged',
+              'Payment received',
+              `Your payment of $${(intent.amount_received / 100).toFixed(2)} went through — receipt under Profile → Payments & receipts.`,
+              { booking_id: r.booking_id },
+            );
+          }
+          break;
+        }
 
         // Social selection extras: a separate purpose so this charge is
         // never mistaken for the booking's main payment. Payment truth

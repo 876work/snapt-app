@@ -5,10 +5,10 @@ import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
-import { SlideToConfirm } from '../../components/ui/SlideToConfirm';
+import { Button } from '../../components/ui/Button';
 import { EDIT_STYLES, REMOTE_PACKAGES, useUpload } from '../../lib/store/upload';
 import { useAuth, useBookings } from '../../lib/store';
-import { abandonBooking, payForBooking, waitForCharge } from '../../lib/payments';
+import { checkoutBooking } from '../../lib/payments';
 import {
   CLIENT_SERVICE_FEE_RATE,
   formatMoney,
@@ -43,63 +43,50 @@ export default function RemoteOrderSummary() {
 
 
   const placeOrder = async () => {
-    const { apiConfigured, createRemoteOrderApi } = await import('../../lib/api');
+    const { apiConfigured } = await import('../../lib/api');
     if (apiConfigured) {
-      // Server prices from remote_pricing_table (§8). Add-ons stay
-      // client-side until the add-on catalog moves to config.
-      const result = await createRemoteOrderApi(mediaKind, pkg.tier, {
-        rush: addons.includes('rush'),
-        extraRevisions: addons.includes('revision') ? 1 : 0,
+      // Same payment-first contract as the in-person checkout: the order
+      // does not exist until Stripe confirms.
+      const outcome = await checkoutBooking({
+        type: 'remote',
+        media_kind: mediaKind,
+        remote_tier: pkg.tier,
+        addons: {
+          rush: addons.includes('rush'),
+          extra_revisions: addons.includes('revision') ? 1 : 0,
+        },
       });
-      if (result && 'booking' in result) {
-        // Unpaid until Stripe's webhook confirms. Sheet handles card + 3DS.
-        const outcome = await payForBooking(result.booking.id);
-        if (!outcome.ok) {
-          // NEVER claim "nothing was charged" without checking. A 3DS
-          // challenge can succeed while the sheet reports cancelled (e.g.
-          // the user closes the browser themselves) — money moved, and the
-          // webhook is the authority. Ask the server before deciding.
-          const alreadyPaid = await waitForCharge(result.booking.id, 6000);
-          if (alreadyPaid) {
-            addServerBooking(result.booking);
-            reset();
-            router.dismissAll();
-            router.replace(`/bookings/${result.booking.id}`);
-            return true;
-          }
-          await abandonBooking(result.booking.id);
-          setOrderError(
-            outcome.reason === 'cancelled'
-              ? 'Payment cancelled — nothing was charged.'
-              : outcome.message ?? 'Payment failed — no charge was made. Please try again.',
-          );
-          return false; // slider unlocks for a retry
-        }
-        await waitForCharge(result.booking.id);
-        // Upload the picked source files as raw footage (creator/editor-side
-        // only — clients can never read raw back).
-        for (const f of files) {
-          if (f.uri) {
-            await (await import('../../lib/api')).uploadMediaApi(result.booking.id, 'raw', {
-              uri: f.uri,
-              name: f.name ?? 'upload.jpg',
-              mimeType: f.mimeType,
-            });
+
+      if (outcome.ok) {
+        // Source footage attaches to the order the webhook created. Without
+        // an id yet the upload waits for the user to open the order — the
+        // payment is safe either way.
+        if (outcome.bookingId) {
+          const { uploadMediaApi } = await import('../../lib/api');
+          for (const f of files) {
+            if (f.uri) {
+              await uploadMediaApi(outcome.bookingId, 'raw', {
+                uri: f.uri,
+                name: f.name ?? 'upload.jpg',
+                mimeType: f.mimeType,
+              });
+            }
           }
         }
-        addServerBooking(result.booking);
         reset();
         router.dismissAll();
-        router.replace(`/bookings/${result.booking.id}`);
+        router.replace(outcome.bookingId ? `/bookings/${outcome.bookingId}` : '/(app)/bookings');
         return true;
       }
-      if (result && 'error' in result) {
-        setOrderError(result.error);
-        return false; // slider unlocks so the user can retry
+      if (outcome.reason === 'conflict') {
+        setOrderError(outcome.conflict.error);
+        return false;
       }
-      // null = API unreachable. An error in API mode — the old mock
-      // fallthrough invented a local order no editor would ever see.
-      setOrderError("Couldn't reach the server — check your connection and slide again.");
+      setOrderError(
+        outcome.reason === 'cancelled'
+          ? 'Payment cancelled — nothing was charged and no order was placed.'
+          : outcome.message ?? 'Payment failed — no charge was made. Please try again.',
+      );
       return false;
     }
     resetDraft('remote');
@@ -212,13 +199,13 @@ export default function RemoteOrderSummary() {
 
       <View style={styles.footer}>
         {orderError ? <Text style={styles.footerError}>{orderError}</Text> : null}
-        {/* Same one-slide checkout as the in-person flow. */}
-        <SlideToConfirm
-          label="Slide to confirm & pay"
-          value={formatMoney(total, 'USD')}
-          valueLabel="You're paying (USD)"
-          onConfirm={placeOrder}
-        />
+        <View style={styles.payBar}>
+          <Text style={styles.payBarLabel}>You're paying (USD)</Text>
+          <Text style={styles.payBarValue}>{formatMoney(total, 'USD')}</Text>
+        </View>
+        {/* Same contract as the in-person checkout: this opens the sheet,
+            Stripe's Pay button confirms. */}
+        <Button title="Continue to payment" arrow onPress={placeOrder} />
       </View>
     </View>
   );
@@ -301,6 +288,18 @@ const styles = StyleSheet.create({
     borderTopColor: '#F0F0F0',
   },
   footerError: { fontSize: 12.5, fontWeight: '700', color: '#A32C2C', textAlign: 'center', marginBottom: 10 },
+  payBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.ink,
+    borderRadius: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  payBarLabel: { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.62)' },
+  payBarValue: { fontSize: 16, fontWeight: '800', color: '#fff', letterSpacing: -0.3 },
   cta: {
     height: 54,
     borderRadius: 16,

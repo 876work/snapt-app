@@ -15,6 +15,87 @@ import { reconcileNames } from '../name-match.js';
 // requireAdmin defaults to admin-only, view/ops routes widen explicitly.
 
 export function registerAdminRoutes(app: FastifyInstance) {
+  /**
+   * GHOST BOOKINGS — pending rows with no successful charge behind them.
+   *
+   * The old checkout created the booking (and pushed a job offer) at slide
+   * time, before payment. Every abandoned Stripe sheet left one of these
+   * behind, with a creator's offer history polluted by a job that was never
+   * paid for. Checkout no longer works that way (see checkout.ts), so this
+   * exists to clear the ones already made.
+   *
+   * GET lists them; POST clears them. Never touches a booking with a
+   * succeeded charge, and never touches one whose session already happened.
+   */
+  async function findGhosts() {
+    const { data: pending } = await supabaseAdmin
+      .from('bookings')
+      .select('id, client_id, creator_id, occasion, type, area, scheduled_at, price_usd, created_at, offer_expires_at')
+      .eq('status', 'pending');
+    const rows = pending ?? [];
+    if (rows.length === 0) return [];
+    const { data: charges } = await supabaseAdmin
+      .from('transactions')
+      .select('booking_id')
+      .eq('type', 'charge')
+      .eq('status', 'succeeded')
+      .in('booking_id', rows.map((b) => b.id));
+    const paid = new Set((charges ?? []).map((c) => c.booking_id));
+    return rows.filter((b) => !paid.has(b.id));
+  }
+
+  app.get('/v1/admin/ghost-bookings', async (request, reply) => {
+    const adminId = await requireAdmin(request, reply);
+    if (!adminId) return;
+    const ghosts = await findGhosts();
+    return {
+      count: ghosts.length,
+      with_creator_offer: ghosts.filter((g) => g.creator_id).length,
+      bookings: ghosts,
+    };
+  });
+
+  app.post('/v1/admin/ghost-bookings/clear', async (request, reply) => {
+    const adminId = await requireAdmin(request, reply);
+    if (!adminId) return;
+    const ghosts = await findGhosts();
+    if (ghosts.length === 0) return { cleared: 0, bookings: [] };
+
+    // Cancelled, not deleted: the row stays as history (and keeps any
+    // foreign keys intact), but it leaves the creator's offer queue and
+    // stops occupying the slot in availability.
+    const ids = ghosts.map((g) => g.id);
+    await supabaseAdmin
+      .from('bookings')
+      .update({
+        status: 'cancelled',
+        cancelled_at: new Date().toISOString(),
+        cancelled_by: null,
+        creator_id: null,
+        offer_expires_at: null,
+      })
+      .in('id', ids);
+
+    // The stale "New job offer" rows in each creator's inbox are the other
+    // half of the pollution — they deep-link to a job that no longer exists.
+    const offerCreators = ghosts.filter((g) => g.creator_id);
+    for (const g of offerCreators) {
+      await supabaseAdmin
+        .from('notifications')
+        .delete()
+        .eq('user_id', g.creator_id as string)
+        .eq('trigger_type', 'offer_received')
+        .eq('data->>booking_id', g.id);
+    }
+
+    await audit(adminId, 'ghost_bookings_cleared', 'checkout', {
+      count: ids.length,
+      with_creator_offer: offerCreators.length,
+      booking_ids: ids,
+    });
+    return { cleared: ids.length, offers_withdrawn: offerCreators.length, bookings: ids };
+  });
+
   app.get('/v1/admin/alerts', async (request, reply) => {
     const adminId = await requireAdmin(request, reply, ['admin', 'support']);
     if (!adminId) return;

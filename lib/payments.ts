@@ -136,6 +136,119 @@ export async function waitForCharge(bookingId: string, timeoutMs = 15_000): Prom
  * webhook confirms — the caller polls the selection endpoint for `locked`
  * rather than trusting the sheet's word.
  */
+/**
+ * CHECKOUT — the only booking payment path.
+ *
+ * Opens the sheet from a priced quote; the booking does not exist yet and
+ * will not until Stripe confirms. Returns the created booking id once the
+ * webhook has made one, so the caller can route to it.
+ *
+ * Previously the app created the booking (and with it a live creator offer)
+ * BEFORE opening the sheet — closing the sheet left a creator holding an
+ * unpaid job.
+ */
+export type CheckoutOutcome =
+  | { ok: true; bookingId: string | null }
+  | { ok: false; reason: 'cancelled' | 'failed' | 'unavailable'; message?: string }
+  | { ok: false; reason: 'conflict'; conflict: import('./api').SlotConflict };
+
+export async function checkoutBooking(params: Record<string, unknown>): Promise<CheckoutOutcome> {
+  const { apiBase, authHeaders } = await import('./api');
+  if (!apiBase) return { ok: false, reason: 'unavailable', message: 'No server configured.' };
+
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase}/v1/checkout/intent`, {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify(params),
+    });
+  } catch {
+    return { ok: false, reason: 'unavailable', message: "Couldn't reach the server — check your connection and try again." };
+  }
+  const json = (await res.json().catch(() => ({}))) as {
+    client_secret?: string;
+    customer_id?: string;
+    ephemeral_key?: string;
+    payment_intent_id?: string;
+    error?: string;
+    code?: string;
+    alternative_times?: string[];
+    rematch_available?: boolean;
+  };
+  if (!res.ok || !json.client_secret) {
+    if (json.code === 'slot_taken' || json.code === 'creator_taken') {
+      return {
+        ok: false,
+        reason: 'conflict',
+        conflict: {
+          code: json.code,
+          error: json.error ?? 'That time is no longer available',
+          alternative_times: json.alternative_times ?? [],
+          rematch_available: json.rematch_available ?? false,
+        },
+      };
+    }
+    return { ok: false, reason: 'unavailable', message: json.error ?? 'Could not start checkout.' };
+  }
+
+  const init = await initPaymentSheet({
+    merchantDisplayName: 'Snapt App',
+    paymentIntentClientSecret: json.client_secret,
+    customerId: json.customer_id,
+    customerEphemeralKeySecret: json.ephemeral_key,
+    allowsDelayedPaymentMethods: false,
+    returnURL: RETURN_URL, // required for 3DS — see payForBooking
+    appearance: APPEARANCE,
+  });
+  if (init.error) return { ok: false, reason: 'unavailable', message: init.error.message };
+
+  const { error } = await presentPaymentSheet();
+  if (error) {
+    // Sheet closed or declined. NOTHING was created — no booking, no offer,
+    // no notification — so there is nothing to abandon or clean up.
+    const cancelled = error.code === 'Canceled';
+    return {
+      ok: false,
+      reason: cancelled ? 'cancelled' : 'failed',
+      message: cancelled ? undefined : error.message,
+    };
+  }
+
+  // Paid. The BOOKING is created by the webhook, so wait for the server's
+  // word rather than the sheet's.
+  const bookingId = json.payment_intent_id
+    ? await waitForCheckoutBooking(json.payment_intent_id)
+    : null;
+  return { ok: true, bookingId };
+}
+
+/** Poll until the webhook has created the booking for this intent. */
+export async function waitForCheckoutBooking(
+  paymentIntentId: string,
+  timeoutMs = 20_000,
+): Promise<string | null> {
+  const { apiBase, authHeaders } = await import('./api');
+  if (!apiBase) return null;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(
+        `${apiBase}/v1/checkout/status?payment_intent_id=${encodeURIComponent(paymentIntentId)}`,
+        { headers: await authHeaders() },
+      );
+      if (res.ok) {
+        const body = (await res.json()) as { paid?: boolean; booking_id?: string | null };
+        if (body.booking_id) return body.booking_id;
+      }
+    } catch {
+      /* keep polling — transient */
+    }
+    await new Promise((r) => setTimeout(r, 1200));
+  }
+  return null; // paid; the webhook will finish. Caller routes to the list.
+}
+
 export async function payForSelectionExtras(params: {
   client_secret: string;
   customer_id?: string;
