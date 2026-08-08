@@ -144,6 +144,19 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
       portfolio_pending: await count('portfolio_items', (q) => q.eq('status', 'pending')),
     };
 
+    // DELIVERY CLOCK: bookings running against their committed window.
+    // Rush jobs are separated out — a missed PAID speed promise is a refund
+    // and a bad review, not just a slow delivery.
+    const { deliveryStatuses } = await import('../delivery-clock.js');
+    const clock = await deliveryStatuses();
+    const deliveries = {
+      late: clock.filter((d) => d.state === 'late').length,
+      late_rush: clock.filter((d) => d.state === 'late' && d.rush).length,
+      approaching: clock.filter((d) => d.state === 'approaching').length,
+      approaching_rush: clock.filter((d) => d.state === 'approaching' && d.rush).length,
+      items: clock.filter((d) => d.state !== 'on_track').slice(0, 12),
+    };
+
     // Names for every participant referenced above, plus acknowledgers.
     const ids: string[] = [];
     for (const r of activeRows ?? []) {
@@ -184,6 +197,7 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
       server_time: nowIso,
       grace_minutes: graceMinutes,
       sparks,
+      deliveries,
       alerts: alerts.map((a) => ({
         ...a,
         acknowledged_by_name: a.acknowledged_by ? names.get(a.acknowledged_by)?.name ?? null : null,

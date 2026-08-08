@@ -33,7 +33,7 @@ interface Addon {
 // in_person_addons config row — the server charges from config, these only
 // render. extra revision matches the remote rate by design.
 const ADDONS: Addon[] = [
-  { id: 'rush', title: 'Rush delivery', sub: 'Edited content within 48 hours', priceUsd: 25 },
+  { id: 'rush', title: 'Rush delivery', sub: 'Edited content within 6 hours of your session', priceUsd: 25 },
   { id: 'extra-photos', title: 'Extra edited photos', sub: '+10 additional retouched shots', priceUsd: 18 },
   { id: 'revision', title: 'Extra revision round', sub: '1 free round included; per additional round', priceUsd: 15 },
 ];
@@ -194,7 +194,11 @@ export default function OrderSummary() {
               <Circle cx="12" cy="12" r="9" stroke="#8A7530" strokeWidth={1.8} />
               <Path d="M12 7.5V12l3 2" stroke="#8A7530" strokeWidth={1.8} strokeLinecap="round" />
             </Svg>
-            <Text style={styles.etaText}>Edited content is typically delivered within 5 days.</Text>
+            <Text style={styles.etaText}>
+              {addons.includes('rush')
+                ? 'Rush: edited content delivered within 6 hours of your session.'
+                : 'Edited content is delivered within 24 hours of your session.'}
+            </Text>
           </View>
           <Divider />
           <SummaryRow label="When" value={when} onEdit={() => router.push('/booking/occasion')} />

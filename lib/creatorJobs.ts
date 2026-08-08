@@ -12,8 +12,12 @@ import type { ServerBookingListItem } from './api';
  */
 export function bookingToOffer(b: ServerBookingListItem): JobOffer {
   const snap = (b.pricing_snapshot ?? {}) as Record<string, unknown>;
+  const addons = (snap.addons ?? {}) as Record<string, unknown>;
   return {
     id: b.id,
+    // Rush is visible on the job itself, not just in the offer push — a
+    // creator who accepts and comes back later must still see the clock.
+    rush: Number(addons.rush_usd ?? 0) > 0,
     social:
       typeof snap['social_tier'] === 'string'
         ? {

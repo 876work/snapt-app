@@ -204,6 +204,12 @@ export default function CreatorHome() {
                         {j.type === 'remote' ? 'REMOTE EDIT' : 'IN PERSON'}
                       </Text>
                     </View>
+                    {/* Paid rush: hours, not a day — and it pays extra. */}
+                    {j.rush && (
+                      <View style={styles.rushBadge}>
+                        <Text style={styles.rushBadgeLabel}>RUSH · PAYS EXTRA</Text>
+                      </View>
+                    )}
                     {j.urgent && (
                       <View style={styles.countdown}>
                         <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
@@ -317,6 +323,8 @@ export default function CreatorHome() {
 }
 
 const styles = StyleSheet.create({
+  rushBadge: { backgroundColor: '#FFE9E4', borderRadius: 7, paddingHorizontal: 8, paddingVertical: 3 },
+  rushBadgeLabel: { fontSize: 9, fontWeight: '800', color: '#C0392B', letterSpacing: 0.4 },
   root: { flex: 1, backgroundColor: colors.offWhite },
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(26,26,26,0.45)' },
   sheet: {

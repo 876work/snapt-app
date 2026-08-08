@@ -143,6 +143,13 @@ export async function createPayoutForBooking(booking: BookingRow): Promise<void>
   const sessionPrice =
     (booking.pricing_snapshot['session_price_usd'] as number) ?? booking.price_usd;
 
+  // RUSH IS THE CREATOR'S TO EARN. The fee used to be pure platform margin
+  // (it lives in addons_usd, outside session_price_usd), so "rush" asked a
+  // creator to drop everything for nothing. It now joins the payout base at
+  // the same rate as the session — the same treatment social extras get.
+  const addonsSnap = (booking.pricing_snapshot['addons'] ?? {}) as Record<string, unknown>;
+  const rushUsd = Number(addonsSnap['rush_usd'] ?? 0) || 0;
+
   // SOCIAL BUNDLES: the payout waits for DELIVERY, not session end. The
   // work isn't done at session end (editing depends on the client's
   // selection), and selection extras — which the creator edits — must land
@@ -160,7 +167,7 @@ export async function createPayoutForBooking(booking: BookingRow): Promise<void>
     extrasUsd = Number(snap['social_extras_usd'] ?? 0) || 0;
   }
 
-  const amount = round2((sessionPrice + extrasUsd) * (1 - feeRate));
+  const amount = round2((sessionPrice + extrasUsd + rushUsd) * (1 - feeRate));
 
   await supabaseAdmin.from('creator_payouts').insert({
     creator_id: booking.creator_id,

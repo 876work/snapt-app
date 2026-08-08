@@ -136,6 +136,31 @@ export async function enabledPayoutMethods(): Promise<Record<string, boolean>> {
   return (config['payout_methods_enabled'] as Record<string, boolean>) ?? {};
 }
 
+// ---------------------------------------------------------------------------
+// Delivery commitments (admin-editable). Standard is the free promise;
+// rush is what the paid add-on buys. Both are measured from when the work
+// actually starts — session end in person, footage upload for remote.
+// ---------------------------------------------------------------------------
+
+export async function deliveryWindows(): Promise<{
+  standardHours: number;
+  rushHours: number;
+  /** Fraction of the window elapsed before a booking reads "approaching". */
+  warnFraction: number;
+}> {
+  const config = await getConfig();
+  const t = (config['delivery_windows'] as {
+    standard_hours?: number;
+    rush_hours?: number;
+    warn_fraction?: number;
+  }) ?? {};
+  return {
+    standardHours: t.standard_hours ?? 24,
+    rushHours: t.rush_hours ?? 6,
+    warnFraction: t.warn_fraction ?? 0.75,
+  };
+}
+
 /** CONFIRMED remote-edit pricing: service type × tier key. */
 export async function remotePriceUsd(
   mediaKind: string,

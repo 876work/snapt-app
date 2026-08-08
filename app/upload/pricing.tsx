@@ -21,7 +21,7 @@ const ADDONS = [
   // Confirmed flat rates (Don, 2026-07-27), mirrored in the remote_addons
   // config row — the server charges from config, these only render. The
   // extra-files add-on is gone: 15 files is a hard ceiling per order.
-  { id: 'rush', title: 'Rush turnaround', sub: 'Finished edit within 48 hours — flat rate, any package', priceUsd: 20 },
+  { id: 'rush', title: 'Rush turnaround', sub: 'Finished edit within 6 hours of upload — flat rate, any package', priceUsd: 20 },
   { id: 'revision', title: 'Extra revision round', sub: '1 free round included; per additional round', priceUsd: 15 },
 ];
 
@@ -145,7 +145,7 @@ export default function RemoteOrderSummary() {
             <Path d="M12 7.5V12l3 2" stroke={colors.success} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
           </Svg>
           <Text style={styles.etaText}>
-            {addons.includes('rush') ? 'Delivered within 48 hours' : 'Typical delivery in 5 days'} · 1 free
+            {addons.includes('rush') ? 'Delivered within 6 hours of upload' : 'Delivered within 24 hours'} · 1 free
             revision included
           </Text>
         </View>

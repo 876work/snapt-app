@@ -115,11 +115,17 @@ export async function createBookingFromPaidIntent(intent: {
     const expires = new Date(Date.now() + (await offerWindowMs())).toISOString();
     await supabaseAdmin.from('bookings').update({ offer_expires_at: expires }).eq('id', booking.id);
     booking.offer_expires_at = expires;
+    // A rushed job is a different job: the creator is agreeing to a
+    // few-hours turnaround, and they are paid extra for it. Say so in the
+    // one message they are guaranteed to see.
+    const rushUsd = Number(((snapshot.addons ?? {}) as Record<string, unknown>).rush_usd ?? 0) || 0;
     await notify(
       q.assignedCreatorId,
       'offer_received',
-      'New job offer',
-      `A ${body.occasion ?? 'session'} booking near ${body.area ?? 'you'} is waiting — accept within the offer window.`,
+      rushUsd > 0 ? 'RUSH job offer — fast turnaround' : 'New job offer',
+      rushUsd > 0
+        ? `A ${body.occasion ?? 'session'} booking near ${body.area ?? 'you'} — the client paid for rush delivery, so edits are due within hours of the session. Pays extra. Accept within the offer window.`
+        : `A ${body.occasion ?? 'session'} booking near ${body.area ?? 'you'} is waiting — accept within the offer window.`,
       { booking_id: booking.id },
     );
   } else if (q.type === 'in_person') {

@@ -35,10 +35,28 @@ interface BookingLite {
   creator_name: string | null;
 }
 
+interface DeliveryItem {
+  booking_id: string;
+  occasion: string | null;
+  type: string;
+  rush: boolean;
+  due_at: string;
+  hours_remaining: number;
+  hours_late: number;
+  state: 'on_track' | 'approaching' | 'late';
+}
+
 interface TodayData {
   server_time: string;
   grace_minutes: number;
   sparks: { bookings: number[]; revenue: number[] };
+  deliveries: {
+    late: number;
+    late_rush: number;
+    approaching: number;
+    approaching_rush: number;
+    items: DeliveryItem[];
+  };
   alerts: {
     id: string;
     alert_type: string;
@@ -240,6 +258,62 @@ export function Today() {
 
       {/* Everything needing a human decision — first thing, every morning.
           Only unmissable safety alerts sit above this. */}
+      {/* DELIVERY CLOCK — above the decision queues because a missed
+          delivery is already costing us, while a queue is only waiting.
+          Rush is called out separately: the client paid for the speed. */}
+      {data && (data.deliveries.late > 0 || data.deliveries.approaching > 0) && (
+        <div className="section">
+          <h2>Delivery clock</h2>
+          <div className="tiles decisions">
+            {data.deliveries.late > 0 && (
+              <Link to="/bookings" className="card tile hot">
+                <div className="value num">{data.deliveries.late}</div>
+                <div className="label">
+                  past delivery deadline
+                  {data.deliveries.late_rush > 0 && ` · ${data.deliveries.late_rush} PAID RUSH`}
+                </div>
+              </Link>
+            )}
+            {data.deliveries.approaching > 0 && (
+              <Link to="/bookings" className={`card tile ${data.deliveries.approaching_rush > 0 ? 'hot' : 'quiet'}`}>
+                <div className="value num">{data.deliveries.approaching}</div>
+                <div className="label">
+                  approaching deadline
+                  {data.deliveries.approaching_rush > 0 && ` · ${data.deliveries.approaching_rush} rush`}
+                </div>
+              </Link>
+            )}
+          </div>
+          <div className="card" style={{ marginTop: 10, padding: 0 }}>
+            {data.deliveries.items.map((d, i) => (
+              <Link
+                key={d.booking_id}
+                to={`/bookings/${d.booking_id}`}
+                className="row"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '11px 14px',
+                  borderTop: i === 0 ? 'none' : '1px solid var(--line, #eee)',
+                }}
+              >
+                <Pill tone={d.state === 'late' ? 'danger' : 'warn'}>
+                  {d.state === 'late' ? `${d.hours_late}h late` : `${d.hours_remaining}h left`}
+                </Pill>
+                {d.rush && <Pill tone="brand">RUSH</Pill>}
+                <span style={{ flex: 1, fontSize: 13 }}>
+                  {d.occasion ?? (d.type === 'remote' ? 'Remote edit' : 'Session')}
+                </span>
+                <span className="k" style={{ fontSize: 12 }}>
+                  due {formatWhen(d.due_at)}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="section">
         <h2>Needs a decision</h2>
         {isLoading ? (

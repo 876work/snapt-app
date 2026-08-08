@@ -92,6 +92,15 @@ export default function CreatorJob() {
     );
   }
   const next = (s: JobStage) => setStage(job.id, s);
+  const rushNotice = job.rush ? (
+    <View style={styles.rushNotice}>
+      <Text style={styles.rushNoticeTitle}>Rush job — edits due within hours</Text>
+      <Text style={styles.rushNoticeBody}>
+        This client paid for rush delivery, so their edits are due within 6 hours of the session
+        ending. The rush fee is included in your payout for this job.
+      </Text>
+    </View>
+  ) : null;
 
   // Real endpoint calls in API mode (Phase 3 session/media pipeline);
   // mock stage machine otherwise.
@@ -248,6 +257,11 @@ export default function CreatorJob() {
             <Text style={styles.metaLabel}>{job.loc}</Text>
           </View>
         </View>
+
+        {/* Rush is shown at EVERY stage, not just the offer — the creator
+            who accepted this morning needs the clock in front of them when
+            they sit down to edit. */}
+        {rushNotice}
 
         {stage === 'offer' && (
           <>
@@ -473,6 +487,14 @@ export default function CreatorJob() {
 }
 
 const styles = StyleSheet.create({
+  rushNotice: {
+    backgroundColor: '#FFE9E4',
+    borderRadius: 14,
+    padding: 13,
+    marginBottom: 14,
+  },
+  rushNoticeTitle: { fontSize: 13.5, fontWeight: '800', color: '#C0392B' },
+  rushNoticeBody: { fontSize: 12, color: '#8C3A2E', lineHeight: 17.5, marginTop: 4 },
   gone: { flex: 1, backgroundColor: colors.offWhite, justifyContent: 'center' },
   goneBody: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 34, gap: 10 },
   goneTitle: { fontSize: 18, fontWeight: '800', letterSpacing: -0.4, color: colors.ink, textAlign: 'center' },
