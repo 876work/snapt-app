@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
+import { headshotColumnsPresent } from '../schema-probe.js';
 import { eligibleCreators } from '../availability.js';
 import { creatorStanding } from '../strikes.js';
 import { notify } from '../notify.js';
@@ -225,7 +226,11 @@ export function registerCreatorRoutes(app: FastifyInstance) {
   app.get('/v1/creators/featured', async () => {
     const { data } = await supabaseAdmin
       .from('creator_profiles')
-      .select('user_id, specialties, verified, base_area, headshot_path, headshot_status, profiles!creator_profiles_user_id_fkey!inner(full_name, avatar_url)')
+      .select(
+        ((await headshotColumnsPresent())
+          ? 'user_id, specialties, verified, base_area, headshot_path, headshot_status, profiles!creator_profiles_user_id_fkey!inner(full_name, avatar_url)'
+          : 'user_id, specialties, verified, base_area, profiles!creator_profiles_user_id_fkey!inner(full_name, avatar_url)') as '*',
+      )
       .eq('vetting_status', 'approved')
       .limit(12);
     const ids = (data ?? []).map((c: any) => c.user_id as string);
@@ -323,7 +328,9 @@ export function registerCreatorRoutes(app: FastifyInstance) {
     const { data, error } = await supabaseAdmin
       .from('creator_profiles')
       .select(
-        'vetting_status, background_check_status, specialties, verified, base_area, service_radius_km, availability, blocked_dates, service_type, is_available, applied_at, rejection_reason, headshot_path, headshot_status',
+        ((await headshotColumnsPresent())
+          ? 'vetting_status, background_check_status, specialties, verified, base_area, service_radius_km, availability, blocked_dates, service_type, is_available, applied_at, rejection_reason, headshot_path, headshot_status'
+          : 'vetting_status, background_check_status, specialties, verified, base_area, service_radius_km, availability, blocked_dates, service_type, is_available, applied_at, rejection_reason') as '*',
       )
       .eq('user_id', user.id)
       .maybeSingle();

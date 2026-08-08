@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { supabaseAdmin } from '../supabase.js';
+import { headshotColumnsPresent } from '../schema-probe.js';
 import { audit, requireAdmin } from '../admin-auth.js';
 import { configNumber } from '../config.js';
 import { suspendUser } from './moderation.js';
@@ -529,7 +530,9 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
     const { data: creator, error } = await supabaseAdmin
       .from('creator_profiles')
       .select(
-        'user_id, vetting_status, background_check_status, background_check_completed_at, specialties, service_type, service_radius_km, base_area, bio, portfolio_link, declared_legal_name, availability, blocked_dates, verified, promo_fee_rate, is_available, applied_at, rejection_reason, payout_methods, created_at, headshot_path, headshot_status',
+        ((await headshotColumnsPresent())
+          ? 'user_id, vetting_status, background_check_status, background_check_completed_at, specialties, service_type, service_radius_km, base_area, bio, portfolio_link, declared_legal_name, availability, blocked_dates, verified, promo_fee_rate, is_available, applied_at, rejection_reason, payout_methods, created_at, headshot_path, headshot_status'
+          : 'user_id, vetting_status, background_check_status, background_check_completed_at, specialties, service_type, service_radius_km, base_area, bio, portfolio_link, declared_legal_name, availability, blocked_dates, verified, promo_fee_rate, is_available, applied_at, rejection_reason, payout_methods, created_at') as '*',
       )
       .eq('user_id', id)
       .maybeSingle();
