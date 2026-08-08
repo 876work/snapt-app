@@ -75,11 +75,21 @@ export async function sendMessage(bookingId: string, body: string): Promise<Chat
  * TIMED_OUT were swallowed whole: nothing arrived live and the thread just
  * looked like the other person had gone quiet. Same failure-wearing-a-normal
  * -face problem as a swallowed send or a swallowed history read.
+ *
+ * `onCaughtUp` fires when the stream is ACTUALLY flowing, which is later
+ * than SUBSCRIBED. Measured on production (2026-08-08): SUBSCRIBED acks the
+ * socket join, but the postgres_changes registration confirms 150ms–1.5s
+ * after it — sometimes seconds — and an insert committed in that window is
+ * never delivered or replayed. Screens refetch history here, because this
+ * is the first moment "everything before now" plus the live stream is
+ * provably the whole conversation. Refires after reconnects, which also
+ * heals whatever was missed while the channel was down.
  */
 export function subscribeToMessages(
   bookingId: string,
   onMessage: (message: ChatMessage) => void,
   onLiveChange?: (live: boolean) => void,
+  onCaughtUp?: () => void,
 ): () => void {
   if (!supabase) return () => {};
   const client = supabase;
@@ -90,6 +100,10 @@ export function subscribeToMessages(
       { event: 'INSERT', schema: 'public', table: 'messages', filter: `booking_id=eq.${bookingId}` },
       (payload) => onMessage(payload.new as ChatMessage),
     )
+    .on('system', {}, (payload: { extension?: string; status?: string }) => {
+      // "Subscribed to PostgreSQL" — the registration ack itself.
+      if (payload?.extension === 'postgres_changes' && payload?.status === 'ok') onCaughtUp?.();
+    })
     .subscribe((status) => {
       if (status === 'SUBSCRIBED') onLiveChange?.(true);
       // CLOSED is also the normal teardown status, so it is deliberately not

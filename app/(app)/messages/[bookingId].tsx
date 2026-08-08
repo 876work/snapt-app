@@ -96,6 +96,9 @@ export default function MessageThread() {
     import('../../../lib/supabase').then(({ supabase }) => {
       supabase?.auth.getUser().then(({ data }) => {
         uid = data.user?.id ?? null;
+        const row = (m: { id: string; body: string; sender_id: string; created_at: string }) => ({
+          id: m.id, body: m.body, mine: m.sender_id === uid, created_at: m.created_at,
+        });
         fetchMessages(bookingId).then((msgs) => {
           // null means the read failed. Showing an empty thread here would
           // tell someone their history is gone.
@@ -105,22 +108,35 @@ export default function MessageThread() {
             return;
           }
           setHistoryFailed(false);
-          setMessages(
-            msgs.map((m) => ({ id: m.id, body: m.body, mine: m.sender_id === uid, created_at: m.created_at })),
-          );
+          setMessages(msgs.map(row));
         });
         unsub = subscribeToMessages(
           bookingId,
           (m) => {
-            setMessages((prev) => [
-              ...(prev ?? []),
-              { id: m.id, body: m.body, mine: m.sender_id === uid, created_at: m.created_at },
-            ]);
+            setMessages((prev) => [...(prev ?? []), row(m)]);
             // A message arriving while the thread is open is read the instant
             // it renders — don't let it sit in the unread count behind it.
             if (m.sender_id !== uid) markRead();
           },
           setLive,
+          () => {
+            // The stream is confirmed flowing only NOW (postgres_changes
+            // registration ack) — measured up to seconds after SUBSCRIBED.
+            // A message committed between the fetch above and this moment
+            // was never going to stream and never going to be refetched:
+            // invisible until the screen reopened. Refetch and merge by id;
+            // fetched is the base, live arrivals newer than the snapshot are
+            // kept. A failed refetch changes nothing — the initial load
+            // already drew the screen, and this heals on the next ack.
+            fetchMessages(bookingId).then((msgs) => {
+              if (msgs === null) return;
+              setHistoryFailed(false);
+              setMessages((prev) => {
+                const seen = new Set(msgs.map((m) => m.id));
+                return [...msgs.map(row), ...(prev ?? []).filter((p) => !seen.has(p.id))];
+              });
+            });
+          },
         );
       });
     });

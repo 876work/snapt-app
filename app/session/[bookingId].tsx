@@ -117,6 +117,9 @@ export default function SessionDay() {
     let unsub = () => {};
     supabase?.auth.getUser().then(({ data }) => {
       uid = data.user?.id ?? null;
+      const row = (m: { id: string; body: string; sender_id: string }) => ({
+        id: m.id, body: m.body, mine: m.sender_id === uid,
+      });
       fetchMessages(bookingId).then((msgs) => {
         // null = the read failed. Don't render that as an empty conversation.
         if (msgs === null) {
@@ -125,16 +128,27 @@ export default function SessionDay() {
           return;
         }
         setChatHistoryFailed(false);
-        setChatMessages(msgs.map((m) => ({ id: m.id, body: m.body, mine: m.sender_id === uid })));
+        setChatMessages(msgs.map(row));
       });
       unsub = subscribeToMessages(
         bookingId,
-        (m) =>
-          setChatMessages((prev) => [
-            ...(prev ?? []),
-            { id: m.id, body: m.body, mine: m.sender_id === uid },
-          ]),
+        (m) => setChatMessages((prev) => [...(prev ?? []), row(m)]),
         setChatLive,
+        () => {
+          // Registration ack — the stream is only now provably flowing (it
+          // confirms up to seconds after SUBSCRIBED). Refetch to pick up
+          // anything committed in the gap; merge keeps live arrivals newer
+          // than the fetch snapshot. Mid-shoot is exactly where a silently
+          // dropped "running 10 minutes late" hurts most.
+          fetchMessages(bookingId).then((msgs) => {
+            if (msgs === null) return;
+            setChatHistoryFailed(false);
+            setChatMessages((prev) => {
+              const seen = new Set(msgs.map((m) => m.id));
+              return [...msgs.map(row), ...(prev ?? []).filter((p) => !seen.has(p.id))];
+            });
+          });
+        },
       );
     });
     return () => unsub();
