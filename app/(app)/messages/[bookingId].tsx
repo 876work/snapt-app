@@ -87,6 +87,7 @@ export default function MessageThread() {
   const [sendError, setSendError] = React.useState<string | null>(null);
   const [historyFailed, setHistoryFailed] = React.useState(false);
   const [reloadKey, setReloadKey] = React.useState(0);
+  const [live, setLive] = React.useState(true);
 
   React.useEffect(() => {
     if (!chatEnabled || !bookingId) return;
@@ -108,15 +109,19 @@ export default function MessageThread() {
             msgs.map((m) => ({ id: m.id, body: m.body, mine: m.sender_id === uid, created_at: m.created_at })),
           );
         });
-        unsub = subscribeToMessages(bookingId, (m) => {
-          setMessages((prev) => [
-            ...(prev ?? []),
-            { id: m.id, body: m.body, mine: m.sender_id === uid, created_at: m.created_at },
-          ]);
-          // A message arriving while the thread is open is read the instant
-          // it renders — don't let it sit in the unread count behind it.
-          if (m.sender_id !== uid) markRead();
-        });
+        unsub = subscribeToMessages(
+          bookingId,
+          (m) => {
+            setMessages((prev) => [
+              ...(prev ?? []),
+              { id: m.id, body: m.body, mine: m.sender_id === uid, created_at: m.created_at },
+            ]);
+            // A message arriving while the thread is open is read the instant
+            // it renders — don't let it sit in the unread count behind it.
+            if (m.sender_id !== uid) markRead();
+          },
+          setLive,
+        );
       });
     });
     return () => unsub();
@@ -229,6 +234,13 @@ export default function MessageThread() {
         </View>
       ) : (
         <View style={styles.inputWrap}>
+          {!live && !historyFailed && (
+            <Pressable onPress={() => setReloadKey((k) => k + 1)} style={styles.offline}>
+              <Text style={styles.offlineText}>
+                Not receiving live updates — tap to reconnect.
+              </Text>
+            </Pressable>
+          )}
           {sendError && (
             <View style={styles.sendError}>
               <Text style={styles.sendErrorText}>{sendError}</Text>
@@ -306,6 +318,14 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 4,
   },
   bubbleText: { fontSize: 13.5, lineHeight: 19, color: colors.ink },
+  offline: {
+    backgroundColor: '#FFF4D6',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  offlineText: { fontSize: 13, color: '#7A5B12' },
   retry: {
     marginTop: 12,
     paddingHorizontal: 18,

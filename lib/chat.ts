@@ -67,10 +67,19 @@ export async function sendMessage(bookingId: string, body: string): Promise<Chat
   return data as ChatMessage;
 }
 
-/** Live subscription; returns an unsubscribe function. */
+/**
+ * Live subscription; returns an unsubscribe function.
+ *
+ * `onLiveChange` reports whether the realtime channel is actually up. It used
+ * to call `.subscribe()` with no status handler, so CHANNEL_ERROR and
+ * TIMED_OUT were swallowed whole: nothing arrived live and the thread just
+ * looked like the other person had gone quiet. Same failure-wearing-a-normal
+ * -face problem as a swallowed send or a swallowed history read.
+ */
 export function subscribeToMessages(
   bookingId: string,
   onMessage: (message: ChatMessage) => void,
+  onLiveChange?: (live: boolean) => void,
 ): () => void {
   if (!supabase) return () => {};
   const client = supabase;
@@ -81,7 +90,12 @@ export function subscribeToMessages(
       { event: 'INSERT', schema: 'public', table: 'messages', filter: `booking_id=eq.${bookingId}` },
       (payload) => onMessage(payload.new as ChatMessage),
     )
-    .subscribe();
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') onLiveChange?.(true);
+      // CLOSED is also the normal teardown status, so it is deliberately not
+      // treated as a fault — reporting it would flash a warning on unmount.
+      else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') onLiveChange?.(false);
+    });
   return () => {
     client.removeChannel(channel);
   };

@@ -110,6 +110,7 @@ export default function SessionDay() {
   const [chatSending, setChatSending] = React.useState(false);
   const [chatError, setChatError] = React.useState<string | null>(null);
   const [chatHistoryFailed, setChatHistoryFailed] = React.useState(false);
+  const [chatLive, setChatLive] = React.useState(true);
   React.useEffect(() => {
     if (!chatEnabled || !bookingId) return;
     let uid: string | null = null;
@@ -126,11 +127,14 @@ export default function SessionDay() {
         setChatHistoryFailed(false);
         setChatMessages(msgs.map((m) => ({ id: m.id, body: m.body, mine: m.sender_id === uid })));
       });
-      unsub = subscribeToMessages(bookingId, (m) =>
-        setChatMessages((prev) => [
-          ...(prev ?? []),
-          { id: m.id, body: m.body, mine: m.sender_id === uid },
-        ]),
+      unsub = subscribeToMessages(
+        bookingId,
+        (m) =>
+          setChatMessages((prev) => [
+            ...(prev ?? []),
+            { id: m.id, body: m.body, mine: m.sender_id === uid },
+          ]),
+        setChatLive,
       );
     });
     return () => unsub();
@@ -589,6 +593,14 @@ export default function SessionDay() {
               )}
             </KeyboardScrollView>
             <View style={styles.chatInputWrap}>
+              {!chatLive && !chatHistoryFailed && (
+                <View style={styles.chatOffline}>
+                  <Text style={styles.chatOfflineText}>
+                    Not receiving live updates — new messages may not appear until you reopen this
+                    screen.
+                  </Text>
+                </View>
+              )}
               {chatError && (
                 <View style={styles.chatError}>
                   <Text style={styles.chatErrorText}>{chatError}</Text>
@@ -991,6 +1003,14 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   chatErrorText: { fontSize: 13, color: '#A3261F' },
+  chatOffline: {
+    backgroundColor: '#FFF4D6',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  chatOfflineText: { fontSize: 13, color: '#7A5B12' },
   chatInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
