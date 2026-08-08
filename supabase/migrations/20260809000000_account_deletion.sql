@@ -20,9 +20,12 @@
 -- without this column that branch silently no-oped (PostgREST fails a
 -- select naming a missing column). This migration makes it live.
 
-alter table profiles add column deleted_at timestamptz;
-alter table profiles add column purged_at timestamptz;
+-- IF NOT EXISTS on both: production was found (2026-08-08, observed via a
+-- 42703 probe) to already have deleted_at from an out-of-band change while
+-- purged_at was missing — this file must be safe to run on either state.
+alter table profiles add column if not exists deleted_at timestamptz;
+alter table profiles add column if not exists purged_at timestamptz;
 
-create index profiles_deleted_pending_purge_idx
+create index if not exists profiles_deleted_pending_purge_idx
   on profiles (deleted_at)
   where deleted_at is not null and purged_at is null;
