@@ -95,7 +95,11 @@ export function SlideToConfirm({ label, onConfirm, disabled, value, valueLabel }
   const fillStyle = useAnimatedStyle(() => ({ width: x.value + KNOB + 10 }));
 
   return (
-    <View style={disabled ? { opacity: 0.45 } : undefined}>
+    // width:'100%' — the control is a full-width commitment bar by design.
+    // In a row-flexed parent a plain View shrinks to content width, which
+    // squeezes the track and hides the label behind the thumb (the checkout
+    // footer bug); every current usage is the sole child of its container.
+    <View style={[{ width: '100%' }, disabled && { opacity: 0.45 }]}>
       {value != null && (
         <View style={styles.valueBar}>
           <Text style={styles.valueBarLabel}>{valueLabel ?? "You're paying"}</Text>

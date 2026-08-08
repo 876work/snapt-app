@@ -159,7 +159,11 @@ export default function OrderSummary() {
         setBookError(result.error);
         return false; // slider unlocks so the user can retry
       }
-      // API unreachable — fall through to the local mock path.
+      // API unreachable. In API mode this must be an ERROR — the old
+      // fallthrough created a fake local booking with no payment behind
+      // it, which read as either "nothing happened" or a broken booking.
+      setBookError("Couldn't reach the server — check your connection and slide again.");
+      return false;
     }
     const booking = confirmDraft(base + addonsTotal);
     router.dismissAll();
@@ -296,7 +300,6 @@ export default function OrderSummary() {
           .
         </Text>
         {timeNote ? <Text style={styles.timeNote}>{timeNote}</Text> : null}
-        {bookError ? <Text style={styles.payError}>{bookError}</Text> : null}
         <Text style={styles.usdNote}>
           {currency === 'XCD' ? `≈ ${formatMoney(total, 'XCD')} · ` : ''}
           {USD_PROCESSING_NOTE}
@@ -326,6 +329,10 @@ export default function OrderSummary() {
         onClose={() => setConflict(null)}
       />
       <View style={styles.footer}>
+        {/* Failures render HERE, pinned above the slider — a message up in
+            the scroll content can sit outside the viewport at the exact
+            moment someone wonders why their slide did nothing. */}
+        {bookError ? <Text style={styles.footerError}>{bookError}</Text> : null}
         {/* ONE confirmation for one action: the slide IS the payment
             commitment and opens Stripe's sheet directly. */}
         <SlideToConfirm
@@ -473,6 +480,11 @@ const styles = StyleSheet.create({
   terms: { fontSize: 11.5, color: '#9A9A9A', lineHeight: 17, marginTop: 12, paddingHorizontal: 2 },
   link: { color: colors.yellowDark, fontWeight: '600', textDecorationLine: 'underline' },
   timeNote: { fontSize: 12.5, fontWeight: '700', color: '#1E7A45', marginBottom: 8, textAlign: 'center' },
+  footerError: { fontSize: 12.5, fontWeight: '700', color: '#A32C2C', textAlign: 'center', marginBottom: 10 },
+  // NO flexDirection:'row' — a leftover from the pre-restructure
+  // <meta><Button> pair. With the single SlideToConfirm child it squeezed
+  // the whole checkout control to content width (the cut-off "Slide…"
+  // screenshot, 2026-08-08).
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
@@ -480,7 +492,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.offWhite,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',
-    flexDirection: 'row',
   },
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(26,26,26,0.45)' },
   sheet: {

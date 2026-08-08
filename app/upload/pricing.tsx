@@ -97,7 +97,10 @@ export default function RemoteOrderSummary() {
         setOrderError(result.error);
         return false; // slider unlocks so the user can retry
       }
-      // null = API unreachable — fall through to mock.
+      // null = API unreachable. An error in API mode — the old mock
+      // fallthrough invented a local order no editor would ever see.
+      setOrderError("Couldn't reach the server — check your connection and slide again.");
+      return false;
     }
     resetDraft('remote');
     setDraft({ type: 'remote', mediaKind });
@@ -199,7 +202,7 @@ export default function RemoteOrderSummary() {
           </Text>
           .
         </Text>
-        {orderError ? <Text style={styles.payError}>{orderError}</Text> : null}
+
         <Text style={styles.usdNote}>
           {currency === 'XCD' ? `≈ ${formatMoney(total, 'XCD')} · ` : ''}
           {USD_PROCESSING_NOTE}
@@ -208,6 +211,7 @@ export default function RemoteOrderSummary() {
       </KeyboardScrollView>
 
       <View style={styles.footer}>
+        {orderError ? <Text style={styles.footerError}>{orderError}</Text> : null}
         {/* Same one-slide checkout as the in-person flow. */}
         <SlideToConfirm
           label="Slide to confirm & pay"
@@ -296,6 +300,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',
   },
+  footerError: { fontSize: 12.5, fontWeight: '700', color: '#A32C2C', textAlign: 'center', marginBottom: 10 },
   cta: {
     height: 54,
     borderRadius: 16,
