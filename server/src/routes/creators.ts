@@ -190,15 +190,28 @@ export function registerCreatorRoutes(app: FastifyInstance) {
         // useful artefact for judging a photographer never reached review.
         portfolio_link: body.portfolio_link?.trim() || null,
         declared_legal_name: body.declared_legal_name?.trim() || null,
-        // Default weekly template until the creator edits it in Schedule —
-        // without one an approved creator can never be booked.
+        /**
+         * Default weekly template until the creator edits it in Schedule —
+         * without one an approved creator can never be booked.
+         *
+         * 06:00-22:00, all seven days (Don, 2026-08-09). It was 09:00-17:00
+         * Mon-Sat, which made a creator who never opened Schedule unbookable
+         * for evening and weekend work — the bulk of what people book a
+         * photographer for. Deliberately NOT 24h: a 3am offer against
+         * hours nobody chose reads as a broken app. Overnight is available
+         * to any creator who sets it themselves.
+         *
+         * New applications only. Nothing backfills existing rows, so a
+         * creator who has saved their own hours keeps them.
+         */
         availability: body.availability ?? {
-          mon: [{ start: '09:00', end: '17:00' }],
-          tue: [{ start: '09:00', end: '17:00' }],
-          wed: [{ start: '09:00', end: '17:00' }],
-          thu: [{ start: '09:00', end: '17:00' }],
-          fri: [{ start: '09:00', end: '17:00' }],
-          sat: [{ start: '09:00', end: '17:00' }],
+          mon: [{ start: '06:00', end: '22:00' }],
+          tue: [{ start: '06:00', end: '22:00' }],
+          wed: [{ start: '06:00', end: '22:00' }],
+          thu: [{ start: '06:00', end: '22:00' }],
+          fri: [{ start: '06:00', end: '22:00' }],
+          sat: [{ start: '06:00', end: '22:00' }],
+          sun: [{ start: '06:00', end: '22:00' }],
         },
       },
       { onConflict: 'user_id' },

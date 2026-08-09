@@ -20,12 +20,27 @@ const DAYS: { key: string; label: string }[] = [
 
 type Windows = Record<string, { start: string; end: string }[]>;
 
+/** Matches the server's default for a new creator (routes/creators.ts). */
+const DEFAULT_START = '06:00';
+const DEFAULT_END = '22:00';
+
+/** True when every one of the seven days is on with the same window. */
+function allSevenIdentical(w: Windows): boolean {
+  const first = w[DAYS[0].key]?.[0];
+  if (!first) return false;
+  return DAYS.every((d) => {
+    const day = w[d.key];
+    return day?.length === 1 && day[0].start === first.start && day[0].end === first.end;
+  });
+}
+
 export function ScheduleEditor() {
   const [loadedFor, setLoadedFor] = React.useState<'none' | 'mock' | 'api'>('none');
   const [hours, setHours] = React.useState<Windows>({});
   const [blocked, setBlocked] = React.useState<string[]>([]);
   const [radius, setRadius] = React.useState<string>('');
   const [showRadius, setShowRadius] = React.useState(false);
+  const [sameEveryDay, setSameEveryDay] = React.useState(false);
   const [dirty, setDirty] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [note, setNote] = React.useState<string | null>(null);
@@ -33,13 +48,18 @@ export function ScheduleEditor() {
   React.useEffect(() => {
     import('../../lib/api').then(({ apiConfigured, fetchCreatorMe }) => {
       if (!apiConfigured) {
-        setHours({ mon: [{ start: '09:00', end: '17:00' }], sat: [{ start: '09:00', end: '17:00' }] });
+        setHours({ mon: [{ start: DEFAULT_START, end: DEFAULT_END }], sat: [{ start: DEFAULT_START, end: DEFAULT_END }] });
         setLoadedFor('mock');
         return;
       }
       fetchCreatorMe().then((me) => {
         if (me) {
-          setHours((me.availability ?? {}) as Windows);
+          const loaded = (me.availability ?? {}) as Windows;
+          setHours(loaded);
+          // Start in "same every day" mode when the saved hours already are
+          // identical across all seven — which is what the new default gives
+          // every creator, so most people open this screen to one row.
+          setSameEveryDay(allSevenIdentical(loaded));
           setBlocked(me.blocked_dates ?? []);
           setRadius(me.service_radius_km != null ? String(me.service_radius_km) : '');
           setShowRadius(me.service_type !== 'remote');
@@ -50,15 +70,34 @@ export function ScheduleEditor() {
   }, []);
 
   const dayOn = (key: string) => (hours[key]?.length ?? 0) > 0;
-  const window = (key: string) => hours[key]?.[0] ?? { start: '09:00', end: '17:00' };
+  const window = (key: string) => hours[key]?.[0] ?? { start: DEFAULT_START, end: DEFAULT_END };
 
   const toggleDay = (key: string) => {
-    setHours((h) => ({ ...h, [key]: dayOn(key) ? [] : [{ start: '09:00', end: '17:00' }] }));
+    setHours((h) => ({ ...h, [key]: dayOn(key) ? [] : [{ start: DEFAULT_START, end: DEFAULT_END }] }));
     setDirty(true);
   };
   const setTime = (key: string, field: 'start' | 'end', value: string) => {
     setHours((h) => ({ ...h, [key]: [{ ...window(key), [field]: value }] }));
     setDirty(true);
+  };
+
+  /**
+   * SAME EVERY DAY. Most creators work one window all week and had to type
+   * it into seven rows by hand, which is both tedious and the kind of thing
+   * people abandon halfway — leaving a half-set week that quietly costs them
+   * bookings. On, this collapses to a single editor writing all seven days.
+   */
+  const uniformWindow = () => {
+    const firstOn = DAYS.map((d) => d.key).find((k) => dayOn(k));
+    return firstOn ? window(firstOn) : { start: DEFAULT_START, end: DEFAULT_END };
+  };
+  const applyToAllDays = (w: { start: string; end: string }) => {
+    setHours(Object.fromEntries(DAYS.map((d) => [d.key, [{ ...w }]])));
+    setDirty(true);
+  };
+  const toggleSameEveryDay = (on: boolean) => {
+    setSameEveryDay(on);
+    if (on) applyToAllDays(uniformWindow());
   };
   const toggleBlocked = (iso: string) => {
     setBlocked((b) => (b.includes(iso) ? b.filter((d) => d !== iso) : [...b, iso]));
@@ -119,7 +158,37 @@ export function ScheduleEditor() {
     <View style={styles.wrap}>
       <Text style={styles.sectionLabel}>WORKING HOURS</Text>
       <View style={styles.card}>
-        {DAYS.map((d, i) => (
+        <View style={[styles.dayRow, styles.dayRowBorder]}>
+          <Text style={styles.sameLabel}>Same every day</Text>
+          <Switch
+            value={sameEveryDay}
+            onValueChange={toggleSameEveryDay}
+            trackColor={{ true: colors.yellow }}
+            thumbColor="#fff"
+          />
+        </View>
+        {sameEveryDay ? (
+          <View style={styles.dayRow}>
+            <Text style={styles.dayLabel}>All</Text>
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+              <TextInput
+                value={uniformWindow().start}
+                onChangeText={(v) => applyToAllDays({ ...uniformWindow(), start: v })}
+                style={styles.timeInput}
+                placeholder={DEFAULT_START}
+                placeholderTextColor="#B4B1AA"
+              />
+              <Text style={styles.timeDash}>–</Text>
+              <TextInput
+                value={uniformWindow().end}
+                onChangeText={(v) => applyToAllDays({ ...uniformWindow(), end: v })}
+                style={styles.timeInput}
+                placeholder={DEFAULT_END}
+                placeholderTextColor="#B4B1AA"
+              />
+            </View>
+          </View>
+        ) : DAYS.map((d, i) => (
           <View key={d.key} style={[styles.dayRow, i < DAYS.length - 1 && styles.dayRowBorder]}>
             <Text style={styles.dayLabel}>{d.label}</Text>
             {dayOn(d.key) ? (
@@ -154,6 +223,13 @@ export function ScheduleEditor() {
       </View>
 
       <Text style={styles.sectionLabel}>BLOCKED DATES — TAP A DAY TO TOGGLE</Text>
+      {/* The explainer belongs HERE, beside the calendar it describes. It
+          used to float after the jobs list, explaining a control that was
+          two screens further down. */}
+      <Text style={styles.blockNote}>
+        Need time off? Blocked dates sync automatically — clients can't book you on days you mark
+        unavailable.
+      </Text>
       <MonthCalendar flags={flags} selected={null} onSelect={toggleBlocked} />
 
       {showRadius && (
@@ -201,6 +277,8 @@ const styles = StyleSheet.create({
   dayRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9 },
   dayRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#EFEDE7' },
   dayLabel: { width: 38, fontSize: 13, fontWeight: '800', color: colors.ink },
+  sameLabel: { flex: 1, fontSize: 13, fontWeight: '800', color: colors.ink },
+  blockNote: { fontSize: 11.5, color: '#9A948B', lineHeight: 17, marginTop: -2, marginBottom: 10 },
   offLabel: { flex: 1, fontSize: 12.5, color: '#A8A29A', fontWeight: '600', textAlign: 'right', marginRight: 4 },
   timeInput: {
     width: 62,
