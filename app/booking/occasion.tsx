@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
@@ -28,6 +28,8 @@ export default function OccasionAndDate() {
   // static prototype behavior stays untouched in that case.
   const [dayFlags, setDayFlags] = React.useState<Record<string, boolean> | null>(null);
   const [daySlots, setDaySlots] = React.useState<string[] | null>(null);
+  const [slotsFailed, setSlotsFailed] = React.useState(false);
+  const [slotsReloadKey, setSlotsReloadKey] = React.useState(0);
 
   React.useEffect(() => {
     if (!apiConfigured || !draft.occasion) return;
@@ -45,17 +47,25 @@ export default function OccasionAndDate() {
     if (!apiConfigured || !draft.occasion || !draft.date) return;
     let stale = false;
     setDaySlots(null);
+    setSlotsFailed(false);
     fetchDaySlots(draft.occasion, draft.date, AVAILABILITY_PROBE_HOURS).then((slots) => {
-      if (!stale) {
-        setDaySlots(slots);
-        // Deselect a time that's gone on the newly picked day.
-        if (slots && draft.time && !slots.includes(draft.time)) setDraft({ time: null });
+      if (stale) return;
+      // null = the availability fetch FAILED. This used to fall through to
+      // the hardcoded TIMES list — a picker fabricating times that may not
+      // exist. Same cure reschedule got: loading, failed and empty are
+      // three different states.
+      if (slots == null) {
+        setSlotsFailed(true);
+        return;
       }
+      setDaySlots(slots);
+      // Deselect a time that's gone on the newly picked day.
+      if (draft.time && !slots.includes(draft.time)) setDraft({ time: null });
     });
     return () => {
       stale = true;
     };
-  }, [draft.occasion, draft.date]);
+  }, [draft.occasion, draft.date, slotsReloadKey]);
 
   const days = React.useMemo(() => {
     // 14-day advance window — handoff §5
@@ -135,11 +145,28 @@ export default function OccasionAndDate() {
         </ScrollView>
 
         <Text style={[styles.sectionLabel, { marginTop: 26 }]}>Pick a time</Text>
-        {apiConfigured && draft.date && daySlots?.length === 0 ? (
+        {/* API mode: real slots only — loading, failed and empty are three
+            distinct states. TIMES is the mock-mode demo list and nothing
+            else; it used to render during loading AND on failure, letting
+            people pick fabricated times. */}
+        {apiConfigured && !draft.date ? (
+          <Text style={styles.hint}>Pick a day to see open times.</Text>
+        ) : apiConfigured && slotsFailed ? (
+          <View>
+            <Text style={styles.hint}>Couldn't load open times — check your connection.</Text>
+            <Pressable onPress={() => setSlotsReloadKey((k) => k + 1)} style={styles.slotsRetry}>
+              <Text style={styles.slotsRetryLabel}>Try again</Text>
+            </Pressable>
+          </View>
+        ) : apiConfigured && draft.date && daySlots == null ? (
+          <View style={{ paddingVertical: 14, alignItems: 'flex-start' }}>
+            <ActivityIndicator color={colors.yellowDark} />
+          </View>
+        ) : apiConfigured && daySlots?.length === 0 ? (
           <Text style={styles.hint}>No times left this day — try another date.</Text>
         ) : null}
         <View style={styles.chipWrap}>
-          {(daySlots ?? TIMES).map((t) => {
+          {(apiConfigured ? (daySlots ?? []) : TIMES).map((t) => {
             const active = draft.time === t;
             return (
               <Pressable
@@ -172,6 +199,8 @@ const styles = StyleSheet.create({
   body: { paddingHorizontal: spacing.screenX, paddingTop: 8 },
   sectionLabel: { fontSize: 15, fontWeight: '800', letterSpacing: -0.2, color: colors.ink, marginBottom: 12 },
   hint: { fontSize: 12, color: colors.grey, marginTop: -6, marginBottom: 12 },
+  slotsRetry: { alignSelf: 'flex-start', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.yellow, marginBottom: 12 },
+  slotsRetryLabel: { fontSize: 13, color: colors.ink },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     flexDirection: 'row',

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { KeyboardScrollView } from '../../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -7,6 +7,7 @@ import Svg, { Path } from 'react-native-svg';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
 import { SlideToConfirm } from '../../../components/ui/SlideToConfirm';
 import { creatorById, useBookings } from '../../../lib/store';
+import { apiConfigured } from '../../../lib/api';
 import { colors, insetBottom } from '../../../lib/theme';
 
 // No mock fallback: a failed fetch used to show four bundled sample images
@@ -36,11 +37,25 @@ export default function Delivery() {
   const [real, setReal] = React.useState<Deliverable[] | null>(null);
   const [expiresAt, setExpiresAt] = React.useState<string | null>(null);
   const [allDeleted, setAllDeleted] = React.useState(false);
+  // Three states, creators.tsx-style: a failed fetch used to `return` early,
+  // leaving the PAID-FOR delivery rendering as empty with no error and no
+  // retry — the worst possible screen for failure to impersonate normal.
+  const [loadFailed, setLoadFailed] = React.useState(false);
+  const [reloadKey, setReloadKey] = React.useState(0);
   React.useEffect(() => {
     import('../../../lib/api').then(({ apiConfigured, fetchMediaListingApi }) => {
       if (!apiConfigured || !id) return;
+      setLoadFailed(false);
       fetchMediaListingApi(id).then((listing) => {
-        if (!listing || listing.media.length === 0) return;
+        // null = the request failed (network, auth, server) — say so.
+        if (!listing) {
+          setLoadFailed(true);
+          return;
+        }
+        if (listing.media.length === 0) {
+          setReal([]);
+          return;
+        }
         setExpiresAt(listing.files_expire_at);
         const live = listing.media.filter((m) => !m.deleted && m.download_url);
         if (live.length === 0) {
@@ -58,7 +73,7 @@ export default function Delivery() {
         );
       });
     });
-  }, [id]);
+  }, [id, reloadKey]);
   const deliverables = real ?? [];
 
   // Save-to-device: download the signed file, then save to the photo
@@ -144,6 +159,23 @@ export default function Delivery() {
     <View style={styles.root}>
       <ScreenHeader title="Your content" />
       <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        {loadFailed && (
+          <View style={styles.loadState}>
+            <Text style={styles.loadStateTitle}>Couldn't load your delivery</Text>
+            <Text style={styles.loadStateBody}>
+              Your files are safe — this is a connection problem, not a missing delivery.
+            </Text>
+            <Pressable onPress={() => setReloadKey((k) => k + 1)} style={styles.loadRetry}>
+              <Text style={styles.loadRetryLabel}>Try again</Text>
+            </Pressable>
+          </View>
+        )}
+        {!loadFailed && real == null && apiConfigured && (
+          <View style={styles.loadState}>
+            <ActivityIndicator color={colors.yellowDark} />
+          </View>
+        )}
+        {!loadFailed && (real != null || !apiConfigured) && (<>
         {allDeleted && (
           <View style={styles.expiredCard}>
             <Text style={styles.expiredTitle}>These files are no longer available</Text>
@@ -233,6 +265,7 @@ export default function Delivery() {
           </Pressable>
         </View>
         </>)}
+        </>)}
         <View style={{ height: 24 }} />
       </KeyboardScrollView>
       <View style={styles.footer}>
@@ -277,6 +310,11 @@ const styles = StyleSheet.create({
   readyTitle: { fontSize: 16, fontWeight: '800', letterSpacing: -0.2, color: colors.ink },
   readySub: { fontSize: 12.5, color: '#8A7530', marginTop: 2 },
   expiryLine: { fontSize: 11, fontWeight: '700', color: '#8A7530', marginTop: 6, lineHeight: 15 },
+  loadState: { alignItems: 'center', justifyContent: 'center', paddingTop: 70, paddingHorizontal: 26, gap: 6 },
+  loadStateTitle: { fontSize: 15, fontWeight: '800', color: colors.ink, textAlign: 'center' },
+  loadStateBody: { fontSize: 13, color: colors.grey, textAlign: 'center', lineHeight: 19 },
+  loadRetry: { marginTop: 12, paddingHorizontal: 18, paddingVertical: 9, borderRadius: 999, backgroundColor: colors.yellow },
+  loadRetryLabel: { fontSize: 14, color: colors.ink },
   expiredCard: {
     backgroundColor: '#fff',
     borderRadius: 16,

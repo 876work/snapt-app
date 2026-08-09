@@ -63,6 +63,8 @@ export default function Home() {
   // honestly rather than padding with avatar placeholders.
   const [featured, setFeatured] = React.useState<FeaturedCreator[] | null>(null);
   const [featuredLoading, setFeaturedLoading] = React.useState(true);
+  const [featuredFailed, setFeaturedFailed] = React.useState(false);
+  const [featuredReloadKey, setFeaturedReloadKey] = React.useState(0);
   React.useEffect(() => {
     let cancelled = false;
     import('../../lib/api').then(async ({ apiConfigured, fetchFeaturedCreators }) => {
@@ -72,13 +74,16 @@ export default function Home() {
       }
       const list = await fetchFeaturedCreators();
       if (cancelled) return;
-      setFeatured(list ?? []);
+      // null = fetch failed. `?? []` here used to make failure claim
+      // "nobody exists yet" — an empty rail with total confidence.
+      if (list == null) setFeaturedFailed(true);
+      else setFeatured(list);
       setFeaturedLoading(false);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [featuredReloadKey]);
 
   // Unread + social proof refresh on focus: Home is a tab and stays mounted,
   // so a mount-only fetch would show a stale dot for the whole session.
@@ -331,7 +336,22 @@ export default function Home() {
             </View>
           )}
 
-          <FeaturedRail creators={featured} loading={featuredLoading} />
+          {featuredFailed ? (
+            <Pressable
+              onPress={() => {
+                setFeaturedFailed(false);
+                setFeaturedLoading(true);
+                setFeaturedReloadKey((k) => k + 1);
+              }}
+              style={styles.railFailed}
+            >
+              <Text style={styles.railFailedText}>
+                Couldn't load featured creators — tap to retry.
+              </Text>
+            </Pressable>
+          ) : (
+            <FeaturedRail creators={featured} loading={featuredLoading} />
+          )}
 
           {/* Education, until it stops being education. Dropped entirely
               once the user has completed a booking — a screen that keeps
@@ -630,6 +650,8 @@ const styles = StyleSheet.create({
   feature: { flex: 1, alignItems: 'center', gap: 6, paddingHorizontal: 6 },
   featureDiv: { width: 1, backgroundColor: '#F0EDE6', marginVertical: 3 },
   featureTitle: { fontSize: 10.5, fontWeight: '800', letterSpacing: -0.1, color: colors.ink, textAlign: 'center' },
+  railFailed: { marginHorizontal: 20, marginTop: 6, paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#F1EEE7' },
+  railFailedText: { fontSize: 12.5, color: colors.grey, textAlign: 'center' },
   featureSub: { fontSize: 9.5, color: colors.greyWarm, marginTop: 2, textAlign: 'center' },
   how: {
     marginTop: 20,

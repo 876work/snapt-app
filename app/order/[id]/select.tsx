@@ -32,17 +32,42 @@ export default function ProofSelection() {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  // creators.tsx three-state rule, with one extra distinction this screen
+  // needs: the server saying 404 (the creator genuinely hasn't shared a
+  // gallery yet) is a REAL empty state; anything else — network down, 5xx —
+  // must never wear its face. fetchSelectionApi collapses both to null, so
+  // the fetch is status-aware here, same as the messages thread screen.
+  const [loadFailed, setLoadFailed] = React.useState(false);
   const load = React.useCallback(async () => {
-    const { fetchSelectionApi } = await import('../../../lib/api');
-    const s = await fetchSelectionApi(String(id));
-    setState(s);
-    if (s) {
-      // Start from what the server already has (a re-visit mid-flow, or a
-      // pending unpaid extras attempt).
-      setChosen(new Set(s.proofs.filter((p) => p.selected).map((p) => p.id)));
+    const { apiBase, authHeaders, fetchSelectionApi } = await import('../../../lib/api');
+    setLoadFailed(false);
+    if (!apiBase) {
+      // Mock mode: previous behaviour (no gallery).
+      const s = await fetchSelectionApi(String(id));
+      setState(s);
+      setLoading(false);
+      return s;
+    }
+    try {
+      const res = await fetch(`${apiBase}/v1/bookings/${id}/selection`, { headers: await authHeaders() });
+      if (res.status === 404) {
+        setState(null); // genuinely nothing to choose yet
+      } else if (!res.ok) {
+        setLoadFailed(true);
+      } else {
+        const s = (await res.json()) as SelectionState;
+        setState(s);
+        // Start from what the server already has (a re-visit mid-flow, or a
+        // pending unpaid extras attempt).
+        setChosen(new Set(s.proofs.filter((p) => p.selected).map((p) => p.id)));
+        setLoading(false);
+        return s;
+      }
+    } catch {
+      setLoadFailed(true);
     }
     setLoading(false);
-    return s;
+    return null;
   }, [id]);
 
   React.useEffect(() => {
@@ -53,6 +78,30 @@ export default function ProofSelection() {
     return (
       <View style={[styles.root, { justifyContent: 'center' }]}>
         <ActivityIndicator color={colors.yellowDark} />
+      </View>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <View style={styles.root}>
+        <ScreenHeader title="Choose your shots" />
+        <View style={styles.centre}>
+          <Text style={styles.centreTitle}>Couldn't load your gallery</Text>
+          <Text style={styles.centreBody}>
+            Your shots are safe — this is a connection problem. Check your connection and try
+            again.
+          </Text>
+          <Pressable
+            onPress={() => {
+              setLoading(true);
+              load();
+            }}
+            style={styles.centreRetry}
+          >
+            <Text style={styles.centreRetryLabel}>Try again</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -258,6 +307,8 @@ const styles = StyleSheet.create({
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 36, gap: 8 },
   centreTitle: { fontSize: 17, fontWeight: '800', color: colors.ink },
   centreBody: { fontSize: 13, color: colors.grey, lineHeight: 19, textAlign: 'center' },
+  centreRetry: { marginTop: 14, paddingHorizontal: 18, paddingVertical: 9, borderRadius: 999, backgroundColor: colors.yellow },
+  centreRetryLabel: { fontSize: 14, color: colors.ink },
   lead: { fontSize: 13.5, color: colors.grey, lineHeight: 20 },
   deadline: {
     flexDirection: 'row',

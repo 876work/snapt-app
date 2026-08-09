@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
@@ -20,11 +20,23 @@ export default function CreatorAssignment() {
   const [serverCreators, setServerCreators] = React.useState<
     ReturnType<typeof eligibleCreators> | null
   >(null);
+  // A failed fetch used to `return` silently, leaving the list empty — a
+  // network blip looked identical to "no creators available". Three states
+  // now (creators.tsx pattern); "Choose for me" stays available throughout,
+  // since auto-matching is server-side and survives this screen's failure.
+  const [creatorsFailed, setCreatorsFailed] = React.useState(false);
+  const [creatorsReloadKey, setCreatorsReloadKey] = React.useState(0);
   React.useEffect(() => {
     if (!apiConfigured || !draft.occasion) return;
     let stale = false;
+    setCreatorsFailed(false);
+    setServerCreators(null);
     fetchEligibleCreators(draft.occasion, draft.area).then((list) => {
-      if (stale || !list) return;
+      if (stale) return;
+      if (!list) {
+        setCreatorsFailed(true);
+        return;
+      }
       setServerCreators(list);
       // Register so creatorById() resolves these ids on later screens.
       registerCreators(list);
@@ -32,7 +44,7 @@ export default function CreatorAssignment() {
     return () => {
       stale = true;
     };
-  }, [draft.occasion, draft.area]);
+  }, [draft.occasion, draft.area, creatorsReloadKey]);
 
   // Hard filter: creators without this occasion as a specialty are excluded
   // entirely, never just deprioritized — handoff §7/§12.
@@ -98,6 +110,32 @@ export default function CreatorAssignment() {
               <Text style={styles.orLabel}>or choose yourself</Text>
               <View style={styles.orLine} />
             </View>
+
+            {apiConfigured && creatorsFailed && (
+              <View style={styles.listState}>
+                <Text style={styles.listStateTitle}>Couldn't load creators</Text>
+                <Text style={styles.listStateBody}>
+                  Check your connection and try again — or use "Choose for me" above and we'll
+                  match you.
+                </Text>
+                <Pressable onPress={() => setCreatorsReloadKey((k) => k + 1)} style={styles.listRetry}>
+                  <Text style={styles.listRetryLabel}>Try again</Text>
+                </Pressable>
+              </View>
+            )}
+            {apiConfigured && !creatorsFailed && serverCreators == null && (
+              <View style={styles.listState}>
+                <ActivityIndicator color={colors.yellowDark} />
+              </View>
+            )}
+            {apiConfigured && serverCreators?.length === 0 && (
+              <View style={styles.listState}>
+                <Text style={styles.listStateTitle}>No creators for this occasion yet</Text>
+                <Text style={styles.listStateBody}>
+                  "Choose for me" still works — we'll assign the first creator who frees up.
+                </Text>
+              </View>
+            )}
 
             <View style={{ gap: 12 }}>
               {creators.map((c, idx) => {
@@ -275,6 +313,11 @@ const styles = StyleSheet.create({
   orRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 15, marginHorizontal: 2 },
   orLine: { flex: 1, height: 1, backgroundColor: '#ECEAE4' },
   orLabel: { fontSize: 11.5, fontWeight: '700', color: '#A0A0A0' },
+  listState: { alignItems: 'center', paddingVertical: 22, paddingHorizontal: 20, gap: 6 },
+  listStateTitle: { fontSize: 14.5, fontWeight: '800', color: colors.ink, textAlign: 'center' },
+  listStateBody: { fontSize: 12.5, color: colors.grey, textAlign: 'center', lineHeight: 18 },
+  listRetry: { marginTop: 10, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.yellow },
+  listRetryLabel: { fontSize: 13, color: colors.ink },
   card: {
     flexDirection: 'row',
     alignItems: 'flex-start',

@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '../../../lib/text';
 import Svg, { Path, Polyline } from 'react-native-svg';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
@@ -18,24 +18,56 @@ const REVIEWS = [
 ];
 
 // Real aggregates in API mode: this account's received ratings (as client
-// and, for creators, as creator). Mock values remain the offline preview.
+// and, for creators, as creator). The demo values exist ONLY for mock mode
+// (no API configured) — a failed fetch in API mode used to fall through to
+// them, fabricating a 4.9 average and three invented reviews. Failure is
+// now its own visible state with a retry, creators.tsx-style.
 export default function ClientRatings() {
-  const [real, setReal] = React.useState<import('../../../lib/api').RatingsSummary | null | 'loading'>('loading');
+  const [real, setReal] = React.useState<
+    import('../../../lib/api').RatingsSummary | 'mock' | 'loading' | 'failed'
+  >('loading');
+  const [reloadKey, setReloadKey] = React.useState(0);
   React.useEffect(() => {
     import('../../../lib/api').then(({ apiConfigured, fetchMyRatingsApi }) => {
       if (!apiConfigured) {
-        setReal(null); // mock preview
+        setReal('mock');
         return;
       }
+      setReal('loading');
       fetchMyRatingsApi().then((r) => {
-        if (!r) return setReal(null);
+        if (!r) return setReal('failed');
         // Prefer the creator-side summary when it has data.
         setReal(r.as_creator.count > 0 ? r.as_creator : r.as_client);
       });
     });
-  }, []);
+  }, [reloadKey]);
 
-  const isReal = real !== null && real !== 'loading';
+  if (real === 'loading') {
+    return (
+      <View style={styles.root}>
+        <ScreenHeader title="Your ratings" />
+        <View style={styles.stateWrap}>
+          <ActivityIndicator color={colors.yellowDark} />
+        </View>
+      </View>
+    );
+  }
+  if (real === 'failed') {
+    return (
+      <View style={styles.root}>
+        <ScreenHeader title="Your ratings" />
+        <View style={styles.stateWrap}>
+          <Text style={styles.stateTitle}>Couldn't load your ratings</Text>
+          <Text style={styles.stateBody}>Check your connection and try again.</Text>
+          <Pressable onPress={() => setReloadKey((k) => k + 1)} style={styles.stateRetry}>
+            <Text style={styles.stateRetryLabel}>Try again</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  const isReal = real !== 'mock';
   const avg = isReal ? real.average : 4.9;
   const count = isReal ? real.count : REVIEWS.length;
   const cats = isReal
@@ -201,4 +233,9 @@ const styles = StyleSheet.create({
   reviewMeta: { fontSize: 11.5, color: colors.grey, marginTop: 1 },
   reviewStars: { fontSize: 12, color: colors.yellow, letterSpacing: 1 },
   reviewComment: { fontSize: 13, color: '#3D3A34', lineHeight: 20, marginTop: 11 },
+  stateWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 26, gap: 6 },
+  stateTitle: { fontSize: 15, fontWeight: '800', color: colors.ink, textAlign: 'center' },
+  stateBody: { fontSize: 13, color: colors.grey, textAlign: 'center', lineHeight: 19 },
+  stateRetry: { marginTop: 12, paddingHorizontal: 18, paddingVertical: 9, borderRadius: 999, backgroundColor: colors.yellow },
+  stateRetryLabel: { fontSize: 14, color: colors.ink },
 });
