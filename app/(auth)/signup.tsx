@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from 'react-native';
 import { KeyboardScrollView } from '../../components/ui/KeyboardScrollView';
-import Svg, { Path, Rect } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import {
@@ -188,19 +188,6 @@ const styles = StyleSheet.create({
   title: { fontSize: 27, fontWeight: '800', letterSpacing: -0.6, color: colors.ink, marginTop: 14 },
   titleAccent: { color: '#F2A93B', fontWeight: '800', fontSize: 27, letterSpacing: -0.6 },
   sub: { fontSize: 13.5, color: colors.grey, marginTop: 6, marginBottom: 18 },
-  countryCard: {
-    minHeight: 58,
-    borderRadius: 15,
-    backgroundColor: '#EDE8DC',
-    borderWidth: 1,
-    borderColor: '#E2DCCD',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 15,
-    paddingVertical: 9,
-  },
-  countryLabel: { fontSize: 9.5, fontWeight: '800', color: '#8A8377', letterSpacing: 0.7, marginBottom: 3 },
-  countryName: { fontSize: 14.5, fontWeight: '700', color: colors.ink },
   flag: { fontSize: 18 },
   helper: { fontSize: 11, color: '#A8A29A', marginTop: -4, marginLeft: 4 },
   dialChip: {
