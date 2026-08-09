@@ -4,12 +4,12 @@ import { Text } from '../../lib/text';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { OccasionIcon } from '../../components/ui/Icons';
-import { StateCard } from '../../components/home/StateCard';
+import { StateCarousel } from '../../components/home/StateCarousel';
 import { FeaturedRail } from '../../components/home/FeaturedRail';
 import { useAuth, useBookings } from '../../lib/store';
 import { AREAS, Area, OCCASIONS, Occasion, PRICING_TABLE } from '../../lib/mock/data';
 import { REMOTE_PACKAGES } from '../../lib/store/upload';
-import { deriveHomeState, shouldShowEducation } from '../../lib/homeState';
+import { activeHomeStates, shouldShowEducation } from '../../lib/homeState';
 import type { FeaturedCreator, SocialProof } from '../../lib/api';
 import { formatMoney } from '../../lib/constants/business';
 import { colors, insetTop } from '../../lib/theme';
@@ -40,9 +40,23 @@ export default function Home() {
   const [verifyOpen, setVerifyOpen] = React.useState(false);
   const [matchingOpen, setMatchingOpen] = React.useState(false);
 
-  // What this user actually has going on. Pure derivation from the store's
-  // bookings — see lib/homeState.ts for the precedence order.
-  const homeState = React.useMemo(() => deriveHomeState(bookings), [bookings]);
+  // Every active booking, most imminent first — see lib/homeState.ts. The
+  // card is ABSENT when this is empty: no placeholder, no reserved space.
+  const userId = useAuth((s) => s.userId);
+  const activeStates = React.useMemo(
+    () => activeHomeStates(bookings, userId),
+    [bookings, userId],
+  );
+
+  /**
+   * Home fetches its own bookings. Only the Bookings tab used to hydrate the
+   * store, so on a cold launch Home had nothing to show a card FROM until the
+   * user happened to visit that tab.
+   *
+   * `cardsReady` gates the card on a SUCCESSFUL load, so loading and a failed
+   * fetch both render nothing rather than an empty or invented card.
+   */
+  const [cardsReady, setCardsReady] = React.useState(false);
   const showEducation = React.useMemo(() => shouldShowEducation(bookings), [bookings]);
 
   /**
@@ -118,15 +132,24 @@ export default function Home() {
   useFocusEffect(
     React.useCallback(() => {
       let cancelled = false;
-      import('../../lib/api').then(async ({ apiConfigured, fetchUnreadNotifications, fetchSocialProof }) => {
+      import('../../lib/api').then(async ({ apiConfigured, fetchUnreadNotifications, fetchSocialProof, fetchMyBookings, toClientBooking }) => {
         if (!apiConfigured) return;
-        const [count, p] = await Promise.all([
+        const [count, p, rows] = await Promise.all([
           fetchUnreadNotifications(),
           fetchSocialProof(area),
+          fetchMyBookings(),
         ]);
         if (cancelled) return;
         setUnread(count ?? 0);
         setProof(p);
+        // null = the fetch failed: leave the card hidden rather than showing
+        // a stale or empty one. The next focus corrects it.
+        if (rows == null) {
+          setCardsReady(false);
+          return;
+        }
+        useBookings.getState().hydrateBookings(rows.map(toClientBooking));
+        setCardsReady(true);
       });
       return () => {
         cancelled = true;
@@ -173,7 +196,7 @@ export default function Home() {
         <View style={styles.content}>
           {/* What's happening with MY stuff — above the search card whenever
               there is anything personal to say. */}
-          <StateCard state={homeState} />
+          {cardsReady && <StateCarousel states={activeStates} />}
 
           {/* Booking card */}
           <View style={styles.bookCard}>

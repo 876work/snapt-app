@@ -152,3 +152,72 @@ export function deriveHomeState(bookings: Booking[], now: number = Date.now()): 
 export function shouldShowEducation(bookings: Booking[]): boolean {
   return !bookings.some((b) => b.status === 'completed');
 }
+
+// ---------------------------------------------------------------------------
+// THE CARD'S SET, not just its headline.
+//
+// deriveHomeState above answers "what is the ONE thing worth saying first" and
+// still owns the card's copy. These pick WHICH bookings deserve a card at all,
+// so Home can cycle through everything live instead of hiding all but one —
+// and, critically, so the card is ABSENT rather than inventing something when
+// there is nothing live. `book_again` used to render a full card off zero
+// active bookings; that is what these replace.
+// ---------------------------------------------------------------------------
+
+/**
+ * Active = anything not yet finished.
+ *
+ * Cancelled and no-show are out. A delivered booking stays in for
+ * DELIVERY_FRESH_DAYS as the stand-in for "not yet rated" — the client
+ * Booking model carries no rating state, so freshness is the honest proxy
+ * rather than a guess dressed as certainty.
+ */
+export function isActiveBooking(b: Booking, now: number = Date.now()): boolean {
+  if (b.status === 'cancelled' || b.status === 'no-show') return false;
+  if (b.deliveredAt) {
+    const at = new Date(b.deliveredAt).getTime();
+    if (Number.isNaN(at)) return true;
+    return now - at < DELIVERY_FRESH_DAYS * 86400_000;
+  }
+  return true; // pending, confirmed, in progress, disputed, awaiting delivery
+}
+
+/** The state kind for ONE booking, using deriveHomeState's precedence. */
+export function kindForBooking(b: Booking, now: number = Date.now()): HomeStateKind {
+  const inPerson = b.type === 'in-person';
+  if (inPerson && b.status === 'confirmed' && startMs(b) <= now && endMs(b) >= now) return 'session_now';
+  if (inPerson && b.status === 'confirmed' && startMs(b) > now && isSameDay(startMs(b), now)) return 'session_today';
+  if (b.deliveredAt) return 'delivery_ready';
+  if (inPerson && b.status === 'pending') return 'awaiting_creator';
+  if (b.type === 'remote') return 'editing';
+  return 'upcoming';
+}
+
+/**
+ * Every active booking worth a card, most imminent first.
+ *
+ * Role filter: /v1/bookings returns rows where the user is EITHER party, so a
+ * dual-role account's store holds their creator jobs too. A booking whose
+ * creatorId is the signed-in user is a job they are shooting, not one they
+ * booked — it belongs on the creator's Jobs tab, never on the client Home.
+ *
+ * Order: sessions first by soonest start, then remote orders by oldest first
+ * — a remote order's clock starts at upload, so the oldest order is the one
+ * due soonest. (An exact due date lives server-side in delivery-clock.ts and
+ * is not carried on the client Booking.)
+ */
+export function activeHomeStates(
+  bookings: Booking[],
+  userId: string | null,
+  now: number = Date.now(),
+): HomeState[] {
+  const mine = bookings.filter((b) => !userId || b.creatorId !== userId);
+  const active = mine.filter((b) => isActiveBooking(b, now));
+  const sessions = active
+    .filter((b) => b.type === 'in-person')
+    .sort((a, b) => startMs(a) - startMs(b));
+  const remote = active
+    .filter((b) => b.type === 'remote')
+    .sort((a, b) => startMs(a) - startMs(b));
+  return [...sessions, ...remote].map((b) => ({ kind: kindForBooking(b, now), booking: b }));
+}
