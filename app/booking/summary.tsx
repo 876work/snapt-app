@@ -108,6 +108,22 @@ export default function OrderSummary() {
   };
   const rushHours = cfg?.rushHours ?? 6;
 
+  // RUSH FEASIBILITY (client half — the server refuses it independently):
+  // session end + rush window must land strictly before 23:00 on the
+  // session's own clock. Same wall-clock arithmetic as the server's
+  // rushFeasible(); no Date, no timezone.
+  const rushOk = React.useMemo(() => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(draft.time ?? '');
+    if (!m || draft.durationHours == null) return true;
+    return Number(m[1]) + Number(m[2]) / 60 + draft.durationHours + rushHours < 23;
+  }, [draft.time, draft.durationHours, rushHours]);
+  // A rush picked earlier must disarm if the slot later turns infeasible —
+  // hidden-but-armed would 400 at the quote and read as a broken screen.
+  React.useEffect(() => {
+    if (!rushOk) setAddons((prev) => prev.filter((a) => a !== 'rush'));
+  }, [rushOk]);
+  const shownAddons = rushOk ? visibleAddons : visibleAddons.filter((a) => a.id !== 'rush');
+
   // THE TOTAL: the server's own quote — the same quoteBooking() that prices
   // the PaymentSheet, fetched read-only. The number shown and the number
   // charged are one number from one function. Mock mode keeps local math.
@@ -312,8 +328,13 @@ export default function OrderSummary() {
 
         {/* Add-ons */}
         <Text style={styles.sectionTitle}>Add-ons</Text>
+        {!rushOk && (
+          <Text style={styles.rushGateNote}>
+            Rush isn't available for this time slot — it couldn't be delivered before 11pm.
+          </Text>
+        )}
         <View style={[styles.card, { paddingVertical: 0, paddingHorizontal: 0 }]}>
-          {visibleAddons.map((a, i) => {
+          {shownAddons.map((a, i) => {
             const on = addons.includes(a.id);
             return (
               <View key={a.id}>
@@ -582,6 +603,7 @@ const styles = StyleSheet.create({
   switchKnobOn: { alignSelf: 'flex-end' },
   totalRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
   usdChargeNote: { fontSize: 11, color: colors.grey, fontWeight: '600', marginTop: 2 },
+  rushGateNote: { fontSize: 12, color: colors.grey, marginTop: -4, marginBottom: 10 },
   quoteFailedTitle: { fontSize: 14.5, fontWeight: '800', color: colors.ink, textAlign: 'center' },
   quoteFailedBody: { fontSize: 12.5, color: colors.grey, textAlign: 'center', lineHeight: 18 },
   quoteRetry: { marginTop: 8, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.yellow },

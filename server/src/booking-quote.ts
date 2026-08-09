@@ -67,6 +67,20 @@ export interface QuoteError {
 
 export type QuoteResult = { quote: BookingQuote } | { failure: QuoteError };
 
+/**
+ * Can a rush order physically finish before 23:00 on the session's clock?
+ * end-of-session + rush window must land STRICTLY before 23:00 ("before
+ * 11pm", so landing exactly at 23:00 refuses). Wall-clock arithmetic on the
+ * HH:MM string — no Date, no timezone, no server-TZ skew. A malformed time
+ * passes through: the scheduling validator owns that failure, not this gate.
+ */
+export function rushFeasible(time: string, durationHours: number, rushHours: number): boolean {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(time);
+  if (!m) return true;
+  const end = Number(m[1]) + Number(m[2]) / 60 + durationHours + rushHours;
+  return end < 23;
+}
+
 export function isQuoteFailure(r: QuoteResult): r is { failure: QuoteError } {
   return 'failure' in r;
 }
@@ -154,6 +168,27 @@ export async function quoteBooking(
     revisionRate = prices.extra_revision;
   } else {
     const prices = await inPersonAddonPrices();
+    // RUSH FEASIBILITY GATE: rush is only sellable when session end + rush
+    // window lands before 23:00 on the session's own clock. Pure wall-clock
+    // arithmetic on `time` — deliberately timezone-free, so server TZ can
+    // never skew it. The client hides the toggle; this refuses a stale
+    // client that sends it anyway — nobody buys an impossible promise.
+    if (body.addons?.rush && body.time && durationHours != null) {
+      const { deliveryWindows } = await import('./config.js');
+      const { rushHours } = await deliveryWindows();
+      if (!rushFeasible(body.time, durationHours, rushHours)) {
+        // AFTER payment this is survivable, same rule as a lost slot: the
+        // money is real, the booking is created, rush stays as sold, and
+        // the late-delivery board catches any slip.
+        if (!postPayment) {
+          return fail(
+            400,
+            `Rush isn't available for this time slot — a ${durationHours}-hour session at ${body.time} can't be delivered before 11pm. Pick an earlier time, or book without rush.`,
+            { code: 'rush_unavailable' },
+          );
+        }
+      }
+    }
     rushUsd = body.addons?.rush ? prices.rush : 0;
     // Social prices extra photos per-unit at selection time instead.
     extraPhotosUsd =
