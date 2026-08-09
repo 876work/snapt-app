@@ -157,8 +157,16 @@ export default function RemoteOrderSummary() {
           }
         }
         reset();
+        /**
+         * Same landing as the in-person checkout — the remote-edit path
+         * routed to the identical screen and so carried the identical bugs:
+         * back fell through to Home, and a booking the local store had not
+         * fetched yet rendered as "Booking not found" to someone who had
+         * just paid. Bookings goes underneath; paid=1 marks the arrival.
+         */
         router.dismissAll();
-        router.replace(outcome.bookingId ? `/bookings/${outcome.bookingId}` : '/(app)/bookings');
+        router.replace('/(app)/bookings');
+        if (outcome.bookingId) router.push(`/bookings/${outcome.bookingId}?paid=1`);
         return true;
       }
       if (outcome.reason === 'conflict') {

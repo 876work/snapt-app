@@ -243,10 +243,21 @@ export default function OrderSummary() {
       });
 
       if (outcome.ok) {
+        /**
+         * BACK MUST GO TO BOOKINGS, NEVER HOME, NEVER BACK INTO CHECKOUT.
+         *
+         * dismissAll() alone left the detail screen as the only thing on the
+         * stack, so back fell through to the tab root — Home. Replacing the
+         * list first puts Bookings underneath, so back lands there, and the
+         * completed payment screens are gone for good.
+         *
+         * paid=1 tells the detail screen this is a post-payment arrival: it
+         * shows the confirmation, and waits for a late webhook instead of
+         * claiming the booking does not exist.
+         */
         router.dismissAll();
-        // The webhook creates the booking; if it hasn't landed yet the
-        // booking is still coming, so the list is the honest destination.
-        router.replace(outcome.bookingId ? `/bookings/${outcome.bookingId}` : '/(app)/bookings');
+        router.replace('/(app)/bookings');
+        if (outcome.bookingId) router.push(`/bookings/${outcome.bookingId}?paid=1`);
         return true;
       }
       if (outcome.reason === 'conflict') {

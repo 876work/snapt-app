@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '../../../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ScreenHeader } from '../../../../components/ui/ScreenHeader';
@@ -18,15 +18,91 @@ import { colors, spacing } from '../../../../lib/theme';
 
 export default function BookingDetail() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, paid } = useLocalSearchParams<{ id: string; paid?: string }>();
   const currency = useAuth((s) => s.currency);
   const booking = useBookings((s) => s.bookings.find((b) => b.id === id));
+  const justPaid = paid === '1';
+
+  /**
+   * This screen read ONLY the local store, which is hydrated by the Bookings
+   * list and Home. A booking created seconds earlier by the Stripe webhook is
+   * not in it yet, so someone who had just paid was shown "Booking not found"
+   * — which reads as their money vanishing. The row existed the whole time;
+   * the client simply had not fetched it.
+   *
+   * So: when the booking is missing, go and ask the server instead of
+   * asserting it does not exist. Poll while we do, because a webhook landing
+   * a moment late is a normal race, not an error.
+   */
+  const [checking, setChecking] = React.useState(!booking);
+  const [gaveUp, setGaveUp] = React.useState(false);
+
+  React.useEffect(() => {
+    if (booking) {
+      setChecking(false);
+      return;
+    }
+    let stop = false;
+    // A paid arrival gets a longer window than a cold deep link: the webhook
+    // is already in flight and worth waiting for.
+    const deadline = Date.now() + (justPaid ? 45_000 : 8_000);
+    const tick = async () => {
+      if (stop) return;
+      const { apiConfigured, fetchMyBookings, toClientBooking } = await import('../../../../lib/api');
+      if (!apiConfigured) {
+        if (!stop) { setChecking(false); setGaveUp(true); }
+        return;
+      }
+      const rows = await fetchMyBookings();
+      if (stop) return;
+      if (rows) {
+        useBookings.getState().hydrateBookings(rows.map(toClientBooking));
+        if (rows.some((b) => b.id === id)) return; // the selector re-renders us
+      }
+      if (Date.now() > deadline) { setChecking(false); setGaveUp(true); return; }
+      setTimeout(tick, 2000);
+    };
+    tick();
+    return () => { stop = true; };
+  }, [booking, id, justPaid]);
 
   if (!booking) {
+    // Paid and still waiting: say what is true — the money arrived and the
+    // booking is being written — never "not found".
+    if (checking) {
+      return (
+        <View style={styles.root}>
+          <ScreenHeader title={justPaid ? 'Payment received' : 'Booking'} />
+          <View style={styles.stateWrap}>
+            <ActivityIndicator color={colors.yellowDark} />
+            <Text style={styles.stateTitle}>
+              {justPaid ? 'Confirming your booking…' : 'Loading your booking…'}
+            </Text>
+            {justPaid && (
+              <Text style={styles.stateBody}>
+                Your payment went through. We're just finishing the booking — this takes a few
+                seconds. You don't need to pay again.
+              </Text>
+            )}
+          </View>
+        </View>
+      );
+    }
+    // Genuinely absent. Even here there is a way forward, not a dead end.
     return (
       <View style={styles.root}>
         <ScreenHeader title="Booking" />
-        <Text style={{ padding: 22, color: colors.grey }}>Booking not found.</Text>
+        <View style={styles.stateWrap}>
+          <Text style={styles.stateTitle}>
+            {justPaid ? "We couldn't confirm this booking yet" : 'Booking not found'}
+          </Text>
+          <Text style={styles.stateBody}>
+            {justPaid
+              ? "Your payment went through — do NOT pay again. It should appear in Bookings shortly. If it doesn't, contact hello@snaptcarib.app and quote this page."
+              : "This booking isn't on your account. It may have been cancelled, or opened from an old link."}
+          </Text>
+          <Button title="Go to Bookings" onPress={() => router.replace('/(app)/bookings')} />
+        </View>
       </View>
     );
   }
@@ -42,10 +118,34 @@ export default function BookingDetail() {
   const sessionWindow = hrs <= 0 && hrs > -booking.durationHours && active;
   const graceElapsed = hrs * 60 <= -NO_SHOW_GRACE_MINUTES;
 
+  const when = d.toLocaleString(undefined, {
+    weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit',
+  });
+
   return (
     <View style={styles.root}>
       <ScreenHeader title="Booking detail" />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        {/* Post-payment confirmation, in place of a separate success screen:
+            the booking they just paid for IS the confirmation, with what
+            happens next stated rather than left to be inferred. */}
+        {justPaid && (
+          <View style={styles.paidCard}>
+            <Text style={styles.paidTitle}>Payment received — you're booked</Text>
+            <Text style={styles.paidLine}>
+              {booking.occasion}
+              {booking.type === 'remote' ? ' · remote edit' : ''} · {when}
+            </Text>
+            {booking.type !== 'remote' && (booking.meetingPoint || booking.area) ? (
+              <Text style={styles.paidLine}>{booking.meetingPoint ?? booking.area}</Text>
+            ) : null}
+            <Text style={styles.paidNext}>
+              {awaitingAccept
+                ? "We're matching you with a creator now — you'll get a notification the moment they accept."
+                : "Your creator is confirmed. We'll remind you before the session, and you can message them any time."}
+            </Text>
+          </View>
+        )}
         {creator && (
           <Card style={styles.creatorCard}>
             <Avatar tint={creator.tint} name={creator.name} size={50} />
@@ -212,6 +312,21 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 }
 
 const styles = StyleSheet.create({
+  stateWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 34, gap: 12 },
+  paidCard: {
+    backgroundColor: colors.yellowSoft,
+    borderWidth: 1,
+    borderColor: colors.yellowSoftBorder,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+    gap: 3,
+  },
+  paidTitle: { fontSize: 14.5, fontWeight: '800', color: colors.ink },
+  paidLine: { fontSize: 12.5, color: '#6E5B23', lineHeight: 18 },
+  paidNext: { fontSize: 12.5, color: '#6E5B23', lineHeight: 18, marginTop: 5 },
+  stateTitle: { fontSize: 17, fontWeight: '800', color: colors.ink, textAlign: 'center' },
+  stateBody: { fontSize: 13.5, color: colors.grey, textAlign: 'center', lineHeight: 20, marginBottom: 6 },
   root: { flex: 1, backgroundColor: colors.offWhite },
   body: { paddingHorizontal: spacing.screenX, paddingTop: 8 },
   creatorCard: { flexDirection: 'row', alignItems: 'center', gap: 13 },
