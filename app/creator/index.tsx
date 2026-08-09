@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
@@ -8,7 +8,13 @@ import { PushOfferNudge } from '../../components/creator/PushOfferNudge';
 import { HeadshotNudge } from '../../components/creator/HeadshotNudge';
 import { useAuth } from '../../lib/store';
 import { JobOffer, useCreator } from '../../lib/store/creator';
-import { apiConfigured, fetchMyBookings, fetchMyDeliveries, type DeliveryStatus } from '../../lib/api';
+import {
+  apiConfigured,
+  fetchMyBookings,
+  fetchMyDeliveries,
+  type DeliveryStatus,
+  type ServerBookingListItem,
+} from '../../lib/api';
 import { CREATOR_PLATFORM_FEE_RATE, formatMoney } from '../../lib/constants/business';
 import { colors, insetTop, insetBottom } from '../../lib/theme';
 import { navShrinkOnScroll } from '../../lib/navShrink';
@@ -49,18 +55,26 @@ export default function CreatorHome() {
   // API mode: real bookings replace the mock list. Pending-assigned rows are
   // live OFFERS (15-min accept window, countdown from offer_expires_at);
   // confirmed rows are accepted jobs.
-  React.useEffect(() => {
+  // Raw rows kept alongside the offer cards: scheduled_at is what decides
+  // "today" versus "upcoming", and bookingToOffer flattens it into a string.
+  const [serverBookings, setServerBookings] = React.useState<ServerBookingListItem[]>([]);
+  const [jobsFailed, setJobsFailed] = React.useState(false);
+  const [jobsLoading, setJobsLoading] = React.useState(apiConfigured);
+  const reloadJobs = React.useCallback(() => {
     if (!apiConfigured) return;
     fetchMyBookings().then((bookings) => {
-      if (!bookings) return;
+      setJobsLoading(false);
+      if (!bookings) { setJobsFailed(true); return; }
       const mine = bookings.filter((b) => JOB_STATUSES.includes(b.status));
       // Shared with the job detail screen so a deep-linked offer renders
       // identically to one opened from this list.
       const jobs: JobOffer[] = mine.map(bookingToOffer);
+      setServerBookings(mine);
       setOffers(jobs);
       for (const b of mine) setStage(b.id, stageForStatus(b.status));
     });
-  }, []);
+  }, [setOffers, setStage]);
+  React.useEffect(() => { reloadJobs(); }, [reloadJobs]);
 
   /**
    * THE DELIVERY CLOCK — the creator's own copy of what the admin Today
@@ -84,6 +98,44 @@ export default function CreatorHome() {
     setDevLoading(false);
   }, []);
   React.useEffect(() => { loadDeliveries(); }, [loadDeliveries]);
+
+  /**
+   * REAL earnings. This strip showed formatMoney(95.2) and formatMoney(438.6)
+   * — two invented numbers, shown to a creator about their own money, in the
+   * one place they would trust without checking. Now the same totals the
+   * Earnings screen reads, or nothing at all if the call fails: a made-up
+   * balance is worse than no balance.
+   */
+  const [earnings, setEarnings] = React.useState<{ pending: number; available: number } | null>(null);
+  const [earnFailed, setEarnFailed] = React.useState(false);
+  React.useEffect(() => {
+    if (!apiConfigured) return;
+    import('../../lib/api').then(({ fetchEarnings }) =>
+      fetchEarnings().then((d) => (d ? setEarnings(d.totals) : setEarnFailed(true))),
+    );
+  }, []);
+
+  // Accepted, not-yet-finished jobs, split by whether they are TODAY.
+  const acceptedJobs = offers.filter((o) => jobStages[o.id] && jobStages[o.id] !== 'offer');
+  const isToday = (o: JobOffer) => {
+    const b = serverBookings.find((x) => x.id === o.id);
+    if (!b?.scheduled_at) return false;
+    const d = new Date(b.scheduled_at);
+    const t = new Date();
+    return d.toDateString() === t.toDateString();
+  };
+  const todayJobs = acceptedJobs.filter(isToday);
+  const upcomingJobs = acceptedJobs
+    .filter((o) => !isToday(o))
+    .filter((o) => {
+      const b = serverBookings.find((x) => x.id === o.id);
+      return b?.scheduled_at ? new Date(b.scheduled_at).getTime() > Date.now() : true;
+    })
+    .sort((a, b) => {
+      const ax = serverBookings.find((x) => x.id === a.id)?.scheduled_at ?? '';
+      const bx = serverBookings.find((x) => x.id === b.id)?.scheduled_at ?? '';
+      return ax.localeCompare(bx);
+    });
 
   const dueLabel = (iso: string) => {
     const d = new Date(iso);
@@ -258,28 +310,50 @@ export default function CreatorHome() {
           </View>
         )}
 
-        {/* Earnings strip */}
-        <Pressable onPress={() => router.push('/creator/earnings')} style={styles.earnCard}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.earnLabel}>Today</Text>
-            <Text style={styles.earnValue}>{formatMoney(95.2, currency)}</Text>
+        {/* NEEDS ACTION NOW — anything with a clock on it. Today's accepted
+            session sits with the live offers because both are "before you put
+            the phone down", which is the only grouping that matters here. */}
+        {todayJobs.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Today</Text>
+            {todayJobs.map((j) => (
+              <Pressable
+                key={j.id}
+                onPress={() => router.push(`/creator/job/${j.id}`)}
+                style={styles.todayCard}
+              >
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.todayTitle}>{j.title}</Text>
+                  <Text style={styles.todayMeta}>{j.when} · {j.loc}</Text>
+                </View>
+                <Text style={styles.todayCta}>Open ›</Text>
+              </Pressable>
+            ))}
           </View>
-          <View style={styles.earnDiv} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.earnLabel}>This week</Text>
-            <Text style={styles.earnValue}>{formatMoney(438.6, currency)}</Text>
-          </View>
-          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-            <Path d="M9 6l6 6-6 6" stroke="#C6C3BC" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-          </Svg>
-        </Pressable>
+        )}
 
         <View style={styles.offersHead}>
-          <Text style={styles.offersTitle}>Job offers near you</Text>
+          <Text style={styles.offersTitle}>
+            {liveOffers.length > 0 ? 'Needs action now' : 'Job offers near you'}
+          </Text>
           {available && <Text style={styles.live}>Live</Text>}
         </View>
 
-        {available ? (
+        {jobsLoading ? (
+          <View style={styles.emptyCard}>
+            <ActivityIndicator color={colors.yellowDark} />
+            <Text style={styles.emptySub}>Loading your jobs…</Text>
+          </View>
+        ) : jobsFailed ? (
+          /* A failed fetch must never read as "no jobs" — that is the message
+             that makes a creator stop opening the app. */
+          <Pressable onPress={() => { setJobsFailed(false); setJobsLoading(true); reloadJobs(); }} style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>Couldn't load your jobs</Text>
+            <Text style={styles.emptySub}>
+              This is a connection problem, not an empty queue. Tap to try again.
+            </Text>
+          </Pressable>
+        ) : available ? (
           liveOffers.length > 0 ? (
             <View style={{ gap: 12 }}>
               {liveOffers.map((j) => (
@@ -353,10 +427,28 @@ export default function CreatorHome() {
                   <Path d="M10 20.5a2.2 2.2 0 004 0" stroke={colors.yellowDark} strokeWidth={1.8} strokeLinecap="round" />
                 </Svg>
               </View>
-              <Text style={styles.emptyTitle}>No jobs right now</Text>
+              <Text style={styles.emptyTitle}>You're set up and visible</Text>
               <Text style={styles.emptySub}>
-                We'll notify you the moment a shoot or edit comes in near you. You're all set — keep your
-                notifications on.
+                Nothing to do right now — here's how work reaches you.
+              </Text>
+              <View style={styles.howList}>
+                <Text style={styles.howItem}>
+                  <Text style={styles.howNum}>1  </Text>
+                  A client books a session in your area, for something you shoot.
+                </Text>
+                <Text style={styles.howItem}>
+                  <Text style={styles.howNum}>2  </Text>
+                  We offer it to a matching creator who's available. You get a push with a
+                  15-minute window to accept.
+                </Text>
+                <Text style={styles.howItem}>
+                  <Text style={styles.howNum}>3  </Text>
+                  Accept it and it moves into Today or Upcoming here.
+                </Text>
+              </View>
+              <Text style={styles.howTip}>
+                More offers reach you with availability on, more specialties selected, and a wider
+                service radius — all in Profile.
               </Text>
               <View style={styles.availChip}>
                 <View style={[styles.availDot, { backgroundColor: '#1EC46F' }]} />
@@ -375,6 +467,44 @@ export default function CreatorHome() {
             <Text style={styles.emptyTitle}>You're offline</Text>
             <Text style={styles.emptySub}>Turn on availability above to start receiving job offers near you.</Text>
           </View>
+        )}
+        {/* UPCOMING — confirmed work in date order, after everything urgent. */}
+        {upcomingJobs.length > 0 && (
+          <View style={[styles.section, { marginTop: 22 }]}>
+            <Text style={styles.sectionTitle}>Upcoming</Text>
+            {upcomingJobs.map((j) => (
+              <Pressable
+                key={j.id}
+                onPress={() => router.push(`/creator/job/${j.id}`)}
+                style={styles.upcomingCard}
+              >
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.upcomingTitle}>{j.title}</Text>
+                  <Text style={styles.upcomingMeta}>{j.when} · {j.loc}</Text>
+                </View>
+                <Text style={styles.upcomingPay}>{formatMoney(j.payUsd, currency)}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        {/* EARNINGS — quiet, at the foot, and REAL. Hidden entirely if the
+            figures could not be fetched: no number beats a wrong one. */}
+        {earnings && !earnFailed && (
+          <Pressable onPress={() => router.push('/creator/earnings')} style={styles.earnCard}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.earnLabel}>Pending</Text>
+              <Text style={styles.earnValue}>{formatMoney(earnings.pending, currency)}</Text>
+            </View>
+            <View style={styles.earnDiv} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.earnLabel}>Available</Text>
+              <Text style={styles.earnValue}>{formatMoney(earnings.available, currency)}</Text>
+            </View>
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+              <Path d="M9 6l6 6-6 6" stroke="#C6C3BC" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          </Pressable>
         )}
         <View style={{ height: 130 }} />
       </ScrollView>
@@ -410,6 +540,26 @@ export default function CreatorHome() {
 
 const styles = StyleSheet.create({
   section: { marginBottom: 18 },
+  howList: { gap: 9, marginTop: 12, alignSelf: 'stretch' },
+  howItem: { fontSize: 13, color: '#5C574E', lineHeight: 19 },
+  howNum: { fontWeight: '800', color: colors.yellowDark },
+  howTip: { fontSize: 12.5, color: colors.grey, lineHeight: 18, marginTop: 12, textAlign: 'center' },
+  todayCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: colors.ink, borderRadius: 14, padding: 15, marginBottom: 9,
+  },
+  todayTitle: { fontSize: 14.5, fontWeight: '800', color: '#fff' },
+  todayMeta: { fontSize: 12.5, color: 'rgba(255,255,255,0.72)', marginTop: 3 },
+  todayCta: { fontSize: 13, fontWeight: '800', color: colors.yellow },
+  upcomingCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#fff', borderRadius: 14, padding: 15, marginBottom: 9,
+    shadowColor: colors.ink, shadowOpacity: 0.06, shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 }, elevation: 2,
+  },
+  upcomingTitle: { fontSize: 14.5, fontWeight: '800', color: colors.ink },
+  upcomingMeta: { fontSize: 12.5, color: colors.grey, marginTop: 3 },
+  upcomingPay: { fontSize: 14, fontWeight: '800', color: colors.ink },
   sectionTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 0.8, color: '#8A8377', marginBottom: 9 },
   lateCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
