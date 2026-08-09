@@ -63,18 +63,18 @@ export function targetFor(trigger: string, data: TargetData = {}): string | null
       return b ? jobOffer(b) : '/creator';
 
     // ---- That booking ----------------------------------------------------
+    // Booking-lifecycle triggers fire to BOTH parties. The map alone is
+    // role-blind, so creator recipients used to deep-link into the CLIENT
+    // booking screen. The sender declares the audience; creator recipients
+    // land on their job screen (which owns cancelled/ended/gone states).
+    // The target stays resolved here once, shared by bell and push.
     case 'booking_confirmed':
-      // Fires to BOTH parties on acceptance. The map alone is role-blind, so
-      // the creator's "Booking locked in" used to deep-link them into the
-      // CLIENT booking screen. The sender declares the audience; the target
-      // stays resolved here once, shared by bell and push as always.
-      if (b && data.audience === 'creator') return jobOffer(b);
-      return b ? booking(b) : '/(app)/bookings';
     case 'booking_cancelled_by_creator':
     case 'client_cancelled':
     case 'reschedule_confirmed':
     case 'session_ended':
     case 'no_show_reported':
+      if (b && data.audience === 'creator') return jobOffer(b);
       return b ? booking(b) : '/(app)/bookings';
 
     // The live session screen — safety code, meeting point, the creator's
@@ -148,9 +148,15 @@ export function targetFor(trigger: string, data: TargetData = {}): string | null
     // ---- Disputes ---------------------------------------------------------
     // The evidence screen: an open dispute is a deadline, and evidence is
     // the only thing the recipient can actually do about it.
+    // Disputes fire to both parties. Creator recipients land on the creator
+    // evidence door (/creator/dispute/{booking}) now that it exists — until
+    // 2026-08-09 there was no creator surface and both parties were sent to
+    // the client route.
     case 'dispute_opened':
+      if (b && data.audience === 'creator') return `/creator/dispute/${b}`;
       return b ? `/(app)/bookings/${b}/evidence` : '/(app)/bookings';
     case 'dispute_resolved':
+      if (b && data.audience === 'creator') return jobOffer(b);
       return b ? booking(b) : '/(app)/bookings';
 
     // Deliberately quiet (no push — see TRIGGERS). The inbox row still

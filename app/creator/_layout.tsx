@@ -136,6 +136,7 @@ export default function CreatorLayout() {
       <Tabs.Screen name="rejected" options={{ href: null }} />
       <Tabs.Screen name="suspended" options={{ href: null }} />
       <Tabs.Screen name="job/[id]" options={{ href: null }} />
+      <Tabs.Screen name="dispute/[id]" options={{ href: null }} />
       <Tabs.Screen name="headshot" options={{ href: null }} />
     </Tabs>
   );

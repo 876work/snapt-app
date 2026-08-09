@@ -55,7 +55,7 @@ async function remindEvidenceDeadlines(): Promise<void> {
       if (party) {
         await notify(party, 'dispute_opened', 'Evidence window closing soon',
           'Less than 12 hours left to add evidence to your open dispute — after that the review proceeds on what has been submitted.',
-          { booking_id: d.booking_id, dispute_id: d.id });
+          { booking_id: d.booking_id, dispute_id: d.id, ...(party === b?.creator_id ? { audience: 'creator' as const } : {}) });
       }
     }
     await supabaseAdmin

@@ -100,7 +100,7 @@ export function registerDisputeRoutes(app: FastifyInstance) {
             'dispute_opened',
             'A dispute was opened',
             `A ${category} dispute is open on your booking. You have ${evidenceHours} hours to add evidence in the app.`,
-            { booking_id: booking.id },
+            { booking_id: booking.id, ...(party === booking.creator_id ? { audience: 'creator' as const } : {}) },
           );
         }
       }
@@ -149,7 +149,7 @@ export function registerDisputeRoutes(app: FastifyInstance) {
       .single();
     for (const party of [booking?.client_id, booking?.creator_id]) {
       if (party) {
-        await notify(party, 'dispute_resolved', 'Dispute resolved', 'Your dispute has been reviewed and resolved — see the outcome in the app.', { booking_id: dispute.booking_id, dispute_id: dispute.id });
+        await notify(party, 'dispute_resolved', 'Dispute resolved', 'Your dispute has been reviewed and resolved — see the outcome in the app.', { booking_id: dispute.booking_id, dispute_id: dispute.id, ...(party === booking?.creator_id ? { audience: 'creator' as const } : {}) });
       }
     }
     await audit(adminId, 'dispute_resolved', dispute.id, { release_payout: Boolean(request.body?.release_payout) });

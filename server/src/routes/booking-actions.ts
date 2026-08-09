@@ -140,7 +140,7 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
         .update({ status: 'cancelled', cancelled_by: user.id, cancelled_at: new Date().toISOString() })
         .eq('id', booking.id);
       if (booking.creator_id) {
-        await notify(booking.creator_id, 'client_cancelled', 'Booking cancelled by client', 'A booking on your schedule was cancelled — the slot is free again.', { booking_id: booking.id });
+        await notify(booking.creator_id, 'client_cancelled', 'Booking cancelled by client', 'A booking on your schedule was cancelled — the slot is free again.', { booking_id: booking.id, audience: 'creator' });
       }
       if (quote.chargeUsd > 0) {
         await notify(user.id, 'fee_charged', 'Cancellation fee applied', `A late-cancellation charge of $${quote.chargeUsd.toFixed(2)} applied per the ${quote.tier} notice tier.`, { booking_id: booking.id });
@@ -262,7 +262,7 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
         await notify(user.id, 'fee_charged', 'Reschedule fee applied', `A $${quote.feeUsd.toFixed(2)} reschedule charge applied (24–48h window).`, { booking_id: booking.id });
       }
       if (booking.creator_id) {
-        await notify(booking.creator_id, 'reschedule_confirmed', 'A booking moved', 'A session on your schedule was rescheduled — check Jobs for the new time.', { booking_id: booking.id });
+        await notify(booking.creator_id, 'reschedule_confirmed', 'A booking moved', 'A session on your schedule was rescheduled — check Jobs for the new time.', { booking_id: booking.id, audience: 'creator' });
       }
       return { rescheduled: true, scheduled_at: scheduled.toISOString(), ...quote };
     },

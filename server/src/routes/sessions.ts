@@ -190,7 +190,7 @@ export function registerSessionRoutes(app: FastifyInstance) {
       await notify(user.id, 'payout_pending', 'Payout on the way', 'Session complete — your earnings are pending and clear once the 7-day dispute window closes.', { booking_id: booking.id });
     }
     for (const party of [booking.client_id, booking.creator_id]) {
-      if (party) await notify(party, 'session_ended', 'Session wrapped', 'Your session is complete — editing comes next, and delivery lands in the app.', { booking_id: booking.id });
+      if (party) await notify(party, 'session_ended', 'Session wrapped', 'Your session is complete — editing comes next, and delivery lands in the app.', { booking_id: booking.id, ...(party === booking.creator_id ? { audience: 'creator' as const } : {}) });
     }
     return { completed: true, payout: 'held_7_days' };
   });
