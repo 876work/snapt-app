@@ -100,7 +100,10 @@ export default function SessionDay() {
     };
   }, [bookingId]);
 
-  const code = realCode ?? '4827';
+  // In API mode the ONLY code is the server's. The old fallback showed a
+  // baked '4827' whenever the fetch hadn't landed — a wrong code presented
+  // with full confidence, guaranteed to fail at the creator's keypad.
+  const code = realCode ?? (apiConfigured ? null : '4827');
 
   // Real chat when Supabase is configured; null = mock scripted message.
   const [chatMessages, setChatMessages] = React.useState<
@@ -374,7 +377,10 @@ export default function SessionDay() {
         {/* Safety code */}
         <View style={styles.codeCard}>
           <Text style={styles.codeLabel}>YOUR SAFETY CODE</Text>
-          <Text style={styles.codeValue}>{code}</Text>
+          <Text style={styles.codeValue}>{code ?? '· · · ·'}</Text>
+          {code == null && (
+            <Text style={styles.codeNote}>Fetching your code — one moment.</Text>
+          )}
           <Text style={styles.codeNote}>
             Share this with {creator?.name ?? 'your creator'} when they arrive, so you know it's really
             them.

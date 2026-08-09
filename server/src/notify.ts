@@ -28,7 +28,10 @@ const TRIGGERS: Record<string, TriggerSpec> = {
   booking_cancelled_by_creator: { category: 'bookings', push: true, email: true }, // §1
   client_cancelled: { category: 'bookings', push: false, email: false }, // §1: in-app only
   reschedule_confirmed: { category: 'bookings', push: true, email: false }, // §1: both parties
-  session_started: { category: 'bookings', push: true, email: false }, // §2: creator checked in
+  // §2 said push-only, but Don's ruling (2026-08-09) overrides: the safety
+  // code must reach the client in-app, by push AND by email — a client who
+  // can't find their code can't start the session they're standing at.
+  session_started: { category: 'bookings', push: true, email: true },
   session_ended: { category: 'bookings', push: false, email: false }, // §2: in-app only
   delivery_ready: { category: 'bookings', push: true, email: true }, // §3: "always push"
   revision_requested: { category: 'bookings', push: true, email: false }, // §3: actionable

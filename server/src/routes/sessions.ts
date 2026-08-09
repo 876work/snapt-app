@@ -81,7 +81,17 @@ export function registerSessionRoutes(app: FastifyInstance) {
     if (Object.keys(patch).length > 0) {
       await supabaseAdmin.from('sessions').update(patch).eq('id', session.id);
       if (role === 'creator') {
-        await notify(booking.client_id, 'session_started', 'Your creator is here', 'They\'ve checked in at the meeting point — share your safety code to begin.', { booking_id: booking.id });
+        // The code itself travels in the notification — all three channels
+        // (in-app row, push, email) carry the same server-generated code the
+        // session screen shows, so the client is never hunting for it while
+        // the creator stands waiting.
+        await notify(
+          booking.client_id,
+          'session_started',
+          'Your creator is here',
+          `They've checked in at the meeting point. Your safety code is ${session.safety_code} — share it to begin.`,
+          { booking_id: booking.id },
+        );
       }
     }
     return { session: { ...session, ...patch } };
