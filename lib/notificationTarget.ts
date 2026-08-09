@@ -120,3 +120,17 @@ export async function takePendingLink(): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Stamp a notification-opened route with its origin, so the target screen's
+ * back button returns to the notifications list instead of falling through
+ * to safeBack's generic home default.
+ *
+ * Appends rather than rewrites: targets that already carry a query (e.g.
+ * `/(app)/profile/payments?highlight=…`) keep it, so deep-link resolution is
+ * completely unchanged — this only adds information.
+ */
+export function withFrom(target: string, from = 'inbox'): string {
+  if (!target) return target;
+  return `${target}${target.includes('?') ? '&' : '?'}from=${from}`;
+}

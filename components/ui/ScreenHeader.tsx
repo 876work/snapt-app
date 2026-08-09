@@ -1,9 +1,24 @@
 import React from 'react';
 import { Keyboard, Pressable, StyleSheet, View } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
 import { Text } from '../../lib/text';
 import Svg, { Path } from 'react-native-svg';
 import { safeBack } from '../../lib/nav';
 import { colors, spacing } from '../../lib/theme';
+
+/**
+ * Where `?from=` sends an empty-stack back. The notifications list and the
+ * push-tap handler stamp this on the routes they open, so back returns the
+ * user where they actually came from instead of safeBack's generic home
+ * default — which is what dropped people on Home after tapping a push.
+ *
+ * Carried as a ROUTE PARAM, not module state: it lives and dies with the
+ * screen it describes, so it can never go stale and hijack an unrelated
+ * back later.
+ */
+const FROM_ROUTE: Record<string, string> = {
+  inbox: '/(app)/inbox',
+};
 
 export function ScreenHeader({
   title,
@@ -17,6 +32,9 @@ export function ScreenHeader({
   /** Where back lands when there is no history to pop (default: home). */
   backFallback?: string;
 }) {
+  const { from } = useLocalSearchParams<{ from?: string }>();
+  // The arrival route is more specific than any static default, so it wins.
+  const fallback = (from && FROM_ROUTE[String(from)]) || backFallback;
   return (
     // Tapping the header dismisses an open keyboard (blank areas inside the
     // scroll body already do). Returning false means the touch still reaches
@@ -29,7 +47,7 @@ export function ScreenHeader({
       }}
     >
       <Pressable
-        onPress={onBack ?? (() => safeBack(backFallback))}
+        onPress={onBack ?? (() => safeBack(fallback))}
         style={({ pressed }) => [styles.back, pressed && { opacity: 0.7 }]}
       >
         <Svg width={10} height={17} viewBox="0 0 10 17" fill="none">

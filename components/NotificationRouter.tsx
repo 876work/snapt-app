@@ -6,6 +6,7 @@ import {
   isCreatorTarget,
   resolveTarget,
   setPendingLink,
+  withFrom,
   type NotificationData,
 } from '../lib/notificationTarget';
 
@@ -78,7 +79,9 @@ export function NotificationRouter() {
         return;
       }
 
-      router.push(target as never);
+      // Same origin stamp as the in-app list: a push tap that lands with an
+      // empty stack must back out to the notifications list, not Home.
+      router.push(withFrom(target) as never);
     },
     [router],
   );

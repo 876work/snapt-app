@@ -3,12 +3,13 @@ import { ActivityIndicator, Clipboard, Pressable, RefreshControl, ScrollView, St
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Reanimated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Text } from '../../lib/text';
+import Svg, { Circle, Path } from 'react-native-svg';
+import { Text, TextInput } from '../../lib/text';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { colors } from '../../lib/theme';
 import { navShrinkOnScroll } from '../../lib/navShrink';
 import { apiBase, authHeaders } from '../../lib/api';
-import { isCreatorTarget, resolveTarget } from '../../lib/notificationTarget';
+import { isCreatorTarget, resolveTarget, withFrom } from '../../lib/notificationTarget';
 import { useAuth } from '../../lib/store';
 
 /**
@@ -72,6 +73,15 @@ export default function Inbox() {
   const [unread, setUnread] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  // Search is client-side over the ALREADY-LOADED rows: the tab filter is
+  // applied server-side, so filtering `items` automatically means searching
+  // within the active tab and nowhere else. No new endpoint.
+  const [query, setQuery] = React.useState('');
+  const [debounced, setDebounced] = React.useState('');
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebounced(query.trim().toLowerCase()), 200);
+    return () => clearTimeout(t);
+  }, [query]);
   // Toast: one at a time. `undo` present = a delete is pending its 5s window.
   const [toast, setToast] = React.useState<{ text: string; undo?: () => void } | null>(null);
   const toastTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -216,6 +226,20 @@ export default function Inbox() {
     };
   }, []);
 
+  // Rendered list only. `items` stays the full set, so delete/undo keeps
+  // restoring rows at their true index even while a search is active.
+  const visible = React.useMemo(
+    () =>
+      debounced
+        ? items.filter(
+            (i) =>
+              i.title.toLowerCase().includes(debounced) ||
+              i.body.toLowerCase().includes(debounced),
+          )
+        : items,
+    [items, debounced],
+  );
+
   const open = (item: Item) => {
     if (!item.read_at) void markRead([item.id]);
     const to = destinationFor(item);
@@ -228,7 +252,11 @@ export default function Inbox() {
       router.push('/creator');
       return;
     }
-    router.push(to as never);
+    // Stamp where this came from so the target's back returns to this list
+    // rather than safeBack's home default. Appended, not substituted — the
+    // target string itself (and its own query, e.g. ?highlight=) is
+    // untouched, so deep-link resolution is unchanged.
+    router.push(withFrom(to) as never);
   };
 
   return (
@@ -256,6 +284,30 @@ export default function Inbox() {
         scrollEventThrottle={16}
         refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.yellowDark} />}
       >
+        <View style={styles.searchWrap}>
+          <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+            <Circle cx="11" cy="11" r="7" stroke={colors.greyLight} strokeWidth={2} />
+            <Path d="M16.5 16.5L21 21" stroke={colors.greyLight} strokeWidth={2} strokeLinecap="round" />
+          </Svg>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search notifications"
+            placeholderTextColor="#9A9A9A"
+            value={query}
+            onChangeText={setQuery}
+            returnKeyType="search"
+            autoCorrect={false}
+            clearButtonMode="never"
+          />
+          {query.length > 0 && (
+            <Pressable onPress={() => setQuery('')} hitSlop={10} style={styles.searchClear}>
+              <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+                <Path d="M6 6l12 12M18 6L6 18" stroke={colors.grey} strokeWidth={2.4} strokeLinecap="round" />
+              </Svg>
+            </Pressable>
+          )}
+        </View>
+
         {loading ? (
           <View style={styles.centre}>
             <ActivityIndicator color={colors.yellowDark} />
@@ -263,6 +315,17 @@ export default function Inbox() {
         ) : error ? (
           <View style={styles.centre}>
             <Text style={styles.emptyTitle}>{error}</Text>
+          </View>
+        ) : debounced && visible.length === 0 ? (
+          <View style={styles.centre}>
+            <Text style={styles.emptyTitle}>No results for &ldquo;{query.trim()}&rdquo;</Text>
+            <Text style={styles.emptyBody}>
+              Nothing in {tab === 'all' ? 'your notifications' : `the ${tab} tab`} matches that.
+              Try another word, or clear the search.
+            </Text>
+            <Pressable onPress={() => setQuery('')} style={styles.noResClear}>
+              <Text style={styles.noResClearLabel}>Clear search</Text>
+            </Pressable>
           </View>
         ) : items.length === 0 ? (
           <View style={styles.centre}>
@@ -274,7 +337,7 @@ export default function Inbox() {
             </Text>
           </View>
         ) : (
-          items.map((item) => {
+          visible.map((item) => {
             const critical = CRITICAL.has(item.category);
             const tappable = destinationFor(item) != null;
             return (
@@ -396,6 +459,22 @@ const styles = StyleSheet.create({
   markAll: { fontSize: 12.5, fontWeight: '700', color: colors.goldText },
   body: { paddingHorizontal: 18, paddingTop: 4 },
   centre: { alignItems: 'center', justifyContent: 'center', paddingTop: 90, gap: 6 },
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 12,
+    height: 42,
+    marginBottom: 12,
+  },
+  searchInput: { flex: 1, fontSize: 14, color: colors.ink, paddingVertical: 0 },
+  searchClear: { padding: 2 },
+  noResClear: { marginTop: 14, paddingHorizontal: 18, paddingVertical: 9, borderRadius: 999, backgroundColor: colors.yellow },
+  noResClearLabel: { fontSize: 14, color: colors.ink },
   actions: { width: ACTIONS_WIDTH, flexDirection: 'row', alignItems: 'stretch', marginBottom: 10 },
   action: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   actionCopy: { backgroundColor: '#E8E4DA' },
