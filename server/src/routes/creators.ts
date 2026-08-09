@@ -6,6 +6,7 @@ import { eligibleCreators } from '../availability.js';
 import { creatorStanding } from '../strikes.js';
 import { notify } from '../notify.js';
 import { audit, requireAdmin } from '../admin-auth.js';
+import { requireCompleteProfile } from '../profile-complete.js';
 
 const OCCASIONS = ['Events', 'Portraits', 'Social', 'Family', 'Wedding'];
 
@@ -79,6 +80,9 @@ export function registerCreatorRoutes(app: FastifyInstance) {
   // it). Every field is validated here — the UI's checks are advisory.
   app.post<{ Body: ApplyBody }>('/v1/creator/apply', async (request, reply) => {
     const user = requireUser(request);
+    // We are onboarding someone to be paid and to meet clients in person —
+    // a reachable phone and a real name are not optional here.
+    if (!(await requireCompleteProfile(request, reply, user.id))) return;
     const body = request.body ?? {};
 
     const serviceType = body.service_type ?? '';

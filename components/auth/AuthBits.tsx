@@ -13,7 +13,7 @@ import {
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { Text, TextInput } from '../../lib/text';
-import { COUNTRIES, Country } from '../../lib/constants/countries';
+import { COUNTRIES, Country, SAINT_LUCIA } from '../../lib/constants/countries';
 import { colors } from '../../lib/theme';
 
 // Shared building blocks for the redesigned auth screens (CD design):
@@ -137,6 +137,19 @@ export function SocialButtons() {
       setError({ provider, message: result.error });
       return;
     }
+    // Neither provider hands back a phone number, so this is the normal path
+    // for a first OAuth sign-in — and it also catches an OLDER account that
+    // never had one. Mandatory, so it replaces rather than pushes: there is
+    // no screen behind it to go back to.
+    if (result.profileComplete === false) {
+      router.replace({
+        pathname: '/(auth)/complete-profile',
+        // A brand-new account still owes us currency + push priming; a
+        // returning one already did those and just needs the missing fields.
+        params: result.isNewUser ? { next: 'onboarding' } : {},
+      });
+      return;
+    }
     if (result.isNewUser) {
       // Same onboarding as email signups: currency → notification priming →
       // home, starting in client mode.
@@ -145,7 +158,10 @@ export function SocialButtons() {
         params: { name: result.name ?? '', email: result.email ?? '' },
       });
     } else {
-      router.replace('/(app)/home');
+      // Honour a parked deep link, exactly as email login does. This used to
+      // hard-replace to Home, silently discarding a notification tap.
+      const { landingAfterAuth } = await import('../../lib/notificationTarget');
+      router.replace((await landingAfterAuth()) as never);
     }
   };
 
@@ -385,4 +401,55 @@ const backStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+});
+
+/**
+ * The locked COUNTRY card.
+ *
+ * Snapt is live in Saint Lucia only, so this is display + a padlock rather
+ * than a picker. Extracted out of signup.tsx so the email signup and the
+ * OAuth completion step render the SAME control — the alternative was two
+ * copies of the same markup drifting apart the first time one was restyled.
+ *
+ * The dial-code picker beside the phone field is a different control on
+ * purpose: the country you live in is fixed, the country your number belongs
+ * to is not.
+ */
+export function CountryLockedCard() {
+  return (
+    <>
+      <View style={lockedStyles.card}>
+        <View style={{ flex: 1 }}>
+          <Text style={lockedStyles.label}>COUNTRY</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={lockedStyles.flag}>{SAINT_LUCIA.flag}</Text>
+            <Text style={lockedStyles.name}>Saint Lucia</Text>
+          </View>
+        </View>
+        <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+          <Rect x="5" y="10.5" width="14" height="9.5" rx="2.5" stroke="#B4B1AA" strokeWidth={1.8} />
+          <Path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5" stroke="#B4B1AA" strokeWidth={1.8} />
+        </Svg>
+      </View>
+      <Text style={lockedStyles.helper}>Snapt is live in Saint Lucia</Text>
+    </>
+  );
+}
+
+const lockedStyles = StyleSheet.create({
+  card: {
+    minHeight: 58,
+    borderRadius: 15,
+    backgroundColor: '#EDE8DC',
+    borderWidth: 1,
+    borderColor: '#E2DCCD',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    paddingVertical: 9,
+  },
+  label: { fontSize: 9.5, fontWeight: '800', color: '#8A8377', letterSpacing: 0.7, marginBottom: 3 },
+  name: { fontSize: 14.5, fontWeight: '700', color: colors.ink },
+  flag: { fontSize: 18 },
+  helper: { fontSize: 11, color: '#A8A29A', marginTop: -4, marginLeft: 4 },
 });

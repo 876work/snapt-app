@@ -9,6 +9,7 @@ import {
   AuthInput,
   BackCircle,
   CountryCodePicker,
+  CountryLockedCard,
   LogoTile,
   SocialButtons,
 } from '../../components/auth/AuthBits';
@@ -40,7 +41,10 @@ export default function Signup() {
 
   const pwOk = PW_RULES.every((r) => r.test(password));
   const canContinue = name.trim().length > 0 && email.includes('@') && pwOk && !busy;
-  const fullPhone = phone.trim() ? `+${dial.dialCode} ${phone.trim()}` : '';
+  const phoneDigits = phone.replace(/\D/g, '');
+  // E.164, matching the completion step — the old `+1758 5555555` shape left
+  // three different formats in the profiles table.
+  const fullPhone = phoneDigits ? `+${dial.dialCode}${phoneDigits}` : '';
 
   const handleContinue = async () => {
     setBusy(true);
@@ -87,21 +91,9 @@ export default function Signup() {
         <View style={{ gap: 12, marginTop: 4 }}>
           <AuthInput icon="person" placeholder="Full name" value={name} onChangeText={setName} autoCapitalize="words" returnKeyType="next" onSubmitEditing={() => phoneRef.current?.focus()} />
 
-          {/* Country — locked: Snapt is live in Saint Lucia only. */}
-          <View style={styles.countryCard}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.countryLabel}>COUNTRY</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={styles.flag}>{SAINT_LUCIA.flag}</Text>
-                <Text style={styles.countryName}>Saint Lucia</Text>
-              </View>
-            </View>
-            <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
-              <Rect x="5" y="10.5" width="14" height="9.5" rx="2.5" stroke="#B4B1AA" strokeWidth={1.8} />
-              <Path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5" stroke="#B4B1AA" strokeWidth={1.8} />
-            </Svg>
-          </View>
-          <Text style={styles.helper}>Snapt is live in Saint Lucia</Text>
+          {/* Country — locked: Snapt is live in Saint Lucia only. Shared with
+              the OAuth completion step so the two cannot diverge. */}
+          <CountryLockedCard />
 
           {/* Phone: dial-code chip (all countries) + number. */}
           <View style={{ flexDirection: 'row', gap: 10 }}>

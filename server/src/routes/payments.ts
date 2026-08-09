@@ -5,6 +5,7 @@ import { supabaseAdmin } from '../supabase.js';
 import { env } from '../env.js';
 import { notify } from '../notify.js';
 import type { CreateBookingBody } from '../booking-quote.js';
+import { requireCompleteProfile } from '../profile-complete.js';
 
 /**
  * Stripe payments — PaymentSheet integration (test mode).
@@ -47,6 +48,11 @@ export function registerPaymentRoutes(app: FastifyInstance) {
 
   app.post<{ Body: CreateBookingBody }>('/v1/checkout/intent', async (request, reply) => {
     const user = requireUser(request);
+    // Booking and checkout are the same call since /v1/bookings became a 410,
+    // so this one guard covers both "cannot book" and "cannot check out".
+    // Ahead of requireStripe deliberately: an incomplete profile should be
+    // told what to fix, not handed a payments error.
+    if (!(await requireCompleteProfile(request, reply, user.id))) return;
     const stripe = requireStripe();
     const { quoteBooking, isQuoteFailure, packBookingParams } = await import('../booking-quote.js');
 

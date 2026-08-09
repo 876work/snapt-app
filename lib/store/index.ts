@@ -34,6 +34,17 @@ interface AuthState {
   name: string;
   email: string;
   phone: string;
+  /** ISO-3166 alpha-2, lowercase — a direct key into COUNTRIES. */
+  country: string;
+  /**
+   * Whether the four required profile fields are all present.
+   *
+   * TRI-STATE ON PURPOSE. `null` means "not known yet" — the profiles row
+   * hasn't been read back. Only an explicit `false` may redirect anyone to
+   * the completion step; treating unknown as incomplete would bounce every
+   * user through it for the few hundred ms before hydration lands.
+   */
+  profileComplete: boolean | null;
   currency: Currency;
   mode: AppMode;
   creatorStatus: CreatorStatus;
@@ -43,7 +54,25 @@ interface AuthState {
   setCurrency: (c: Currency) => void;
   setMode: (m: AppMode) => void;
   setCreatorStatus: (s: CreatorStatus) => void;
-  setProfile: (patch: { name?: string; email?: string; phone?: string }) => void;
+  setProfile: (patch: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    country?: string;
+    profileComplete?: boolean | null;
+  }) => void;
+}
+
+/** The one definition of "complete" on the client. Mirrors the server's. */
+export function isProfileComplete(p: {
+  name?: string;
+  email?: string;
+  phone?: string;
+  country?: string;
+}): boolean {
+  return Boolean(
+    p.name?.trim() && p.email?.trim() && p.phone?.trim() && p.country?.trim(),
+  );
 }
 
 export const useAuth = create<AuthState>((set) => ({
@@ -53,13 +82,27 @@ export const useAuth = create<AuthState>((set) => ({
   name: '',
   email: '',
   phone: '',
+  country: '',
+  profileComplete: null,
   currency: 'USD',
   mode: 'client',
   creatorStatus: 'not_applied',
   signIn: (name, email, userId) =>
     set({ signedIn: true, name, email, ...(userId !== undefined ? { userId } : {}) }),
   signOut: () =>
-    set({ signedIn: false, userId: null, name: '', email: '', mode: 'client', creatorStatus: 'not_applied' }),
+    set({
+      signedIn: false,
+      userId: null,
+      name: '',
+      email: '',
+      phone: '',
+      country: '',
+      // Back to unknown, not to false — the next account's completeness is
+      // nothing to do with this one's.
+      profileComplete: null,
+      mode: 'client',
+      creatorStatus: 'not_applied',
+    }),
   setHydrated: () => set({ hydrated: true }),
   setCurrency: (currency) => set({ currency }),
   // Selected mode persists across relaunches (restored in initAuth) but is

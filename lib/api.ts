@@ -62,6 +62,25 @@ function tripIfDisabled(status: number, body: { code?: string; error?: string } 
   return true;
 }
 
+/**
+ * The server refused because the profile is missing required fields.
+ *
+ * This should be unreachable — the app routes an incomplete account to the
+ * completion step before it can get here — so reaching it means the client's
+ * idea of completeness was stale (fields cleared elsewhere, or a build that
+ * predates the step). Recording it flips the flag the router reads, so the
+ * next launch lands on the step instead of failing the same call again.
+ *
+ * Deliberately NOT a modal: unlike a disabled account, nothing here is
+ * revoked. The user is mid-task and the fix is a short form, not an ejection.
+ */
+function noteProfileIncomplete(status: number, body: { code?: string } | null): void {
+  if (status !== 403 || body?.code !== 'profile_incomplete') return;
+  import('./store').then(({ useAuth }) => {
+    useAuth.getState().setProfile({ profileComplete: false });
+  });
+}
+
 /** For raw-fetch callers that have NOT read the body yet. */
 async function checkDisabled(res: Response): Promise<boolean> {
   if (res.status !== 403 || res.bodyUsed) return false;
@@ -114,6 +133,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T | null> {
       // offline banner for it; the blocking modal owns this case.
       const err = (await res.json().catch(() => null)) as { code?: string } | null;
       if (tripIfDisabled(res.status, err)) return null;
+      noteProfileIncomplete(res.status, err);
       reportApiFailure();
       return null;
     }

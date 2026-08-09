@@ -1,5 +1,5 @@
 import { supabase, supabaseConfigured } from './supabase';
-import { useAuth } from './store';
+import { isProfileComplete, useAuth } from './store';
 
 // Auth service: one call site for the screens, two implementations —
 // Supabase when configured, the existing mock store otherwise.
@@ -100,6 +100,8 @@ export type OAuthResult = AuthResult & {
   isNewUser?: boolean;
   name?: string;
   email?: string;
+  /** All four required profile fields present? Drives the completion step. */
+  profileComplete?: boolean;
 };
 
 /**
@@ -116,7 +118,7 @@ async function completeOAuthSignIn(providedName: string | null): Promise<OAuthRe
 
   const { data: prof } = await supabase!
     .from('profiles')
-    .select('full_name')
+    .select('full_name, phone, email, country')
     .eq('id', user.id)
     .maybeSingle();
   let name = prof?.full_name ?? '';
@@ -129,7 +131,16 @@ async function completeOAuthSignIn(providedName: string | null): Promise<OAuthRe
     await supabase!.auth.updateUser({ data: { full_name: providedName } });
     useAuth.getState().setProfile({ name: providedName });
   }
-  return { error: null, isNewUser, name, email: user.email ?? '' };
+  const email = prof?.email || user.email || '';
+  const phone = prof?.phone ?? '';
+  const country = prof?.country ?? '';
+  // Neither provider returns a phone number, so this is false for essentially
+  // every first OAuth sign-in. Computed here rather than inferred from
+  // isNewUser: an account created months ago that never got a phone number
+  // is just as incomplete as one created a second ago.
+  const profileComplete = isProfileComplete({ name, email, phone, country });
+  useAuth.getState().setProfile({ phone, country, profileComplete });
+  return { error: null, isNewUser, name, email, profileComplete };
 }
 
 export async function signInWithGoogle(): Promise<OAuthResult> {
@@ -246,23 +257,57 @@ export async function saveProfile(patch: {
   name: string;
   email: string;
   phone: string;
+  /** ISO-3166 alpha-2, lowercase. Omitted by callers that don't edit it. */
+  country?: string;
 }): Promise<AuthResult> {
   const name = patch.name.trim();
   const phone = patch.phone.trim();
+  const country = patch.country?.trim();
   if (supabase) {
     const { data: auth } = await supabase.auth.getUser();
     if (!auth.user) return { error: 'Not signed in.' };
     const { error } = await supabase
       .from('profiles')
-      .update({ full_name: name, phone: phone || null, updated_at: new Date().toISOString() })
+      .update({
+        full_name: name,
+        phone: phone || null,
+        ...(country ? { country } : {}),
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', auth.user.id);
     if (error) return { error: "Couldn't save your changes — try again." };
     // Keep auth metadata in sync so session hydration shows the same name.
     await supabase.auth.updateUser({ data: { full_name: name } });
-    useAuth.getState().setProfile({ name, phone });
+    // Completeness is recomputed from the ROW, not from the store. The store
+    // has no country until hydration lands, so computing from it would mark
+    // a perfectly complete email signup incomplete and bounce them into the
+    // completion step seconds after they finished signing up.
+    const { data: row } = await supabase
+      .from('profiles')
+      .select('full_name, phone, email, country')
+      .eq('id', auth.user.id)
+      .maybeSingle();
+    useAuth.getState().setProfile({
+      name,
+      phone,
+      country: row?.country ?? country ?? '',
+      profileComplete: row
+        ? isProfileComplete({
+            name: row.full_name ?? '',
+            email: row.email ?? auth.user.email ?? '',
+            phone: row.phone ?? '',
+            country: row.country ?? '',
+          })
+        : null,
+    });
     return { error: null };
   }
-  useAuth.getState().setProfile({ name, email: patch.email.trim(), phone });
+  useAuth.getState().setProfile({
+    name,
+    email: patch.email.trim(),
+    phone,
+    ...(country ? { country } : {}),
+  });
   return { error: null };
 }
 
@@ -292,16 +337,25 @@ export function initAuth(): void {
       // values and the phone reaches screens that render it.
       supabase!
         .from('profiles')
-        .select('full_name, phone')
+        .select('full_name, phone, email, country')
         .eq('id', session.user.id)
         .maybeSingle()
-        .then(({ data }) => {
-          if (data) {
-            useAuth.getState().setProfile({
-              name: data.full_name || meta.full_name || '',
-              phone: data.phone ?? '',
-            });
-          }
+        .then(({ data, error }) => {
+          // A failed read leaves profileComplete at null — unknown, not
+          // incomplete. The server refuses the actions that matter anyway,
+          // so guessing here would only strand someone behind a form we
+          // have no evidence they need.
+          if (error || !data) return;
+          const name = data.full_name || meta.full_name || '';
+          const phone = data.phone ?? '';
+          const country = data.country ?? '';
+          const email = data.email || session.user.email || '';
+          useAuth.getState().setProfile({
+            name,
+            phone,
+            country,
+            profileComplete: isProfileComplete({ name, email, phone, country }),
+          });
         });
       // Creator status is server-authoritative — fetched on every launch and
       // sign-in; the client never decides or caches its way into creator
