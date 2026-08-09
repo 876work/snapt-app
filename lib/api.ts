@@ -759,6 +759,31 @@ export interface EarningsPayout {
   created_at: string;
 }
 
+/** One undelivered booking measured against its promised window. */
+export interface DeliveryStatus {
+  booking_id: string;
+  occasion: string | null;
+  type: string;
+  rush: boolean;
+  started_at: string;
+  due_at: string;
+  hours_remaining: number;
+  hours_late: number;
+  state: 'on_track' | 'approaching' | 'late';
+}
+
+/**
+ * The creator's own delivery clock — the same computation the admin Today
+ * screen runs, filtered to them. Returns null on failure so the work queue
+ * can say so rather than rendering "nothing overdue".
+ */
+export async function fetchMyDeliveries(): Promise<{
+  late: DeliveryStatus[];
+  approaching: DeliveryStatus[];
+} | null> {
+  return request('/v1/creator/deliveries');
+}
+
 export async function fetchEarnings(): Promise<{
   payouts: EarningsPayout[];
   totals: { pending: number; available: number; paid_out: number };

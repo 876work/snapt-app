@@ -10,21 +10,16 @@ import { colors, insetTop } from '../../lib/theme';
 import { navShrinkOnScroll } from '../../lib/navShrink';
 import { ScheduleEditor } from '../../components/creator/ScheduleEditor';
 
-const FIXED = [
-  { id: 's1', day: 'TODAY', title: 'Golden-hour portraits', time: '5:30 PM · 1.5 hrs', loc: 'Rodney Bay', payUsd: 95.2, status: 'Confirmed' },
-  { id: 's2', day: 'SAT, 2 AUG', title: 'Family beach session', time: '9:00 AM · 2 hrs', loc: 'Pigeon Island', payUsd: 146.9, status: 'Confirmed' },
-  { id: 's3', day: 'ONGOING', title: 'Wedding highlight edit', time: 'Due Thu, 31 Jul', loc: 'Remote edit', payUsd: 108.8, status: 'Editing' },
-];
-
 export default function CreatorSchedule() {
   const router = useRouter();
   const currency = useAuth((s) => s.currency);
   const { offers, jobStages } = useCreator();
   const accepted = offers.filter((o) => jobStages[o.id] && jobStages[o.id] !== 'offer');
-  // API mode: real assigned bookings arrive via the creator home fetch
-  // (useCreator offers); the fixed demo rows are mock-mode only.
-  const { apiConfigured } = require('../../lib/api') as typeof import('../../lib/api');
-  const fixedRows = apiConfigured ? [] : FIXED;
+  // Real assigned bookings only. This screen used to carry three invented
+  // rows — a "Wedding highlight edit · Due Thu, 31 Jul" for $108.80 — shown
+  // whenever the API was unconfigured. Suppressed in production, but it is
+  // the same demo-shell pattern the order tracker had, and a fabricated job
+  // with a fabricated deadline has no business in a screen about deadlines.
 
   return (
     <View style={styles.root}>
@@ -62,45 +57,12 @@ export default function CreatorSchedule() {
             </Pressable>
           </View>
         ))}
-        {fixedRows.map((s) => (
-          <View key={s.id}>
-            <Text style={styles.dayLabel}>{s.day}</Text>
-            <View style={styles.card}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.cardTitle}>{s.title}</Text>
-                <View style={styles.metaRow}>
-                  <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
-                    <Circle cx="12" cy="12" r="9" stroke={colors.grey} strokeWidth={1.8} />
-                    <Path d="M12 7.5V12l3 2" stroke={colors.grey} strokeWidth={1.8} strokeLinecap="round" />
-                  </Svg>
-                  <Text style={styles.metaLabel}>{s.time}</Text>
-                </View>
-                <View style={styles.metaRow}>
-                  <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
-                    <Path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z" stroke={colors.grey} strokeWidth={1.8} strokeLinejoin="round" />
-                    <Circle cx="12" cy="10" r="2.3" stroke={colors.grey} strokeWidth={1.8} />
-                  </Svg>
-                  <Text style={styles.metaLabel}>{s.loc}</Text>
-                </View>
-              </View>
-              <View style={{ alignItems: 'flex-end', gap: 6 }}>
-                <Text style={styles.pay}>{formatMoney(s.payUsd, currency)}</Text>
-                <View
-                  style={[
-                    styles.statusPill,
-                    { backgroundColor: s.status === 'Editing' ? '#FFF4D6' : '#E6F7EE' },
-                  ]}
-                >
-                  <Text
-                    style={[styles.statusLabel, { color: s.status === 'Editing' ? '#8A6800' : '#159A57' }]}
-                  >
-                    {s.status}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </View>
-        ))}
+        {/* History lives here, not in the queue: finished work is a lookup,
+            and mixing it in buried the jobs that actually needed doing. */}
+        <Pressable onPress={() => router.push('/creator/history')} style={styles.historyRow}>
+          <Text style={styles.historyLabel}>Past & completed jobs</Text>
+          <Text style={styles.historyChevron}>›</Text>
+        </Pressable>
         <Text style={styles.blockNote}>
           Need time off? Blocked dates sync automatically — clients can't book you on days you mark
           unavailable.
@@ -114,6 +76,14 @@ export default function CreatorSchedule() {
 }
 
 const styles = StyleSheet.create({
+  historyRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: '#fff', borderRadius: 14, padding: 16, marginTop: 6,
+    shadowColor: colors.ink, shadowOpacity: 0.06, shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 }, elevation: 2,
+  },
+  historyLabel: { fontSize: 14, fontWeight: '800', color: colors.ink },
+  historyChevron: { fontSize: 20, color: colors.greyWarm, fontWeight: '700' },
   root: { flex: 1, backgroundColor: colors.offWhite },
   header: { paddingTop: insetTop + 19, paddingHorizontal: 22, paddingBottom: 8 },
   title: { fontSize: 18, fontWeight: '800', letterSpacing: -0.35, color: colors.ink },

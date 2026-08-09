@@ -30,6 +30,18 @@ function EarnIcon({ color }: { color: string }) {
     </Svg>
   );
 }
+function MsgIcon({ color }: { color: string }) {
+  return (
+    <Svg width={21} height={21} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M4 6a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2H10l-4.5 3.5V16H6a2 2 0 01-2-2V6z"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
 function ProfIcon({ color }: { color: string }) {
   return (
     <Svg width={21} height={21} viewBox="0 0 24 24" fill="none">
@@ -39,10 +51,14 @@ function ProfIcon({ color }: { color: string }) {
   );
 }
 
+// Messages, not Earnings. A creator needs to answer a client mid-job far
+// more often than they check a balance, and earnings now has its own
+// summary at the foot of the work queue with a link through — so nothing
+// was lost by giving the fourth slot to the thing with unread messages on it.
 const TABS = [
   { name: 'index', label: 'Jobs', Icon: JobsIcon },
   { name: 'schedule', label: 'Schedule', Icon: SchedIcon },
-  { name: 'earnings', label: 'Earnings', Icon: EarnIcon },
+  { name: 'messages', label: 'Messages', Icon: MsgIcon },
   { name: 'profile', label: 'Profile', Icon: ProfIcon },
 ];
 
@@ -109,7 +125,7 @@ export default function CreatorLayout() {
 
   // Same rule as the client shell: the floating bar only on tab roots —
   // job detail and cash-out have footer sliders the bar would cover.
-  const tabRoots = ['/creator', '/creator/schedule', '/creator/earnings', '/creator/profile'];
+  const tabRoots = ['/creator', '/creator/schedule', '/creator/messages', '/creator/profile'];
 
   return (
     <Tabs
@@ -125,7 +141,9 @@ export default function CreatorLayout() {
     >
       <Tabs.Screen name="index" />
       <Tabs.Screen name="schedule" />
-      <Tabs.Screen name="earnings" />
+      <Tabs.Screen name="messages" />
+      <Tabs.Screen name="history" options={{ href: null }} />
+      <Tabs.Screen name="earnings" options={{ href: null }} />
       <Tabs.Screen name="profile" />
       <Tabs.Screen name="cash-out" options={{ href: null }} />
       <Tabs.Screen name="ratings" options={{ href: null }} />

@@ -8,7 +8,7 @@ import { PushOfferNudge } from '../../components/creator/PushOfferNudge';
 import { HeadshotNudge } from '../../components/creator/HeadshotNudge';
 import { useAuth } from '../../lib/store';
 import { JobOffer, useCreator } from '../../lib/store/creator';
-import { apiConfigured, fetchMyBookings } from '../../lib/api';
+import { apiConfigured, fetchMyBookings, fetchMyDeliveries, type DeliveryStatus } from '../../lib/api';
 import { CREATOR_PLATFORM_FEE_RATE, formatMoney } from '../../lib/constants/business';
 import { colors, insetTop, insetBottom } from '../../lib/theme';
 import { navShrinkOnScroll } from '../../lib/navShrink';
@@ -61,6 +61,35 @@ export default function CreatorHome() {
       for (const b of mine) setStage(b.id, stageForStatus(b.status));
     });
   }, []);
+
+  /**
+   * THE DELIVERY CLOCK — the creator's own copy of what the admin Today
+   * screen sees. Until now nothing told a creator they were late; the first
+   * person who knew was an admin looking at a portal the creator cannot open.
+   *
+   * Its own three states, kept separate from the offers fetch: a failed
+   * deliveries call must never render as "nothing overdue", which is exactly
+   * the reassuring lie that costs someone their rush deadline.
+   */
+  const [deliveries, setDeliveries] = React.useState<{ late: DeliveryStatus[]; approaching: DeliveryStatus[] } | null>(null);
+  const [devLoading, setDevLoading] = React.useState(true);
+  const [devFailed, setDevFailed] = React.useState(false);
+  const loadDeliveries = React.useCallback(async () => {
+    if (!apiConfigured) { setDevLoading(false); return; }
+    setDevLoading(true);
+    setDevFailed(false);
+    const d = await fetchMyDeliveries();
+    if (!d) { setDevFailed(true); setDevLoading(false); return; }
+    setDeliveries(d);
+    setDevLoading(false);
+  }, []);
+  React.useEffect(() => { loadDeliveries(); }, [loadDeliveries]);
+
+  const dueLabel = (iso: string) => {
+    const d = new Date(iso);
+    return `${d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} at ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+  };
+  const lateFor = (h: number) => (h < 1 ? 'less than an hour' : h < 48 ? `${Math.round(h)} hours` : `${Math.round(h / 24)} days`);
 
   // Live tick for offer countdowns; expired offers drop off the list (the
   // server reassigns them on its own via the lazy sweep).
@@ -172,6 +201,63 @@ export default function CreatorHome() {
             </Pressable>
           </View>
         )}
+        {/* OVERDUE — first, always. Money and a broken promise are attached
+            to these, and a creator must never learn they are late from us
+            after the client has already noticed. */}
+        {devFailed && (
+          <Pressable onPress={loadDeliveries} style={styles.clockFailCard}>
+            <Text style={styles.clockFailTitle}>Couldn't check your delivery deadlines</Text>
+            <Text style={styles.clockFailSub}>
+              Tap to retry — this is not a confirmation that nothing is due.
+            </Text>
+          </Pressable>
+        )}
+        {!devFailed && !devLoading && (deliveries?.late.length ?? 0) > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Overdue</Text>
+            {deliveries!.late.map((d) => (
+              <Pressable
+                key={d.booking_id}
+                onPress={() => router.push(`/creator/job/${d.booking_id}`)}
+                style={styles.lateCard}
+              >
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.lateTitle}>
+                    {d.occasion ? `${d.occasion} session` : 'Remote edit order'}
+                    {d.rush ? ' · RUSH' : ''}
+                  </Text>
+                  <Text style={styles.lateDue}>Was due {dueLabel(d.due_at)}</Text>
+                  <Text style={styles.lateBy}>Late by {lateFor(d.hours_late)}</Text>
+                </View>
+                <Text style={styles.lateCta}>Upload ›</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        {/* DUE SOON — same clock, same config as the client's estimate. */}
+        {!devFailed && !devLoading && (deliveries?.approaching.length ?? 0) > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Due soon</Text>
+            {deliveries!.approaching.map((d) => (
+              <Pressable
+                key={d.booking_id}
+                onPress={() => router.push(`/creator/job/${d.booking_id}`)}
+                style={styles.soonCard}
+              >
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.soonTitle}>
+                    {d.occasion ? `${d.occasion} session` : 'Remote edit order'}
+                    {d.rush ? ' · RUSH' : ''}
+                  </Text>
+                  <Text style={styles.soonDue}>Due {dueLabel(d.due_at)}</Text>
+                </View>
+                <Text style={styles.soonCta}>Upload ›</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
         {/* Earnings strip */}
         <Pressable onPress={() => router.push('/creator/earnings')} style={styles.earnCard}>
           <View style={{ flex: 1 }}>
@@ -323,6 +409,31 @@ export default function CreatorHome() {
 }
 
 const styles = StyleSheet.create({
+  section: { marginBottom: 18 },
+  sectionTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 0.8, color: '#8A8377', marginBottom: 9 },
+  lateCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#FDECEA', borderWidth: 1, borderColor: '#F3C0B8',
+    borderRadius: 14, padding: 15, marginBottom: 9,
+  },
+  lateTitle: { fontSize: 14.5, fontWeight: '800', color: '#8C2B1B' },
+  lateDue: { fontSize: 12.5, color: '#A6503E', marginTop: 3 },
+  lateBy: { fontSize: 12.5, fontWeight: '800', color: '#8C2B1B', marginTop: 2 },
+  lateCta: { fontSize: 13, fontWeight: '800', color: '#8C2B1B' },
+  soonCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: colors.yellowSoft, borderWidth: 1, borderColor: colors.yellowSoftBorder,
+    borderRadius: 14, padding: 15, marginBottom: 9,
+  },
+  soonTitle: { fontSize: 14.5, fontWeight: '800', color: colors.ink },
+  soonDue: { fontSize: 12.5, color: '#6E5B23', marginTop: 3 },
+  soonCta: { fontSize: 13, fontWeight: '800', color: '#8A6800' },
+  clockFailCard: {
+    backgroundColor: '#fff', borderWidth: 1, borderColor: '#F3C0B8',
+    borderRadius: 14, padding: 14, marginBottom: 16,
+  },
+  clockFailTitle: { fontSize: 13.5, fontWeight: '800', color: '#8C2B1B' },
+  clockFailSub: { fontSize: 12.5, color: colors.grey, marginTop: 3, lineHeight: 17 },
   rushBadge: { backgroundColor: '#FFE9E4', borderRadius: 7, paddingHorizontal: 8, paddingVertical: 3 },
   rushBadgeLabel: { fontSize: 9, fontWeight: '800', color: '#C0392B', letterSpacing: 0.4 },
   root: { flex: 1, backgroundColor: colors.offWhite },

@@ -114,6 +114,32 @@ export function registerEarningsRoutes(app: FastifyInstance) {
     },
   );
 
+  /**
+   * THE CREATOR'S OWN DELIVERY CLOCK.
+   *
+   * deliveryStatuses() already computes this — session end / first footage
+   * upload as the start, deliveryWindows() for 24h standard and 6h rush —
+   * and until now its ONLY consumer was the admin portal's Today screen. So
+   * the first person who knew a creator was late was an admin, and the
+   * creator had no way to find out at all.
+   *
+   * Same function, filtered to the caller. Deliberately not a second copy:
+   * two implementations of "late" drift, and the one the creator sees must
+   * be the one we hold them to.
+   */
+  app.get('/v1/creator/deliveries', async (request, reply) => {
+    const user = requireUser(request);
+    const { deliveryStatuses } = await import('../delivery-clock.js');
+    const all = await deliveryStatuses();
+    const mine = all.filter((d) => d.creator_id === user.id);
+    return {
+      // Already sorted worst-first by the clock itself (late before
+      // approaching, rush before standard, then by how overdue).
+      late: mine.filter((d) => d.state === 'late'),
+      approaching: mine.filter((d) => d.state === 'approaching'),
+    };
+  });
+
   app.get('/v1/creator/earnings', async (request, reply) => {
     const user = requireUser(request);
 
