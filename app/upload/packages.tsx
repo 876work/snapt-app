@@ -100,15 +100,6 @@ export default function ChooseYourEdit() {
               >
                 <View style={[styles.styleThumb, { backgroundColor: s.tint }]}>
                   <Image source={THUMBS[i % THUMBS.length]} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-                  {s.video && (
-                    <View style={styles.playWrap}>
-                      <View style={styles.playCircle}>
-                        <Svg width={11} height={11} viewBox="0 0 24 24" fill="#fff">
-                          <Path d="M6 4l14 8-14 8z" />
-                        </Svg>
-                      </View>
-                    </View>
-                  )}
                   {sel && (
                     <View style={styles.selCheck}>
                       <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
@@ -194,15 +185,6 @@ const styles = StyleSheet.create({
   },
   styleCardSel: { borderColor: colors.yellow },
   styleThumb: { height: 80, backgroundColor: '#EFEBE3' },
-  playWrap: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
-  playCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: 'rgba(26,26,26,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   selCheck: {
     position: 'absolute',
     top: 8,

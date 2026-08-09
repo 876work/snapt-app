@@ -23,7 +23,6 @@ export interface EditStyle {
   name: string;
   desc: string;
   tint: string;
-  video?: boolean;
 }
 
 // Style set from the prototype's Choose-your-edit screen.
@@ -31,7 +30,7 @@ export const EDIT_STYLES: EditStyle[] = [
   { id: 'natural', name: 'Natural & true-to-life', desc: 'Colors stay honest to the day — light clean-up, balanced tones, no heavy filters.', tint: '#8ED7A6' },
   { id: 'warm', name: 'Warm & golden', desc: 'Sun-kissed, glowing tones that flatter skin and make evenings feel like golden hour.', tint: '#F2C14E' },
   { id: 'bold', name: 'Bold & vibrant', desc: 'Punchy color and contrast that pops on a feed — made for social sharing.', tint: '#6FD3E0' },
-  { id: 'cinematic', name: 'Cinematic film look', desc: 'Moody, filmic grade with soft blacks — best for storytelling video edits.', tint: '#F2A0B5', video: true },
+  { id: 'cinematic', name: 'Cinematic film look', desc: 'Moody, filmic grade with soft blacks and restrained color — gives photos and video the same big-screen feel.', tint: '#F2A0B5' },
 ];
 
 // NOTE: this 15-file cap predates the confirmed remote pricing tiers (it
