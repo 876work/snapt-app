@@ -293,12 +293,11 @@ export default function CreatorJob() {
 
         {stage === 'offer' && (
           <>
-            <View style={styles.noteCard}>
-              <Text style={styles.noteTitle}>Client note</Text>
-              <Text style={styles.noteBody}>
-                "Golden hour is a must — we'd love candid shots by the water. Two of us, casual outfits."
-              </Text>
-            </View>
+            {/* No "client note" card here. It used to render one invented
+                sentence — the same words attributed to every client on every
+                offer — and there is no field behind it: bookings carry no
+                client note column. The meeting point the client DID enter is
+                real, and shows at the on-the-way stage where it's needed. */}
             <View style={styles.warnCard}>
               <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" style={{ marginTop: 1 }}>
                 <Circle cx="12" cy="12" r="9" stroke={colors.yellowDark} strokeWidth={1.8} />
