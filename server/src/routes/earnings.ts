@@ -91,10 +91,20 @@ export function registerEarningsRoutes(app: FastifyInstance) {
         .maybeSingle();
       if (!row) return reply.code(403).send({ error: 'Not a creator' });
       const pm = (row.payout_methods ?? {}) as { selected?: string; methods?: Record<string, unknown> };
+      /**
+       * A disabled method cannot be selected, INCLUDING by someone who
+       * already had it. The old rule exempted your own current selection
+       * (disabling only parked new signups) — but now that cash-out refuses
+       * a disabled method, that exemption let a creator re-save a method
+       * they then could not use. Their stored details survive untouched
+       * either way; this only stops it becoming the active selection.
+       */
       const toggles = await enabledPayoutMethods();
-      if (toggles[method] === false && pm.selected !== method) {
+      if (toggles[method] === false) {
+        const note = (await payoutMethodNotes())[method];
         return reply.code(409).send({
-          error: 'That payout method is not currently available — pick another option.',
+          error: `${methodName(method)} is not currently available${note ? ` — ${note}` : ''}. Pick another option.`,
+          code: 'payout_method_disabled',
         });
       }
       const methods = { ...(pm.methods ?? {}), [method]: stored };
