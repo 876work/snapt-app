@@ -397,10 +397,29 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       .select('vetting_status, headshot_status')
       .eq('user_id', user.id)
       .maybeSingle();
-    const { error } = await supabaseAdmin.from('creator_profiles').upsert(
-      { user_id: user.id, headshot_path: storagePath, headshot_status: 'pending' },
-      { onConflict: 'user_id' },
-    );
+    /**
+     * UPDATE, not upsert. `upsert` builds an INSERT tuple and only then
+     * resolves the conflict, so Postgres evaluates creator_profiles'
+     * NOT NULL columns against a row that carries none of them:
+     *   23502 null value in column "specialties" violates not-null constraint
+     * That fired on EVERY headshot registration, row present or not — the
+     * missing headshot columns were only the outer layer of this bug.
+     *
+     * specialties is `not null check (cardinality(specialties) >= 1)`, so a
+     * row genuinely cannot be created here without inventing a specialty on
+     * the applicant's behalf. When there is no row yet, say what to do
+     * instead of failing with a 500.
+     */
+    if (!existing) {
+      return reply.code(409).send({
+        error: 'Pick at least one thing you shoot first — then add your photo.',
+        code: 'application_not_started',
+      });
+    }
+    const { error } = await supabaseAdmin
+      .from('creator_profiles')
+      .update({ headshot_path: storagePath, headshot_status: 'pending' })
+      .eq('user_id', user.id);
     if (error) {
       /**
        * NEVER the raw Postgres string. An applicant hit
