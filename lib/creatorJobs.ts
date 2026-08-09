@@ -44,6 +44,9 @@ export function bookingToOffer(b: ServerBookingListItem): JobOffer {
     urgent: b.status === 'pending',
     expiresAt: b.status === 'pending' ? b.offer_expires_at ?? undefined : undefined,
     type: b.type === 'in_person' ? 'in-person' : 'remote',
+    deliveredAt: b.delivered_at ?? null,
+    remoteTier: typeof snap['remote_tier'] === 'string' ? (snap['remote_tier'] as string) : null,
+    mediaKind: b.media_kind as 'photo' | 'video' | 'both' | undefined,
   };
 }
 

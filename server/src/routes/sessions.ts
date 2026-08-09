@@ -61,6 +61,11 @@ export function registerSessionRoutes(app: FastifyInstance) {
     const user = requireUser(request);
     const booking = await loadBooking(request.params.id, reply);
     if (!booking) return;
+    // Remote orders have no meeting point and no session — a check-in on one
+    // is the app's in-person choreography leaking onto the wrong order type.
+    if (booking.type !== 'in_person') {
+      return reply.code(422).send({ error: 'Remote orders have no check-in — deliver from the job screen' });
+    }
     if (booking.status !== 'confirmed') {
       return reply.code(409).send({ error: `Booking is ${booking.status}` });
     }
@@ -92,6 +97,9 @@ export function registerSessionRoutes(app: FastifyInstance) {
       if (!booking) return;
       if (user.id !== booking.creator_id) {
         return reply.code(403).send({ error: 'Only the creator verifies the safety code' });
+      }
+      if (booking.type !== 'in_person') {
+        return reply.code(422).send({ error: 'Remote orders have no safety code — deliver from the job screen' });
       }
       const session = await getOrCreateSession(booking.id);
       if (request.body?.code !== session.safety_code) {

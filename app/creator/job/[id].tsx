@@ -13,6 +13,8 @@ import { apiConfigured } from '../../../lib/api';
 import { useCreator, JobStage } from '../../../lib/store/creator';
 import { bookingToOffer, JOB_STATUSES } from '../../../lib/creatorJobs';
 import { SocialPipeline } from '../../../components/creator/SocialPipeline';
+import { RemoteJob } from '../../../components/creator/RemoteJob';
+import { DeliverPanel, useUploadBatch } from '../../../components/creator/DeliverUploader';
 import { formatMoney, NO_SHOW_GRACE_MINUTES } from '../../../lib/constants/business';
 import { colors, insetBottom } from '../../../lib/theme';
 
@@ -49,7 +51,36 @@ export default function CreatorJob() {
       });
     });
   }, []);
-  const [picked, setPicked] = React.useState<{ uri: string; name: string; mimeType?: string }[]>([]);
+  // Final-edit uploads (in-person delivery + revision re-delivery) go through
+  // the shared batch uploader — per-file progress, retry skips what landed.
+  const finalsBatch = useUploadBatch(String(id), 'deliverable');
+  const rawBatch = useUploadBatch(String(id), 'raw');
+  const [existingFinals, setExistingFinals] = React.useState(0);
+  const [deliveredNow, setDeliveredNow] = React.useState(false);
+
+  // Open revision round (API mode): shown in the submitted stage. Declared
+  // BEFORE the early returns below — hooks after a conditional return crash
+  // the moment the condition flips mid-mount (deep-link hydration does).
+  const [openRevision, setOpenRevision] = React.useState<{ id: string; details: string } | null>(null);
+  React.useEffect(() => {
+    // Remote orders run their own screen (RemoteJob) with its own revision
+    // handling — this effect is the in-person path only.
+    if (stage !== 'submitted' || job?.type === 'remote') return;
+    import('../../../lib/api').then(({ apiConfigured: cfgd, fetchRevisionsApi, fetchMediaListingApi }) => {
+      if (!cfgd) return;
+      fetchRevisionsApi(String(id)).then((revs) => {
+        const open = revs?.find((r) => r.status === 'open');
+        setOpenRevision(open ? { id: open.id, details: open.details } : null);
+      });
+      // Finals registered before this visit (an interrupted earlier attempt)
+      // count toward the review line rather than vanishing from it.
+      fetchMediaListingApi(String(id)).then((listing) => {
+        if (listing) {
+          setExistingFinals(listing.media.filter((m) => m.kind === 'deliverable' && !m.deleted).length);
+        }
+      });
+    });
+  }, [stage, id, job?.type]);
 
   // DEEP LINK SELF-HYDRATION. Opening this screen from a notification never
   // runs the Jobs list, so the offer store is empty and `job` is undefined.
@@ -155,119 +186,105 @@ export default function CreatorJob() {
       return true;
     }).then((ok) => ok && next('session'));
 
-  const pickFootage = async () => {
-    const api = await import('../../../lib/api');
-    if (!api.apiConfigured) return; // dropzone is illustrative in mock mode
-    const ImagePicker = await import('expo-image-picker');
-    const result = await ImagePicker.launchImageLibraryAsync({ allowsMultipleSelection: true, quality: 1 });
-    if (result.canceled) return;
-    setPicked((prev) => [
-      ...prev,
-      ...result.assets.map((a, i) => ({
-        uri: a.uri,
-        name: a.fileName ?? `footage-${Date.now()}-${i}.jpg`,
-        mimeType: a.mimeType ?? undefined,
-      })),
-    ]);
-  };
-
-  // Open revision round (API mode): shown in the submitted stage; re-uses
-  // the same pick → upload deliverable → mark delivered pattern.
-  const [openRevision, setOpenRevision] = React.useState<{ id: string; details: string } | null>(null);
-  React.useEffect(() => {
-    if (stage !== 'submitted') return;
-    import('../../../lib/api').then(({ apiConfigured, fetchRevisionsApi }) => {
-      if (!apiConfigured) return;
-      fetchRevisionsApi(String(id)).then((revs) => {
-        const open = revs?.find((r) => r.status === 'open');
-        setOpenRevision(open ? { id: open.id, details: open.details } : null);
-      });
-    });
-  }, [stage]);
 
   const deliverRevision = () =>
     // Returns the success flag so a failed delivery unlocks the slider.
     withApi(async (api) => {
       if (!openRevision) return false;
-      if (picked.length === 0) {
-        setActionError('Pick the updated files first.');
-        return false;
-      }
-      for (const file of picked) {
-        const ok = await api.uploadMediaApi(job.id, 'deliverable', file);
-        if (!ok) {
-          setActionError('Upload failed — try again.');
-          return false;
-        }
-      }
       const r = await api.deliverRevisionApi(job.id, openRevision.id);
       if (r && 'error' in r) {
         setActionError(r.error);
         return false;
       }
       setOpenRevision(null);
-      setPicked([]);
+      finalsBatch.reset();
+      return true;
+    });
+
+  // In-person delivery: the deliberate act after the shoot is edited.
+  const deliverFinals = () =>
+    withApi(async (api) => {
+      const r = await api.deliverApi(job.id);
+      if (!r || 'error' in (r as object)) {
+        setActionError((r as { error?: string })?.error ?? 'Delivery failed — try again.');
+        return false;
+      }
+      setDeliveredNow(true);
+      finalsBatch.reset();
       return true;
     });
 
   const submitFootage = async () => {
+    // In-person only: the batch uploader has already landed every file when
+    // this slider unlocks — sliding is the session-completion act (the
+    // payout trigger). Remote orders never enter this stage machine.
     const ok = await withApi(async (api) => {
-      // In-person: raw footage upload + session completion (payout trigger).
-      // Remote-edit jobs: the upload is the DELIVERABLE, then deliver.
-      const kind = job.type === 'remote' ? 'deliverable' : 'raw';
-      if (picked.length === 0) {
-        setActionError('Pick at least one file from today first.');
-        return false;
-      }
-      for (const file of picked) {
-        const ok = await api.uploadMediaApi(job.id, kind, file);
-        if (!ok) {
-          setActionError('Upload failed — check your connection and try again.');
-          return false;
-        }
-      }
-      const r = job.type === 'remote' ? await api.deliverApi(job.id) : await api.completeSessionApi(job.id);
+      const r = await api.completeSessionApi(job.id);
       if (r && 'error' in r) {
         setActionError(r.error);
         return false;
       }
       return true;
     });
-    if (ok) next('submitted');
+    if (ok) {
+      rawBatch.reset();
+      next('submitted');
+    }
     return ok; // false unlocks the slider for a retry
   };
+
+  const summaryCard = (
+    <View style={styles.card}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <View style={{ minWidth: 0 }}>
+          <Text style={styles.jobTitle}>{job.title}</Text>
+          <Text style={styles.jobOccasion}>{job.occasion}</Text>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={styles.pay}>{formatMoney(job.payUsd, currency)}</Text>
+          <Text style={styles.paySub}>your take after fees</Text>
+        </View>
+      </View>
+      <View style={styles.metaRow}>
+        <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+          <Rect x="4" y="5.5" width="16" height="14" rx="3" stroke={colors.grey} strokeWidth={1.8} />
+          <Path d="M4 9.5h16M8 3.5v3M16 3.5v3" stroke={colors.grey} strokeWidth={1.8} strokeLinecap="round" />
+        </Svg>
+        <Text style={styles.metaLabel}>{job.when}</Text>
+      </View>
+      <View style={styles.metaRow}>
+        <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+          <Path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z" stroke={colors.grey} strokeWidth={1.8} strokeLinejoin="round" />
+          <Circle cx="12" cy="10" r="2.3" stroke={colors.grey} strokeWidth={1.8} />
+        </Svg>
+        <Text style={styles.metaLabel}>{job.loc}</Text>
+      </View>
+    </View>
+  );
+
+  // REMOTE ORDERS ARE DESK JOBS. Once accepted they leave the in-person
+  // stage machine entirely — no meeting point, no check-in, no safety code
+  // (the server refuses both for remote bookings). One screen: the order,
+  // the client's files, the deadline, the deliberate Deliver act.
+  if (job.type === 'remote' && stage !== 'offer') {
+    return (
+      <View style={styles.root}>
+        <ScreenHeader title="Remote edit order" />
+        <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+          {summaryCard}
+          {rushNotice}
+          <RemoteJob job={job} />
+          <View style={{ height: 24 }} />
+        </KeyboardScrollView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>
       <ScreenHeader title={STAGE_TITLES[stage]} />
       <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-        {/* Job summary card */}
-        <View style={styles.card}>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-            <View style={{ minWidth: 0 }}>
-              <Text style={styles.jobTitle}>{job.title}</Text>
-              <Text style={styles.jobOccasion}>{job.occasion}</Text>
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={styles.pay}>{formatMoney(job.payUsd, currency)}</Text>
-              <Text style={styles.paySub}>your take after fees</Text>
-            </View>
-          </View>
-          <View style={styles.metaRow}>
-            <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-              <Rect x="4" y="5.5" width="16" height="14" rx="3" stroke={colors.grey} strokeWidth={1.8} />
-              <Path d="M4 9.5h16M8 3.5v3M16 3.5v3" stroke={colors.grey} strokeWidth={1.8} strokeLinecap="round" />
-            </Svg>
-            <Text style={styles.metaLabel}>{job.when}</Text>
-          </View>
-          <View style={styles.metaRow}>
-            <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-              <Path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z" stroke={colors.grey} strokeWidth={1.8} strokeLinejoin="round" />
-              <Circle cx="12" cy="10" r="2.3" stroke={colors.grey} strokeWidth={1.8} />
-            </Svg>
-            <Text style={styles.metaLabel}>{job.loc}</Text>
-          </View>
-        </View>
+        {summaryCard}
 
         {/* Rush is shown at EVERY stage, not just the offer — the creator
             who accepted this morning needs the clock in front of them when
@@ -400,21 +417,17 @@ export default function CreatorJob() {
         {!job.social && stage === 'upload' && (
           <>
             <Text style={styles.checkinLead}>
-              Upload the raw footage from today's session. The client never sees raws — they go straight
-              to editing.
+              Upload the raw footage from today's session — you'll edit and deliver from it. The
+              client never sees raws.
             </Text>
-            <Pressable onPress={pickFootage} style={styles.dropzone}>
-              <View style={styles.dropIcon}>
-                <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
-                  <Path d="M12 16V5m0 0L7.5 9.5M12 5l4.5 4.5" stroke={colors.ink} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-                  <Path d="M5 15v3a1.5 1.5 0 001.5 1.5h11A1.5 1.5 0 0019 18v-3" stroke={colors.ink} strokeWidth={2} strokeLinecap="round" />
-                </Svg>
-              </View>
-              <Text style={styles.dropTitle}>
-                {picked.length > 0 ? `${picked.length} file${picked.length > 1 ? 's' : ''} ready` : 'Add session footage'}
-              </Text>
-              <Text style={styles.dropSub}>RAW, JPG, MP4, MOV — everything from today</Text>
-            </Pressable>
+            <DeliverPanel
+              batch={rawBatch}
+              pickTitle="Add session footage"
+              pickSub="RAW, JPG, MP4, MOV — everything from today"
+              slideLabel="Slide to submit footage"
+              onDeliver={submitFootage}
+              error={actionError}
+            />
           </>
         )}
 
@@ -426,33 +439,55 @@ export default function CreatorJob() {
             <View style={styles.card}>
               <Text style={{ fontSize: 13, color: colors.ink, lineHeight: 19 }}>{openRevision.details}</Text>
             </View>
-            <Pressable onPress={pickFootage} style={styles.dropzone}>
-              <Text style={styles.dropTitle}>
-                {picked.length > 0 ? `${picked.length} updated file${picked.length > 1 ? 's' : ''} ready` : 'Add the updated files'}
-              </Text>
-              <Text style={styles.dropSub}>Same delivery flow — upload, then mark the revision delivered</Text>
-            </Pressable>
+            <DeliverPanel
+              batch={finalsBatch}
+              pickTitle="Add the updated files"
+              pickSub="Full-resolution, unwatermarked — this replaces the delivery"
+              slideLabel="Slide to deliver revision"
+              onDeliver={deliverRevision}
+              error={actionError}
+            />
           </>
         )}
-        {!job.social && stage === 'submitted' && !openRevision && (
+        {!job.social && stage === 'submitted' && !openRevision && (job.deliveredAt || deliveredNow) && (
           <View style={styles.successCard}>
             <View style={styles.successIcon}>
               <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
                 <Path d="M5 12.5l4.5 4.5L19 7" stroke={colors.ink} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" />
               </Svg>
             </View>
-            <Text style={styles.successTitle}>Footage submitted</Text>
+            <Text style={styles.successTitle}>Delivered</Text>
             <Text style={styles.successSub}>
-              Editing takes it from here. Your payout lands in Earnings once the client's review window
-              closes.
+              The client has their edits and has been notified. Your payout lands in Earnings once
+              the review window closes.
             </Text>
           </View>
+        )}
+        {!job.social && stage === 'submitted' && !openRevision && !job.deliveredAt && !deliveredNow && (
+          <>
+            <Text style={styles.checkinLead}>
+              Footage is in — you do the edit. Upload the finished files and deliver them to the
+              client. Their delivery window is counting from the session's end.
+            </Text>
+            <DeliverPanel
+              batch={finalsBatch}
+              alreadyUploaded={existingFinals}
+              pickTitle="Add your finished edits"
+              pickSub="Full-resolution, unwatermarked — this is what the client receives"
+              slideLabel="Slide to submit finished edit"
+              onDeliver={deliverFinals}
+              error={actionError}
+            />
+          </>
         )}
         <View style={{ height: 24 }} />
       </KeyboardScrollView>
 
       <View style={styles.footer}>
-        {actionError ? <Text style={styles.actionError}>{actionError}</Text> : null}
+        {/* Upload/submitted-stage errors render inside the DeliverPanel, next to its slider. */}
+        {actionError && stage !== 'submitted' && stage !== 'upload' ? (
+          <Text style={styles.actionError}>{actionError}</Text>
+        ) : null}
         {stage === 'offer' && (
           <SlideToConfirm label="Slide to accept this job" onConfirm={acceptJob} />
         )}
@@ -472,24 +507,10 @@ export default function CreatorJob() {
         {stage === 'session' && (
           <Button title="Wrap session — upload footage" arrow onPress={() => next('upload')} />
         )}
-        {!job.social && stage === 'upload' && (
-          <SlideToConfirm
-            label={job.type === 'remote' ? 'Slide to submit finished edit' : 'Slide to submit footage'}
-            disabled={apiConfigured && picked.length === 0}
-            onConfirm={submitFootage}
-          />
-        )}
         {job.social && (stage === 'upload' || stage === 'submitted') && !openRevision && (
           <Button title="Back to jobs" variant="ghost" onPress={() => router.back()} />
         )}
-        {stage === 'submitted' && openRevision && (
-          <SlideToConfirm
-            label="Slide to deliver revision"
-            disabled={apiConfigured && picked.length === 0}
-            onConfirm={deliverRevision}
-          />
-        )}
-        {!job.social && stage === 'submitted' && !openRevision && (
+        {!job.social && stage === 'submitted' && !openRevision && (job.deliveredAt || deliveredNow) && (
           <Button title="Back to jobs" variant="ghost" onPress={() => router.back()} />
         )}
       </View>
@@ -636,28 +657,6 @@ const styles = StyleSheet.create({
   },
   checkboxOn: { backgroundColor: colors.yellow, borderColor: colors.yellow },
   contactLabel: { flex: 1, fontSize: 12.5, fontWeight: '700', color: colors.ink },
-  dropzone: {
-    borderWidth: 2,
-    borderStyle: 'dashed',
-    borderColor: '#E2C97A',
-    backgroundColor: '#FFFBF0',
-    borderRadius: 16,
-    paddingVertical: 26,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 14,
-  },
-  dropIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.yellow,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dropTitle: { fontSize: 15, fontWeight: '700', color: colors.ink },
-  dropSub: { fontSize: 12, color: '#8A7530' },
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,

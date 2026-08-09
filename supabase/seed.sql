@@ -30,7 +30,6 @@ insert into app_config (key, value, description, confirmed) values
   -- §6 — UNCONFIRMED working defaults. Do not build charge/refund/payout
   -- logic against these until Don confirms.
   ('raw_footage_retention_days', '90', 'UNCONFIRMED (§6) — also sets the re-edit ordering window', false),
-  ('delivered_content_availability_months', '12', 'UNCONFIRMED (§6)', false),
   ('creator_non_circumvention_months', '12', 'UNCONFIRMED (§6) — Creator Agreement §7', false),
   ('background_check_recheck_months', '24', 'UNCONFIRMED (§6)', false),
   ('occasion_default_duration_hours', '{"Events": 2}',

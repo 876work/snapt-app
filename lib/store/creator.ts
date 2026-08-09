@@ -23,6 +23,11 @@ export interface JobOffer {
   meetingLng?: number | null;
   /** Client's optional directions text ("blue gate by the fish market"). */
   directions?: string | null;
+  /** Set once the final edit went out — drives the delivered state. */
+  deliveredAt?: string | null;
+  /** Remote orders: tier key in REMOTE_PACKAGES (photos_6_10, standard, …). */
+  remoteTier?: string | null;
+  mediaKind?: 'photo' | 'video' | 'both';
 }
 
 export const JOB_OFFERS: JobOffer[] = [

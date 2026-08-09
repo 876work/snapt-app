@@ -44,6 +44,21 @@ export async function uploadRawFile(
   file: { uri: string; name: string; mimeType?: string; sizeBytes?: number },
   onProgress: (fraction: number) => void,
 ): Promise<RawUploadResult> {
+  return uploadBookingFile(bookingId, 'raw', file, onProgress);
+}
+
+/**
+ * The same presign → XHR-with-progress → register pipeline for every media
+ * kind. The creator's deliverable and proof uploads used to run a separate
+ * fetch-based loop with no progress and no per-file retry; there is exactly
+ * one upload pattern now.
+ */
+export async function uploadBookingFile(
+  bookingId: string,
+  kind: 'raw' | 'deliverable' | 'proof',
+  file: { uri: string; name: string; mimeType?: string; sizeBytes?: number },
+  onProgress: (fraction: number) => void,
+): Promise<RawUploadResult> {
   if (!apiBase) return { ok: false, error: 'No server configured.' };
   const contentType = file.mimeType ?? 'application/octet-stream';
 
@@ -56,7 +71,7 @@ export async function uploadRawFile(
       // size_bytes lets the server refuse an oversize file BEFORE handing
       // out a presigned URL, rather than after a 700MB round trip.
       body: JSON.stringify({
-        kind: 'raw',
+        kind,
         filename: file.name,
         content_type: contentType,
         size_bytes: file.sizeBytes,
@@ -89,7 +104,7 @@ export async function uploadRawFile(
     const res = await fetch(`${apiBase}/v1/bookings/${bookingId}/media`, {
       method: 'POST',
       headers: await authHeaders(),
-      body: JSON.stringify({ kind: 'raw', storage_path: target.storage_path, content_type: contentType }),
+      body: JSON.stringify({ kind, storage_path: target.storage_path, content_type: contentType }),
     });
     if (!res.ok) {
       const json = (await res.json().catch(() => ({}))) as { error?: string };

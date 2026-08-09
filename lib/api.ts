@@ -780,6 +780,8 @@ export interface DeliveryStatus {
 export async function fetchMyDeliveries(): Promise<{
   late: DeliveryStatus[];
   approaching: DeliveryStatus[];
+  /** Every started, undelivered clock — the job screen's deadline source. */
+  open?: DeliveryStatus[];
 } | null> {
   return request('/v1/creator/deliveries');
 }
@@ -915,6 +917,8 @@ export interface MediaItem {
   download_url: string | null;
   content_type: string | null;
   deleted?: boolean;
+  storage_path?: string;
+  created_at?: string;
 }
 
 export interface MediaListing {
@@ -1133,36 +1137,6 @@ export async function uploadHeadshotApi(file: {
     return { ok: false, error: (registered as { error?: string })?.error ?? 'Could not save the headshot.' };
   }
   return { ok: true };
-}
-
-/** Presign, PUT the file bytes, and register the media row. */
-export async function uploadMediaApi(
-  bookingId: string,
-  kind: 'raw' | 'deliverable' | 'proof',
-  file: { uri: string; name: string; mimeType?: string },
-): Promise<boolean> {
-  const target = await authedPost<{ upload_url: string; storage_path: string }>(
-    `/v1/bookings/${bookingId}/media/upload-url`,
-    { kind, filename: file.name, content_type: file.mimeType ?? 'application/octet-stream' },
-  );
-  if (!target || 'error' in target) return false;
-  try {
-    const blob = await (await fetch(file.uri)).blob();
-    const put = await fetch(target.upload_url, {
-      method: 'PUT',
-      headers: { 'Content-Type': file.mimeType ?? 'application/octet-stream' },
-      body: blob,
-    });
-    if (!put.ok) return false;
-  } catch {
-    return false;
-  }
-  const registered = await authedPost(`/v1/bookings/${bookingId}/media`, {
-    kind,
-    storage_path: target.storage_path,
-    content_type: file.mimeType,
-  });
-  return registered != null && !('error' in (registered as object));
 }
 
 /**

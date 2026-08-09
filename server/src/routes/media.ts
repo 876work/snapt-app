@@ -22,6 +22,7 @@ interface BookingRow {
   creator_id: string | null;
   type: string;
   status: string;
+  occasion: string | null;
   price_usd: number;
   pricing_snapshot: Record<string, unknown>;
 }
@@ -262,12 +263,13 @@ export function registerMediaRoutes(app: FastifyInstance) {
     if (!['confirmed', 'completed'].includes(booking.status)) {
       return reply.code(409).send({ error: `Booking is ${booking.status}` });
     }
-    const { count } = await supabaseAdmin
+    const { data: finals } = await supabaseAdmin
       .from('booking_media')
-      .select('id', { count: 'exact', head: true })
+      .select('id, content_type')
       .eq('booking_id', booking.id)
-      .eq('kind', 'deliverable');
-    if (!count) {
+      .eq('kind', 'deliverable')
+      .is('deleted_at', null);
+    if (!finals || finals.length === 0) {
       return reply.code(409).send({ error: 'Upload at least one deliverable before delivering' });
     }
     // Social: the edit is DEFINED by the client's locked selection. A
@@ -289,7 +291,20 @@ export function registerMediaRoutes(app: FastifyInstance) {
       .update({ status: 'completed', delivered_at: new Date().toISOString() })
       .eq('id', booking.id);
     await createPayoutForBooking(booking);
-    await notify(booking.client_id, 'delivery_ready', 'Your content is ready!', 'Your edited files are delivered — open the app to view, download, and rate your experience.', { booking_id: booking.id });
+    // This push is the moment the product exists for, so it carries the
+    // actual numbers: "Your 12 photos and 2 videos are ready", not "your
+    // content". Occasion when there is one; remote orders have none.
+    const photos = finals.filter((m) => (m.content_type ?? '').startsWith('image/')).length;
+    const videos = finals.filter((m) => (m.content_type ?? '').startsWith('video/')).length;
+    const parts: string[] = [];
+    if (photos > 0) parts.push(`${photos} photo${photos === 1 ? '' : 's'}`);
+    if (videos > 0) parts.push(`${videos} video${videos === 1 ? '' : 's'}`);
+    const what = parts.length > 0 ? parts.join(' and ') : `${finals.length} edited file${finals.length === 1 ? '' : 's'}`;
+    const title = `Your ${what} ${photos + videos === 1 && parts.length > 0 ? 'is' : 'are'} ready!`;
+    const body = booking.occasion
+      ? `The edits from your ${booking.occasion} session are in — open the app to view, download, and rate your experience.`
+      : 'Your finished edits are in — open the app to view, download, and rate your experience.';
+    await notify(booking.client_id, 'delivery_ready', title, body, { booking_id: booking.id });
     await notify(user.id, 'payout_pending', 'Payout on the way', 'Delivery made — your earnings are pending and clear once the 7-day dispute window closes.', { booking_id: booking.id });
     return { delivered: true, payout: 'held_7_days' };
   });

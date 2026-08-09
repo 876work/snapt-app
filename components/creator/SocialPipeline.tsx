@@ -3,8 +3,8 @@ import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-nat
 import Svg, { Circle, Path } from 'react-native-svg';
 import { Text } from '../../lib/text';
 import { Button } from '../ui/Button';
-import { SlideToConfirm } from '../ui/SlideToConfirm';
 import type { SelectionState } from '../../lib/api';
+import { BatchFileList, DeliverPanel, useUploadBatch } from './DeliverUploader';
 import { colors } from '../../lib/theme';
 
 /**
@@ -25,7 +25,10 @@ export function SocialPipeline({
 }) {
   const [state, setState] = React.useState<SelectionState | null>(null);
   const [loading, setLoading] = React.useState(true);
-  const [picked, setPicked] = React.useState<{ uri: string; name: string; mimeType?: string }[]>([]);
+  // Shared batch uploader (per-file progress, retry skips what landed) — one
+  // batch for proofs, one for the final edits.
+  const proofBatch = useUploadBatch(bookingId, 'proof');
+  const finalBatch = useUploadBatch(bookingId, 'deliverable');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [delivered, setDelivered] = React.useState(false);
@@ -48,34 +51,12 @@ export function SocialPipeline({
     return () => clearInterval(t);
   }, [state, load]);
 
-  const pick = async () => {
-    const ImagePicker = await import('expo-image-picker');
-    const result = await ImagePicker.launchImageLibraryAsync({ allowsMultipleSelection: true, quality: 1 });
-    if (result.canceled) return;
-    setPicked((prev) => [
-      ...prev,
-      ...result.assets.map((a, i) => ({
-        uri: a.uri,
-        name: a.fileName ?? `proof-${Date.now()}-${i}.jpg`,
-        mimeType: a.mimeType ?? undefined,
-      })),
-    ]);
-  };
-
   const uploadProofs = async () => {
     setBusy(true);
     setError(null);
-    const { uploadMediaApi } = await import('../../lib/api');
-    for (const f of picked) {
-      const ok = await uploadMediaApi(bookingId, 'proof', f);
-      if (!ok) {
-        setError('An upload failed — try again.');
-        setBusy(false);
-        await load();
-        return;
-      }
-    }
-    setPicked([]);
+    const failures = await proofBatch.uploadAll();
+    if (failures === 0) proofBatch.reset();
+    else setError(`${failures} file${failures === 1 ? '' : 's'} failed — retry sends only those.`);
     await load();
     setBusy(false);
   };
@@ -92,25 +73,14 @@ export function SocialPipeline({
 
   const deliverFinal = async () => {
     setError(null);
-    if (picked.length === 0) {
-      setError('Pick the edited files first.');
-      return false;
-    }
-    const { uploadMediaApi, deliverApi } = await import('../../lib/api');
-    for (const f of picked) {
-      const ok = await uploadMediaApi(bookingId, 'deliverable', f);
-      if (!ok) {
-        setError('An upload failed — try again.');
-        return false;
-      }
-    }
+    const { deliverApi } = await import('../../lib/api');
     const r = await deliverApi(bookingId);
     if (!r || 'error' in (r as object)) {
       setError((r as { error?: string })?.error ?? 'Delivery failed — try again.');
       return false;
     }
     setDelivered(true);
-    setPicked([]);
+    finalBatch.reset();
     return true;
   };
 
@@ -171,16 +141,16 @@ export function SocialPipeline({
             </View>
           ))}
         </View>
-        <Pressable onPress={pick} style={styles.dropzone}>
-          <Text style={styles.dropTitle}>
-            {picked.length > 0 ? `${picked.length} edited file${picked.length > 1 ? 's' : ''} ready` : 'Add the final edits'}
-          </Text>
-          <Text style={styles.dropSub}>Full-resolution, unwatermarked — this is the delivery</Text>
-        </Pressable>
-        {!!error && <Text style={styles.error}>{error}</Text>}
-        <View style={{ marginTop: 14 }}>
-          <SlideToConfirm label="Slide to deliver final edits" disabled={picked.length === 0} onConfirm={deliverFinal} />
-        </View>
+        <DeliverPanel
+          batch={finalBatch}
+          promisedCount={selected.length}
+          promisedLabel={`${selected.length} locked pick${selected.length === 1 ? '' : 's'}`}
+          pickTitle="Add the final edits"
+          pickSub="Full-resolution, unwatermarked — this is the delivery"
+          slideLabel="Slide to deliver final edits"
+          onDeliver={deliverFinal}
+          error={error}
+        />
       </View>
     );
   }
@@ -221,21 +191,32 @@ export function SocialPipeline({
         {photoProofs.length} photo{photoProofs.length === 1 ? '' : 's'} · {videoProofs.length} video
         {videoProofs.length === 1 ? '' : 's'} uploaded
       </Text>
-      <Pressable onPress={pick} style={styles.dropzone}>
+      <Pressable onPress={proofBatch.pick} disabled={proofBatch.uploading} style={styles.dropzone}>
         <Text style={styles.dropTitle}>
-          {picked.length > 0 ? `${picked.length} file${picked.length > 1 ? 's' : ''} ready to upload` : 'Add proofs'}
+          {proofBatch.files.length > 0 ? `${proofBatch.files.length} file${proofBatch.files.length > 1 ? 's' : ''} ready to upload` : 'Add proofs'}
         </Text>
         <Text style={styles.dropSub}>JPG / MP4 exports — never the raw originals</Text>
       </Pressable>
+      <BatchFileList batch={proofBatch} />
       {!!error && <Text style={styles.error}>{error}</Text>}
       <View style={{ gap: 10, marginTop: 14 }}>
-        {picked.length > 0 && (
-          <Button title={busy ? 'Uploading…' : `Upload ${picked.length} proof${picked.length > 1 ? 's' : ''}`} disabled={busy} onPress={uploadProofs} />
+        {proofBatch.files.length > 0 && (
+          <Button
+            title={
+              proofBatch.uploading
+                ? `Uploading ${proofBatch.doneCount + 1} of ${proofBatch.files.length}…`
+                : proofBatch.failedCount > 0
+                  ? `Retry ${proofBatch.failedCount} failed file${proofBatch.failedCount > 1 ? 's' : ''}`
+                  : `Upload ${proofBatch.files.length} proof${proofBatch.files.length > 1 ? 's' : ''}`
+            }
+            disabled={busy}
+            onPress={uploadProofs}
+          />
         )}
         <Button
           title="Publish gallery — start client selection"
-          variant={picked.length > 0 ? 'ghost' : undefined}
-          disabled={busy || !enough || picked.length > 0}
+          variant={proofBatch.files.length > 0 ? 'ghost' : undefined}
+          disabled={busy || !enough || proofBatch.files.length > 0}
           onPress={publish}
         />
         {!enough && (

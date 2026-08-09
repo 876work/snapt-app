@@ -137,6 +137,9 @@ export function registerEarningsRoutes(app: FastifyInstance) {
       // approaching, rush before standard, then by how overdue).
       late: mine.filter((d) => d.state === 'late'),
       approaching: mine.filter((d) => d.state === 'approaching'),
+      // Every started, undelivered clock — the job screen shows the deadline
+      // from HERE so it can never drift from what admin Today enforces.
+      open: mine,
     };
   });
 

@@ -52,12 +52,16 @@ export default function Delivery() {
           setLoadFailed(true);
           return;
         }
-        if (listing.media.length === 0) {
+        setExpiresAt(listing.files_expire_at);
+        // FINAL EDITS ONLY. The listing also returns Social proof galleries
+        // (the client needed them to choose) — watermarked exports that must
+        // never sit in the delivery grid or ride along on "Download all".
+        const finals = listing.media.filter((m) => m.kind === 'deliverable');
+        if (finals.length === 0) {
           setReal([]);
           return;
         }
-        setExpiresAt(listing.files_expire_at);
-        const live = listing.media.filter((m) => !m.deleted && m.download_url);
+        const live = finals.filter((m) => !m.deleted && m.download_url);
         if (live.length === 0) {
           setAllDeleted(true);
           setReal([]);
@@ -180,12 +184,25 @@ export default function Delivery() {
           <View style={styles.expiredCard}>
             <Text style={styles.expiredTitle}>These files are no longer available</Text>
             <Text style={styles.expiredSub}>
-              Delivered files are stored for 12 months and have now been permanently removed, as
-              covered in our retention policy. Files you downloaded to your device are unaffected.
+              {expiresAt
+                ? `Delivered files were available until ${new Date(expiresAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })} and have now been permanently removed, as covered in our retention policy.`
+                : 'Delivered files are stored for a limited period and have now been permanently removed, as covered in our retention policy.'}{' '}
+              Files you downloaded to your device are unaffected.
             </Text>
           </View>
         )}
-        {!allDeleted && (<>
+        {!allDeleted && deliverables.length === 0 && apiConfigured && (
+          // Genuinely empty ≠ delivered. "It's ready! 0 edited files" was a
+          // celebration card over nothing — say what's actually happening.
+          <View style={styles.expiredCard}>
+            <Text style={styles.expiredTitle}>Your delivery isn't here yet</Text>
+            <Text style={styles.expiredSub}>
+              Your creator is still working on the edits. You'll get a notification the moment
+              they're delivered — no need to check back.
+            </Text>
+          </View>
+        )}
+        {!allDeleted && (deliverables.length > 0 || !apiConfigured) && (<>
         <View style={styles.readyCard}>
           <View style={styles.readyIcon}>
             <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
@@ -270,7 +287,7 @@ export default function Delivery() {
       </KeyboardScrollView>
       <View style={styles.footer}>
         {saveNote ? <Text style={styles.saveNote}>{saveNote}</Text> : null}
-        {!allDeleted && (
+        {!allDeleted && (deliverables.length > 0 || !apiConfigured) && (
           <Pressable onPress={saveAll} style={styles.cta}>
             <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
               <Path d="M12 4v11m0 0l-4-4m4 4l4-4" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
