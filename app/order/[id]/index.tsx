@@ -8,6 +8,7 @@ import { ScreenHeader } from '../../../components/ui/ScreenHeader';
 import { useReduceMotion } from '../../../lib/useReduceMotion';
 import { colors, insetBottom } from '../../../lib/theme';
 import type { MediaListing, ServerBookingListItem } from '../../../lib/api';
+import { REMOTE_PACKAGES } from '../../../lib/store/upload';
 
 /**
  * Order tracker — every value on this screen comes from the server.
@@ -58,13 +59,24 @@ function stageOf(b: ServerBookingListItem): Stage {
   return 0; // pending: paid, waiting for an editor to accept
 }
 
-/** "standard" -> "Standard package" etc. Tier keys are admin-configured. */
+/**
+ * The package as the client bought it.
+ *
+ * The tier stored on the order is a config KEY (`photos_1_5`), not a label —
+ * title-casing it produced "Photos_1_5" on screen. REMOTE_PACKAGES already
+ * holds the names shown at purchase, so the tracker reads the same table the
+ * client chose from and the two screens say the same words.
+ */
 function packageLabel(b: ServerBookingListItem): string {
   const kind =
     b.media_kind === 'video' ? 'Video edit' : b.media_kind === 'both' ? 'Photo + video' : 'Photo edit';
   const tier = b.pricing_snapshot?.remote_tier;
   if (!tier) return kind;
-  return `${kind} — ${tier.charAt(0).toUpperCase()}${tier.slice(1)}`;
+  const packages = REMOTE_PACKAGES[b.media_kind as keyof typeof REMOTE_PACKAGES] ?? [];
+  const named = packages.find((p) => p.tier === tier)?.name;
+  // An unknown key means the admin added a tier this build predates. Show the
+  // kind alone rather than a raw key — never invent a name for it.
+  return named ? `${kind} — ${named}` : kind;
 }
 
 function formatDeadline(iso: string): string {

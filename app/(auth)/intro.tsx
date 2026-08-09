@@ -2,6 +2,7 @@ import React from 'react';
 import { AccessibilityInfo, Image, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Animated, {
   Extrapolation,
+  withTiming,
   type SharedValue,
   interpolate,
   interpolateColor,
@@ -55,6 +56,9 @@ const SLIDES = [
   },
 ];
 
+/** Source px of the right edge that must go on slides with a baked "Skip". */
+const BAKED_SKIP_CROP = 92;
+
 /** Reserved band at the bottom of every slide for dots + button + insets. */
 const FOOTER_RESERVE = 128;
 
@@ -72,13 +76,22 @@ const FOOTER_RESERVE = 128;
  *    exactly under the real Skip control, which covers it.
  */
 function coverGeometry(W: number, H: number, src: { width: number; height: number }, bakedSkip: boolean) {
-  const scale = Math.max(W / src.width, H / src.height);
+  // Plain cover scale fills the screen, but on a WIDE screen (SE: 0.56) it
+  // leaves only ~52 source px of horizontal slack — less than the ~86 needed
+  // to crop the baked "Skip" away, so it surfaced past the real Skip pill.
+  // Zooming just enough to guarantee that slack removes it on every aspect.
+  // The extra zoom costs vertical crop, which the topCut bias below spends
+  // on the bottom (the baked panel) rather than the wordmark.
+  const cover = Math.max(W / src.width, H / src.height);
+  const scale = bakedSkip ? Math.max(cover, W / (src.width - BAKED_SKIP_CROP)) : cover;
   const dispW = src.width * scale;
   const dispH = src.height * scale;
   const overSrcX = (dispW - W) / scale;
+  // Left cap 55: the baked wordmark starts at src x≈60 and faces at ≈85+,
+  // so 55 keeps both on-screen at every aspect (observed clipped at 85).
   const leftCutSrc = bakedSkip
-    ? Math.min(Math.max(overSrcX - 86, 0), 85)
-    : Math.min(overSrcX * 0.5, 100);
+    ? Math.min(Math.max(overSrcX - 86, 0), 55)
+    : Math.min(overSrcX * 0.5, 55);
   const leftCut = leftCutSrc * scale;
   const rightCut = dispW - W - leftCut;
   // Wider-than-art screens (rare) crop vertically instead; keep the top
@@ -139,16 +152,24 @@ function Slide({
     };
   }, [reduceMotion, g.leftCut, ampL, ampR, W]);
 
-  // Text runs slightly ahead of the swipe and settles with a small rise;
-  // the body's opacity window is narrower than the headline's, so the
-  // headline lands first and the body follows — the stagger.
+  // Text rises and fades on entry; the body's opacity window is narrower
+  // than the headline's, so the headline lands first and the body follows —
+  // the stagger.
+  //
+  // VERTICAL ONLY, deliberately. A horizontal translate keyed off dx pushed
+  // the copy block sideways whenever scrollX was stale, and on a 375pt screen
+  // that clipped the headline clean off the edge — observed on SE, on both
+  // the swipe and the button path. The horizontal component bought a barely
+  // perceptible effect in exchange for a layout that could break; the rise
+  // and the stagger, which are what the motion is actually for, do not
+  // depend on it. Image parallax stays: it is bounded by the crop, so a bad
+  // value can only under-move it, never expose an edge.
   const titleStyle = useAnimatedStyle(() => {
     if (reduceMotion) return { opacity: 1 };
     const dx = scrollX.value - index * W;
     return {
       opacity: interpolate(dx, [-0.75 * W, 0, 0.75 * W], [0, 1, 0], Extrapolation.CLAMP),
       transform: [
-        { translateX: -0.14 * dx },
         { translateY: interpolate(dx, [-W, 0, W], [14, 0, 14], Extrapolation.CLAMP) },
       ],
     };
@@ -159,7 +180,6 @@ function Slide({
     return {
       opacity: interpolate(dx, [-0.5 * W, 0, 0.5 * W], [0, 1, 0], Extrapolation.CLAMP),
       transform: [
-        { translateX: -0.14 * dx },
         { translateY: interpolate(dx, [-W, 0, W], [22, 0, 22], Extrapolation.CLAMP) },
       ],
     };
@@ -171,6 +191,22 @@ function Slide({
         source={item.image}
         style={[{ position: 'absolute', top: -g.topCut, left: 0, width: g.dispW, height: g.dispH }, imageStyle]}
       />
+      {/* Between the artwork and the copy, per slide. As a sibling of the
+          list it painted OVER the text it exists to make readable. */}
+      <View style={styles.scrim} pointerEvents="none">
+        <Svg width="100%" height="100%" preserveAspectRatio="none">
+          <Defs>
+            <LinearGradient id={`scrim-${item.key}`} x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor="#140F05" stopOpacity="0" />
+              <Stop offset="0.28" stopColor="#140F05" stopOpacity="0.30" />
+              <Stop offset="0.48" stopColor="#140F05" stopOpacity="0.80" />
+              <Stop offset="0.60" stopColor="#140F05" stopOpacity="1" />
+              <Stop offset="1" stopColor="#140F05" stopOpacity="1" />
+            </LinearGradient>
+          </Defs>
+          <Rect x="0" y="0" width="100%" height="100%" fill={`url(#scrim-${item.key})`} />
+        </Svg>
+      </View>
       <View style={[styles.copy, { bottom: insetBottom + FOOTER_RESERVE }]} pointerEvents="none">
         <Animated.View style={titleStyle}>
           <Text style={styles.title}>{item.title}</Text>
@@ -243,23 +279,6 @@ export default function Intro() {
         keyExtractor={(i) => i.key}
       />
 
-      {/* Scrim: fixed over the lower half so white copy reads on the yellow
-          artwork (and the assets' baked bottom panel disappears into it).
-          The top of the image stays undimmed. */}
-      <View style={styles.scrim} pointerEvents="none">
-        <Svg width="100%" height="100%" preserveAspectRatio="none">
-          <Defs>
-            <LinearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor="#140F05" stopOpacity="0" />
-              <Stop offset="0.42" stopColor="#140F05" stopOpacity="0.34" />
-              <Stop offset="0.72" stopColor="#140F05" stopOpacity="0.82" />
-              <Stop offset="1" stopColor="#140F05" stopOpacity="0.95" />
-            </LinearGradient>
-          </Defs>
-          <Rect x="0" y="0" width="100%" height="100%" fill="url(#scrim)" />
-        </Svg>
-      </View>
-
       {/* Skip — screens 1 and 2 only, gone on 3. Sits exactly over the corner
           where s1/s2 bake a "Skip" into the artwork, so on screens where the
           focal crop can't remove those pixels, this control covers them. */}
@@ -289,8 +308,19 @@ export default function Intro() {
             if (last) {
               router.push('/(auth)/signup');
             } else {
-              listRef.current?.scrollToIndex({ index: page + 1, animated: !reduceMotion });
-              if (reduceMotion) setPage(page + 1);
+              const next = page + 1;
+              listRef.current?.scrollToIndex({ index: next, animated: !reduceMotion });
+              // scrollX MUST be advanced by hand here. A programmatic
+              // scrollToIndex does not feed the animated scroll handler, so
+              // scrollX stayed at 0 while the list sat on page 2 — every
+              // slide reached by the button rendered its copy offset by
+              // -0.14 * -W (~52pt right) and clipped the headline off the
+              // edge. Swiping was always fine, which is why it survived the
+              // iPhone 17 pass; the SE screenshot caught it.
+              scrollX.value = reduceMotion
+                ? next * W
+                : withTiming(next * W, { duration: 300 });
+              setPage(next);
             }
           }}
         />
@@ -304,7 +334,12 @@ const styles = StyleSheet.create({
   copy: { position: 'absolute', left: 24, right: 24 },
   title: { fontSize: 28, fontWeight: '800', letterSpacing: -0.8, color: '#fff', marginBottom: 10 },
   sub: { fontSize: 14.5, lineHeight: 21, color: 'rgba(255,255,255,0.88)' },
-  scrim: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '58%' },
+    // 72% tall with full opacity from 60% of its own height (= 71% down the
+  // screen). The copy sits at ~81% and the assets bake their own text onto a
+  // light panel from ~78% — both land in the solid region. Measured against
+  // screenshots, not guessed: at 62% the ramp finished BELOW the copy and
+  // left it washed out over the artwork.
+  scrim: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '72%' },
   skip: {
     position: 'absolute',
     top: insetTop + 6,
