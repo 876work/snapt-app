@@ -236,7 +236,18 @@ export function registerMediaRoutes(app: FastifyInstance) {
       ? new Date(new Date(bRow.delivered_at).getTime() + deliverableDays * 86400_000).toISOString()
       : null;
 
-    return { media, files_expire_at };
+    // How many source files this order was created with. Clients never get
+    // raw files LISTED (the filter above is deliberate), but "Files uploaded"
+    // on the order tracker must be the real number, not a hardcoded 3 — a
+    // count leaks no content.
+    const { count: source_count } = await supabaseAdmin
+      .from('booking_media')
+      .select('id', { count: 'exact', head: true })
+      .eq('booking_id', booking.id)
+      .eq('kind', 'raw')
+      .is('deleted_at', null);
+
+    return { media, files_expire_at, source_count: source_count ?? 0 };
   });
 
   // Delivery: creator marks the final edit delivered. Requires at least one

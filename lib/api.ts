@@ -118,6 +118,15 @@ export async function noteIfDisabled(res: Response): Promise<boolean> {
 
 export const apiBase = apiUrl;
 
+/**
+ * The same guarded request the rest of this file uses, exported for screens
+ * that read endpoints without a dedicated wrapper (order tracker: config,
+ * threads, revisions). Same disabled/offline handling, same null-on-failure.
+ */
+export function apiRequest<T>(path: string, init?: RequestInit): Promise<T | null> {
+  return request<T>(path, init);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T | null> {
   if (!apiUrl) return null;
   try {
@@ -496,11 +505,19 @@ interface ServerBooking {
   duration_hours: number | null;
   media_kind: Booking['mediaKind'];
   price_usd: number;
-  pricing_snapshot?: { session_price_usd?: number; subtotal_usd?: number };
+  pricing_snapshot?: {
+    session_price_usd?: number;
+    subtotal_usd?: number;
+    /** Remote-edit package tier as sold (e.g. "standard"). */
+    remote_tier?: string | null;
+    /** USD per addon as sold; rush_usd > 0 means this is a rush order. */
+    addons?: { rush_usd?: number; extra_photos_usd?: number; revisions_usd?: number };
+  };
   status: string;
   reschedule_count: number;
   offer_expires_at?: string | null;
   delivered_at?: string | null;
+  created_at?: string;
 }
 
 export function mapServerStatus(status: string): Booking['status'] {
@@ -861,6 +878,8 @@ export interface MediaListing {
   media: MediaItem[];
   /** When the retention job will remove the deliverables (ISO), if known. */
   files_expire_at: string | null;
+  /** Source files the order was created with (raw uploads, never listed). */
+  source_count?: number;
 }
 
 export async function fetchMediaApi(id: string): Promise<MediaItem[] | null> {
