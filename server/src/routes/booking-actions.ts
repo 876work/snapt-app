@@ -143,13 +143,13 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
         await notify(booking.creator_id, 'client_cancelled', 'Booking cancelled by client', 'A booking on your schedule was cancelled — the slot is free again.', { booking_id: booking.id, audience: 'creator' });
       }
       if (quote.chargeUsd > 0) {
-        await notify(user.id, 'fee_charged', 'Cancellation fee applied', `A late-cancellation charge of $${quote.chargeUsd.toFixed(2)} applied per the ${quote.tier} notice tier.`, { booking_id: booking.id });
+        await notify(user.id, 'fee_charged', 'Cancellation fee applied', `A late-cancellation charge of {amount} applied per the ${quote.tier} notice tier.`, { booking_id: booking.id }, { amount: quote.chargeUsd });
       }
       await notify(
         user.id,
         'refund_processed',
         'Cancellation confirmed',
-        `Your booking is cancelled. Refund on its way: $${quote.refundUsd.toFixed(2)} to your original payment method within 5–10 business days.`,
+        'Your booking is cancelled. Refund on its way: {amount} to your original payment method within 5–10 business days.',
         { booking_id: booking.id },
       );
       return { cancelled_by: 'client', ...quote };
@@ -255,11 +255,11 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
         user.id,
         'reschedule_confirmed',
         'Booking rescheduled',
-        quote.free ? 'Your new time is locked in — no charge.' : `Your new time is locked in. A $${quote.feeUsd.toFixed(2)} reschedule charge applied.`,
+        quote.free ? 'Your new time is locked in — no charge.' : 'Your new time is locked in. A {amount} reschedule charge applied.',
         { booking_id: booking.id },
       );
       if (!quote.free && quote.feeUsd > 0) {
-        await notify(user.id, 'fee_charged', 'Reschedule fee applied', `A $${quote.feeUsd.toFixed(2)} reschedule charge applied (24–48h window).`, { booking_id: booking.id });
+        await notify(user.id, 'fee_charged', 'Reschedule fee applied', 'A {amount} reschedule charge applied (24–48h window).', { booking_id: booking.id }, { amount: quote.feeUsd });
       }
       if (booking.creator_id) {
         await notify(booking.creator_id, 'reschedule_confirmed', 'A booking moved', 'A session on your schedule was rescheduled — check Jobs for the new time.', { booking_id: booking.id, audience: 'creator' });

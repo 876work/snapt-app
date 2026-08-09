@@ -29,8 +29,9 @@ async function releasePayouts(): Promise<void> {
       p.creator_id,
       'payout_available',
       'Earnings available',
-      `$${Number(p.amount_usd).toFixed(2)} cleared the holding window — cash out any time.`,
+      '{amount} cleared the holding window — cash out any time.',
       { payout_id: p.id },
+      { amount: Number(p.amount_usd) },
     );
   }
 }

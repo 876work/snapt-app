@@ -103,8 +103,8 @@ export function registerRevisionRoutes(app: FastifyInstance) {
       .update({ pricing_snapshot: { ...snapshot, addons } })
       .eq('id', booking.id);
     await notify(user.id, 'payment_charged', 'Extra revision round added',
-      `$${charge.toFixed(2)} charged — you can now request another revision on this order.`,
-      { booking_id: booking.id });
+      '{amount} charged — you can now request another revision on this order.',
+      { booking_id: booking.id }, { amount: charge });
     return reply.code(201).send({ purchased: true, charged_usd: charge });
   });
 

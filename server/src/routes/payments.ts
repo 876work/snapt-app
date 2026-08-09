@@ -283,8 +283,9 @@ export function registerPaymentRoutes(app: FastifyInstance) {
               clientId,
               'payment_charged',
               'Payment received',
-              `Your payment of $${(intent.amount_received / 100).toFixed(2)} went through — receipt under Profile → Payments & receipts.`,
+              'Your payment of {amount} went through — receipt under Profile → Payments & receipts.',
               { booking_id: r.booking_id },
+              { amount: intent.amount_received / 100 },
             );
           } else if (r.retryable) {
             // TELL STRIPE THE TRUTH. Returning 200 after failing to create the
@@ -354,8 +355,9 @@ export function registerPaymentRoutes(app: FastifyInstance) {
               clientId,
               'payment_charged',
               'Extra picks added',
-              `Your payment of $${(intent.amount_received / 100).toFixed(2)} went through — your full selection is locked and off to editing.`,
+              'Your payment of {amount} went through — your full selection is locked and off to editing.',
               { booking_id: bookingId },
+              { amount: intent.amount_received / 100 },
             );
           }
           break;
@@ -384,8 +386,9 @@ export function registerPaymentRoutes(app: FastifyInstance) {
             clientId,
             'payment_charged',
             'Payment received',
-            `Your payment of $${(intent.amount_received / 100).toFixed(2)} went through — receipt under Profile → Payments & receipts.`,
+            'Your payment of {amount} went through — receipt under Profile → Payments & receipts.',
             { booking_id: bookingId, transaction_id: txn?.id },
+            { amount: intent.amount_received / 100 },
           );
         }
         break;

@@ -311,9 +311,10 @@ export function registerAdminUserStatusRoutes(app: FastifyInstance) {
       'booking_reassigned',
       'A booking was reassigned',
       originalShare > 0
-        ? `This booking has been passed to another creator. Your share of $${originalShare.toFixed(2)} is on its normal payout hold.`
+        ? 'This booking has been passed to another creator. Your share of {amount} is on its normal payout hold.'
         : 'This booking has been passed to another creator.',
       { booking_id: booking.id, audience: 'creator' },
+      originalShare > 0 ? { amount: originalShare } : {},
     );
     await notify(
       newCreatorId,

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { supabaseAdmin } from '../supabase.js';
+import { moneyFor } from '../money.js';
 import { requireUser } from '../plugins/auth.js';
 import { sendEmail } from '../email.js';
 
@@ -73,7 +74,7 @@ export function registerAccountRoutes(app: FastifyInstance) {
     if ((payouts ?? []).length > 0) {
       const total = (payouts ?? []).reduce((s, p) => s + Number(p.amount_usd || 0), 0);
       return reply.code(409).send({
-        error: `You have $${total.toFixed(2)} in earnings that haven't been paid out — cash out first, then delete your account.`,
+        error: `You have ${await moneyFor(user.id, total)} in earnings that haven't been paid out — cash out first, then delete your account.`,
         code: 'pending_earnings',
       });
     }

@@ -1,6 +1,7 @@
 import { supabaseAdmin } from './supabase.js';
 import { sendEmail } from './email.js';
 import { targetFor, type TargetData } from './notification-targets.js';
+import { displayRate, formatMoney, formatPayout, type MoneyDirection } from './money.js';
 
 // Central notification dispatcher (handoff §13): every backend state change
 // routes through here, never per-feature ad-hoc sends.
@@ -83,6 +84,27 @@ const TRIGGERS: Record<string, TriggerSpec> = {
   selection_autopicked: { category: 'bookings', push: true, email: false },
 };
 
+/**
+ * WHICH TRIGGERS ACTUALLY MOVE MONEY, and in which direction.
+ *
+ * The dual "XCD 176.26 (charged as USD 64.80)" display keys off THIS map, not
+ * off anything an author remembers to pass — so a new money template inherits
+ * the right treatment by naming its trigger, and the verb can never disagree
+ * with what happened. Absent from the map = nothing moved (a ledger state
+ * change like payout_available), so the reader's own currency stands alone.
+ */
+const MONEY_MOVEMENT: Record<string, MoneyDirection> = {
+  payment_charged: 'charged',
+  fee_charged: 'charged',
+  reschedule_confirmed: 'charged',
+  refund_processed: 'refunded',
+  assignment_failed_refunded: 'refunded',
+  payout_paid: 'paid',
+};
+
+/** Payouts print the USD ledger figure first — see money.ts for why. */
+const PAYOUT_TRIGGERS = new Set(['payout_paid']);
+
 export async function notify(
   userId: string,
   trigger: keyof typeof TRIGGERS | string,
@@ -90,6 +112,13 @@ export async function notify(
   body: string,
   /** Resource ids, e.g. { booking_id }. Drives where a tap lands. */
   data: TargetData & Record<string, unknown> = {},
+  /**
+   * USD amounts referenced by {token} in the title or body. Passed as VALUES,
+   * never pre-formatted: the recipient's currency is only knowable here, so a
+   * call site that formats its own money is formatting it for the wrong
+   * person. `notify` substitutes after resolving their preference.
+   */
+  amounts: Record<string, number> = {},
 ): Promise<void> {
   const spec = TRIGGERS[trigger] ?? { category: 'account' as Category, push: false, email: false };
   const channels = ['in_app', ...(spec.push ? ['push'] : []), ...(spec.email ? ['email'] : [])];
@@ -112,10 +141,35 @@ export async function notify(
      */
     const { data: recipient } = await supabaseAdmin
       .from('profiles')
-      .select('status')
+      .select('status, currency')
       .eq('id', userId)
       .maybeSingle();
     if (recipient?.status === 'disabled') return;
+
+    /**
+     * MONEY BECOMES TEXT HERE, ONCE, and the result is what every channel
+     * carries — so the inbox row, the push and the email can never quote
+     * different figures for the same event.
+     *
+     * The currency came from the recipient's own profile (selected above at
+     * no extra cost), never from a caller.
+     */
+    let renderedTitle = title;
+    let renderedBody = body;
+    const tokens = Object.keys(amounts);
+    if (tokens.length > 0) {
+      const currency = recipient?.currency === 'XCD' ? 'XCD' : 'USD';
+      const rate = await displayRate();
+      const direction = MONEY_MOVEMENT[trigger as string];
+      for (const key of tokens) {
+        const text = PAYOUT_TRIGGERS.has(trigger as string)
+          ? await formatPayout(amounts[key], userId)
+          : formatMoney(amounts[key], currency, rate, direction);
+        const token = new RegExp(`\\{${key}\\}`, 'g');
+        renderedTitle = renderedTitle.replace(token, text);
+        renderedBody = renderedBody.replace(token, text);
+      }
+    }
 
     // WRITE FIRST. The row is the record; delivery is best-effort on top of
     // it. Nothing below can prevent it being saved.
@@ -123,8 +177,8 @@ export async function notify(
       user_id: userId,
       trigger_type: trigger,
       category: spec.category,
-      title,
-      body,
+      title: renderedTitle,
+      body: renderedBody,
       channels,
       data: payload,
     });
@@ -139,7 +193,7 @@ export async function notify(
         // delivered email — the creator-application confirmation could fail
         // for every applicant and nothing would say so. The inbox row is
         // already written above, so this only reports; it never blocks.
-        const mail = await sendEmail(profile.email, title, `<p>${body}</p>`);
+        const mail = await sendEmail(profile.email, renderedTitle, `<p>${renderedBody}</p>`);
         if (!mail.sent) console.error('[notify] email send FAILED', trigger, userId);
       }
     }
@@ -161,7 +215,7 @@ export async function notify(
         muted =
           spec.category === 'messages' ? prefs.messages === false : prefs.order_updates === false;
       }
-      if (!muted) await sendPush(userId, title, body, trigger, payload);
+      if (!muted) await sendPush(userId, renderedTitle, renderedBody, trigger, payload);
     }
   } catch (err) {
     console.error('notify failed', trigger, err);

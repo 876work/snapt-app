@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { supabaseAdmin } from '../supabase.js';
 import { audit, requireAdmin, type AdminRole } from '../admin-auth.js';
 import { sendEmail } from '../email.js';
+import { formatPayout, moneyFor } from '../money.js';
 import { env } from '../env.js';
 
 // Portal team management + manual user creation + internal notes + email
@@ -392,7 +393,7 @@ export function registerAdminTeamRoutes(app: FastifyInstance) {
           html = `<p>Hi ${client.full_name || 'there'} — your ${b.occasion ?? 'session'} booking is confirmed.</p>
             <p>${b.type === 'remote' ? 'Remote session' : `Meeting near ${b.area ?? 'your chosen spot'}`}${
               b.scheduled_at ? ` · ${new Date(b.scheduled_at).toLocaleString()}` : ''
-            } · $${Number(b.price_usd).toFixed(2)} USD</p>
+            } · ${await moneyFor(client.id, Number(b.price_usd))}</p>
             <p>Booking reference: ${b.id}</p>`;
         } else {
           const { data: refund } = await supabaseAdmin
@@ -405,7 +406,7 @@ export function registerAdminTeamRoutes(app: FastifyInstance) {
             .maybeSingle();
           if (!refund) return reply.code(409).send({ error: 'No refund recorded on this booking' });
           subject = 'Your Snapt refund';
-          html = `<p>Hi ${client.full_name || 'there'} — a refund of $${Number(refund.amount_usd).toFixed(2)} USD was processed on ${new Date(refund.created_at).toLocaleDateString()} for booking ${b.id}.</p>
+          html = `<p>Hi ${client.full_name || 'there'} — a refund of ${await moneyFor(client.id, Number(refund.amount_usd), 'refunded')} was processed on ${new Date(refund.created_at).toLocaleDateString()} for booking ${b.id}.</p>
             <p>Refunds appear on your statement within 5–10 business days.</p>`;
         }
       } else if (kind === 'payout_notification') {
@@ -421,10 +422,12 @@ export function registerAdminTeamRoutes(app: FastifyInstance) {
           .limit(1)
           .maybeSingle();
         if (!paid) return reply.code(409).send({ error: 'No paid-out payout for this creator' });
-        const total = Number(paid.amount_usd).toFixed(2);
+        // Payout: the USD ledger figure leads and any local figure is an
+        // explicit estimate — see money.ts.
+        const total = await formatPayout(Number(paid.amount_usd), user_id);
         to = creator.email;
         subject = 'Payout sent';
-        html = `<p>Hi ${creator.full_name || 'there'} — $${total} USD was sent to your payout method on ${new Date(paid.paid_out_at!).toLocaleDateString()}.</p>`;
+        html = `<p>Hi ${creator.full_name || 'there'} — ${total} was sent to your payout method on ${new Date(paid.paid_out_at!).toLocaleDateString()}.</p>`;
       } else {
         return reply.code(400).send({ error: 'kind must be booking_confirmation, refund_notice, or payout_notification' });
       }
