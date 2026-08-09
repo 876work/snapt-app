@@ -359,7 +359,7 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
       const limit = Math.min(Math.max(Number(request.query.limit) || 30, 1), 100);
       let query = supabaseAdmin
         .from('profiles')
-        .select('id, full_name, email, phone, mode, created_at, suspended_at, false_report_count')
+        .select('id, full_name, email, phone, mode, created_at, suspended_at, status, disabled_at, disabled_reason, false_report_count')
         .order('created_at', { ascending: false })
         .limit(limit);
       if (request.query.before) query = query.lt('created_at', request.query.before);
@@ -387,7 +387,7 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
     const id = request.params.id;
     const { data: profile, error } = await supabaseAdmin
       .from('profiles')
-      .select('id, full_name, email, phone, mode, currency, avatar_url, created_at, suspended_at, deleted_at, false_report_count')
+      .select('id, full_name, email, phone, mode, currency, avatar_url, created_at, suspended_at, status, disabled_at, disabled_reason, deleted_at, false_report_count')
       .eq('id', id)
       .maybeSingle();
     if (error) return reply.code(500).send({ error: error.message });

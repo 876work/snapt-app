@@ -5,6 +5,7 @@ import { api } from '../api';
 import { useAuth } from '../auth';
 import { NotesThread } from '../components/NotesThread';
 import { EmptyState, Pill, SectionSkeleton, formatMoney, formatWhen } from '../components/ui';
+import { AccountSwitch } from '../components/AccountSwitch';
 
 interface UserDetailData {
   profile: {
@@ -16,6 +17,7 @@ interface UserDetailData {
     currency: string;
     created_at: string;
     suspended_at: string | null;
+    status?: 'active' | 'disabled';
     deleted_at: string | null;
     false_report_count: number;
   };
@@ -146,7 +148,13 @@ export function UserDetail() {
         </h1>
         {suspended && <Pill status="suspended" />}
         {profile.deleted_at && <Pill tone="neutral">deleted account</Pill>}
+        {profile.status === 'disabled' && <Pill tone="warn">Disabled</Pill>}
         {creator && <Pill status={creator.vetting_status} />}
+        {/* The hard off switch, distinct from Suspend beside it: no login, no
+            app, no notifications. Admin-only. */}
+        {identity?.role === 'admin' && (
+          <AccountSwitch userId={profile.id} status={profile.status ?? 'active'} />
+        )}
         {identity?.role === 'admin' &&
           (suspended ? (
             <button

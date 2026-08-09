@@ -5,6 +5,7 @@ import { api } from '../api';
 import { useAuth } from '../auth';
 import { SavedViews } from '../components/SavedViews';
 import { EmptyState, Pill, SectionSkeleton, formatWhen } from '../components/ui';
+import { AccountSwitch } from '../components/AccountSwitch';
 
 interface UserRow {
   id: string;
@@ -14,6 +15,7 @@ interface UserRow {
   mode: string;
   created_at: string;
   suspended_at: string | null;
+  status?: 'active' | 'disabled';
   false_report_count: number;
   creator: { vetting_status: string; verified: boolean } | null;
 }
@@ -157,7 +159,9 @@ export function Users() {
               </div>
               {u.false_report_count > 0 && <Pill tone="warn">{u.false_report_count} false report{u.false_report_count === 1 ? '' : 's'}</Pill>}
               {u.creator && <Pill status={u.creator.vetting_status} />}
+              {u.status === 'disabled' && <Pill tone="warn">Disabled</Pill>}
               {u.suspended_at ? <Pill status="suspended" /> : <Pill tone="neutral">{u.mode}</Pill>}
+              <AccountSwitch userId={u.id} status={u.status ?? 'active'} compact />
             </div>
           ))}
         </div>
