@@ -368,7 +368,20 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       }
       const { createUploadTarget } = await import('../storage.js');
       const safeName = filename.replace(/[^\w.\-]/g, '_');
-      return createUploadTarget('portfolio', `headshots/${user.id}/${Date.now()}-${safeName}`, content_type);
+      try {
+        return await createUploadTarget(
+          'portfolio',
+          `headshots/${user.id}/${Date.now()}-${safeName}`,
+          content_type,
+        );
+      } catch (err) {
+        // Storage misconfiguration, expired credentials, missing bucket —
+        // detail to the logs, something a person can act on to them.
+        request.log.error({ err, userId: user.id }, 'headshot presign failed');
+        return reply.code(502).send({
+          error: "We couldn't start the upload just now. Try again in a moment.",
+        });
+      }
     },
   );
 
@@ -388,7 +401,19 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       { user_id: user.id, headshot_path: storagePath, headshot_status: 'pending' },
       { onConflict: 'user_id' },
     );
-    if (error) return reply.code(500).send({ error: error.message });
+    if (error) {
+      /**
+       * NEVER the raw Postgres string. An applicant hit
+       * "Could not find the 'headshot_path' column of 'creator_profiles' in
+       * the schema cache" — a schema-cache message shown to someone trying
+       * to become a creator. The real error goes to the logs, where it is
+       * actionable; they get a sentence and a way forward.
+       */
+      request.log.error({ err: error, userId: user.id, storagePath }, 'headshot register failed');
+      return reply.code(500).send({
+        error: "Your photo uploaded, but we couldn't save it to your profile. Try again — if it keeps happening, contact hello@snaptcarib.app.",
+      });
+    }
     // A replacement from an already-live creator needs re-review — flag it
     // so it doesn't sit invisible until someone happens to open the profile.
     if (existing?.vetting_status === 'approved') {
