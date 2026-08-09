@@ -134,7 +134,8 @@ export default function DurationAndPackage() {
           Session length
         </Text>
         <Text style={styles.hint}>
-          All sessions are scheduled in advance — no same-day booking yet.
+          Same-day sessions are available with a couple of hours' notice — today's remaining
+          times appear only if a creator can still get there.
         </Text>
         <View style={{ gap: 10 }}>
           {DURATIONS.map((d) => {

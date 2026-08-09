@@ -1,6 +1,6 @@
 import { supabaseAdmin } from './supabase.js';
 import { headshotColumnsPresent } from './schema-probe.js';
-import { configNumber } from './config.js';
+import { configNumber, minimumLeadMinutes } from './config.js';
 import { matchingPenalties } from './strikes.js';
 
 // Slot-availability engine (handoff §3 Phase 1). Real bookable start times,
@@ -195,6 +195,15 @@ export function creatorSlotsForDay(
   date: string, // YYYY-MM-DD
   durationHours: number,
   intervals: BookingInterval[],
+  /**
+   * Earliest start we will offer, as an epoch ms. Same-day booking is only
+   * safe behind a lead time: an in-person session has to clear the Stripe
+   * webhook, reach a creator inside their 15-minute acceptance window,
+   * possibly roll to a second creator on a decline, and then have someone
+   * physically travel. Offering a slot minutes away sells a session we
+   * cannot staff, and the client's first experience is an auto-cancel.
+   */
+  earliestStartMs: number = Date.now(),
 ): string[] {
   if (creator.blocked_dates.includes(date)) return [];
   const weekday = WEEKDAYS[new Date(`${date}T00:00:00`).getDay()];
@@ -208,7 +217,7 @@ export function creatorSlotsForDay(
     for (let t = windowStart; t + durationMin <= windowEnd; t += SLOT_STEP_MIN) {
       const slotStartMs = new Date(`${date}T${pad(Math.floor(t / 60))}:${pad(t % 60)}:00`).getTime();
       const slotEndMs = slotStartMs + durationMin * 60_000;
-      if (slotStartMs <= Date.now()) continue;
+      if (slotStartMs < earliestStartMs) continue;
       const clash = intervals.some(
         (b) => b.creator_id === creator.user_id && slotStartMs < b.end_ms && slotEndMs > b.start_ms,
       );
@@ -236,9 +245,16 @@ export async function windowAvailability(
 ): Promise<DayAvailability[]> {
   const windowDays = await configNumber('advance_booking_window_days', 14);
   const creators = await eligibleCreators(occasion, area);
-  const days: string[] = Array.from({ length: windowDays }, (_, i) =>
-    new Date(Date.now() + (i + 1) * 86400_000).toISOString().slice(0, 10),
+  /**
+   * TODAY IS DAY ZERO. Same-day was blocked by this one expression starting
+   * at i + 1; the lead time below is what makes it safe, not the date floor.
+   * The forward edge is unchanged — the furthest bookable day is still
+   * advance_booking_window_days out, so today is added rather than swapped in.
+   */
+  const days: string[] = Array.from({ length: windowDays + 1 }, (_, i) =>
+    new Date(Date.now() + i * 86400_000).toISOString().slice(0, 10),
   );
+  const earliestStartMs = Date.now() + (await minimumLeadMinutes('in_person')) * 60_000;
   const intervals = await bookingIntervals(
     creators.map((c) => c.user_id),
     `${days[0]}T00:00:00Z`,
@@ -246,7 +262,9 @@ export async function windowAvailability(
   );
   return days.map((date) => ({
     date,
-    available: creators.some((c) => creatorSlotsForDay(c, date, durationHours, intervals).length > 0),
+    available: creators.some(
+      (c) => creatorSlotsForDay(c, date, durationHours, intervals, earliestStartMs).length > 0,
+    ),
   }));
 }
 
@@ -258,6 +276,7 @@ export async function dayAvailability(
   area?: string,
 ): Promise<SlotAvailability[]> {
   const creators = await eligibleCreators(occasion, area);
+  const earliestStartMs = Date.now() + (await minimumLeadMinutes('in_person')) * 60_000;
   const intervals = await bookingIntervals(
     creators.map((c) => c.user_id),
     `${date}T00:00:00Z`,
@@ -265,7 +284,7 @@ export async function dayAvailability(
   );
   const byTime = new Map<string, string[]>();
   for (const creator of creators) {
-    for (const time of creatorSlotsForDay(creator, date, durationHours, intervals)) {
+    for (const time of creatorSlotsForDay(creator, date, durationHours, intervals, earliestStartMs)) {
       byTime.set(time, [...(byTime.get(time) ?? []), creator.user_id]);
     }
   }

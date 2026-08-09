@@ -7,6 +7,8 @@ insert into app_config (key, value, description, confirmed) values
   ('creator_platform_fee_rate', '0.32', 'Standard creator platform fee', true),
   ('creator_promo_fee_rate', '0.20', 'Illustrative promo fee rate, shown with strikethrough; admin-set', true),
   ('xcd_per_usd', '2.72', 'Fixed peg: XCD per 1 USD (USD is base/storage currency)', true),
+  ('min_lead_minutes_in_person', '120', 'Minimum notice before an in-person session may start. Covers the Stripe webhook, a 15-minute creator acceptance window, a possible decline and re-offer, and travel to the meeting point.', true),
+  ('min_lead_minutes_remote', '30', 'Minimum notice before a remote edit order. No travel, so it needs only enough runway to reach an editor.', true),
   ('advance_booking_window_days', '14', 'How far ahead a session can be booked', true),
   ('free_revisions_per_order', '1', 'Free revision rounds per order; additional rounds are paid add-ons', true),
   ('cancel_tiers', '{"over48h": 0, "between24and48h": 0.5, "under24h": 1}',

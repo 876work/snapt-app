@@ -31,6 +31,24 @@ export async function configNumber(key: string, fallback: number): Promise<numbe
   return typeof v === 'number' ? v : fallback;
 }
 
+/**
+ * MINIMUM LEAD TIME before a session may start, in minutes.
+ *
+ * Config rather than a constant so it can be tuned without a deploy — the
+ * right number is an operational question that will change as the creator
+ * roster grows, not a fact about the product.
+ *
+ * In-person is deliberately longer: the booking must clear the webhook, find
+ * a creator inside a 15-minute acceptance window, survive a possible decline
+ * and re-offer, and then have a person travel to the meeting point. Remote
+ * edits have no travel, so they need only enough runway to reach an editor.
+ */
+export async function minimumLeadMinutes(type: 'in_person' | 'remote'): Promise<number> {
+  return type === 'remote'
+    ? configNumber('min_lead_minutes_remote', 30)
+    : configNumber('min_lead_minutes_in_person', 120);
+}
+
 export type PricingTable = Record<string, Record<string, number>>;
 
 /** CONFIRMED launch pricing: service type (photo/video/both) × duration hours. */

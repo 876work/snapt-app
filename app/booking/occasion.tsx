@@ -68,9 +68,15 @@ export default function OccasionAndDate() {
   }, [draft.occasion, draft.date, slotsReloadKey]);
 
   const days = React.useMemo(() => {
-    // 14-day advance window — handoff §5
-    return Array.from({ length: ADVANCE_BOOKING_WINDOW_DAYS }, (_, i) => {
-      const d = new Date(Date.now() + (i + 1) * 86400_000);
+    /**
+     * TODAY IS DAY ZERO. Same-day booking is allowed; what makes it safe is
+     * the minimum lead time, which the SERVER applies when it returns the
+     * day's slots — so today can appear here and still offer nothing bookable
+     * if it is already too late in the day. The forward edge is unchanged:
+     * the furthest day is still ADVANCE_BOOKING_WINDOW_DAYS out.
+     */
+    return Array.from({ length: ADVANCE_BOOKING_WINDOW_DAYS + 1 }, (_, i) => {
+      const d = new Date(Date.now() + i * 86400_000);
       return d;
     });
   }, []);

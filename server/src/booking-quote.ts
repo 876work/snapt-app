@@ -3,6 +3,7 @@ import {
   configNumber,
   getConfig,
   inPersonAddonPrices,
+  minimumLeadMinutes,
   packagePriceUsd,
   remoteAddonPrices,
   remotePriceUsd,
@@ -219,6 +220,22 @@ export async function quoteBooking(
     const scheduled = new Date(`${body.date}T${body.time}:00`);
     if (Number.isNaN(scheduled.getTime()) || scheduled.getTime() <= Date.now()) {
       return fail(400, 'scheduled time must be in the future');
+    }
+    /**
+     * MINIMUM LEAD TIME, enforced here as well as in the picker — the picker
+     * does not offer these slots, but a stale client, a replayed request or a
+     * hand-rolled call must not be able to buy one. Skipped after payment for
+     * the same reason as every other check on this path: the money is real,
+     * so the booking is created and operations handle it.
+     */
+    if (!postPayment) {
+      const leadMin = await minimumLeadMinutes('in_person');
+      if (scheduled.getTime() < Date.now() + leadMin * 60_000) {
+        const notice = leadMin >= 60 ? `${Math.round(leadMin / 60)} hours` : `${leadMin} minutes`;
+        return fail(400, `Sessions need at least ${notice} notice — pick a later time.`, {
+          code: 'inside_lead_time',
+        });
+      }
     }
     if (scheduled.getTime() > Date.now() + windowDays * 86400_000) {
       return fail(400, `bookings open up to ${windowDays} days ahead`);
