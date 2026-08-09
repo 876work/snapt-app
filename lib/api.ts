@@ -28,6 +28,50 @@ function reportApiFailure(): void {
   if (apiConfigured) useApiStatus.getState().setUnreachable(true);
 }
 
+/**
+ * ACCOUNT DISABLED — one interception point for the whole app.
+ *
+ * An admin can switch an account off while it is signed in and working. The
+ * server answers 403 account_disabled on the next request; without this the
+ * app would just see "a request failed" and carry on showing a UI the user
+ * no longer has access to.
+ *
+ * A store flag rather than a thrown error: every caller already handles null
+ * by showing its own failed state, so this rides alongside without touching
+ * a single call site, and the root layout renders one blocking modal over
+ * whatever screen they happen to be on.
+ */
+export const useAccountDisabled = create<{ disabled: boolean; message: string | null; trip: (m: string) => void; clear: () => void }>((set) => ({
+  disabled: false,
+  message: null,
+  trip: (message) => set({ disabled: true, message }),
+  clear: () => set({ disabled: false, message: null }),
+}));
+
+/**
+ * Trips the modal from an ALREADY-PARSED body. Takes the parsed object
+ * rather than the Response on purpose: a Response whose body has been read
+ * cannot be cloned, so a clone-based check silently did nothing on every
+ * call site that had already parsed — which was most of them.
+ */
+function tripIfDisabled(status: number, body: { code?: string; error?: string } | null): boolean {
+  if (status !== 403 || body?.code !== 'account_disabled') return false;
+  useAccountDisabled.getState().trip(
+    body.error ?? 'Your Snapt account has been disabled. Contact hello@snaptcarib.app.',
+  );
+  return true;
+}
+
+/** For raw-fetch callers that have NOT read the body yet. */
+async function checkDisabled(res: Response): Promise<boolean> {
+  if (res.status !== 403 || res.bodyUsed) return false;
+  try {
+    return tripIfDisabled(res.status, (await res.clone().json()) as { code?: string });
+  } catch {
+    return false; // not JSON — an ordinary 403
+  }
+}
+
 function reportApiReachable(): void {
   if (useApiStatus.getState().unreachable) useApiStatus.getState().setUnreachable(false);
 }
@@ -43,6 +87,16 @@ export async function authHeaders(): Promise<Record<string, string>> {
   return headers;
 }
 
+/**
+ * Same disabled interception for the many call sites that use `authHeaders`
+ * with a raw fetch instead of `request` (inbox, messages, delete, uploads).
+ * Returns true when the response was an account-disabled refusal, so callers
+ * that care can bail; callers that don't still get the modal.
+ */
+export async function noteIfDisabled(res: Response): Promise<boolean> {
+  return checkDisabled(res);
+}
+
 export const apiBase = apiUrl;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T | null> {
@@ -56,6 +110,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T | null> {
     }
     const res = await fetch(`${apiUrl}${path}`, { ...init, headers });
     if (!res.ok) {
+      // Disabled is not "the server is unreachable" — don't light up the
+      // offline banner for it; the blocking modal owns this case.
+      const err = (await res.json().catch(() => null)) as { code?: string } | null;
+      if (tripIfDisabled(res.status, err)) return null;
       reportApiFailure();
       return null;
     }
@@ -448,7 +506,13 @@ async function authedPost<T>(path: string, body?: unknown): Promise<T | { error:
     // screens surface these inline. Only network/parse failures below raise
     // the global unreachable state.
     reportApiReachable();
-    if (!res.ok) return { error: json.error ?? 'Something went wrong — try again.' };
+    if (!res.ok) {
+      // The blocking modal owns this case; still return the error so any
+      // screen mid-flow shows something rather than hanging. Uses the body
+      // already parsed above — cloning a read Response is impossible.
+      tripIfDisabled(res.status, json);
+      return { error: json.error ?? 'Something went wrong — try again.' };
+    }
     return json;
   } catch {
     reportApiFailure();

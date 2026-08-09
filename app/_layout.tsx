@@ -1,6 +1,7 @@
 import React from 'react';
 import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { AccountDisabledGate } from '../components/AccountDisabledGate';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import {
@@ -97,6 +98,9 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <StatusBar style="dark" />
+        {/* Covers every screen: an account switched off mid-session must not
+            be able to keep using the app behind a dismissible message. */}
+        <AccountDisabledGate />
         {/* ONE keyboard strategy for the whole app: on iOS the router outlet
             shrinks above the keyboard, so every screen's pinned footer (and
             its Continue/submit button) stays reachable while typing. Android

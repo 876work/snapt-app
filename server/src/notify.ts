@@ -55,6 +55,11 @@ const TRIGGERS: Record<string, TriggerSpec> = {
   // they are blocked or must act (the two _failed triggers) — a plain pass
   // already gets the verified-name email, and two emails is noise.
   verification_result: { category: 'account', push: true, email: false },
+  // Sent by the restore endpoint AFTER status is back to active — otherwise
+  // the suppression above would swallow the one notification whose entire
+  // job is telling someone their account works again. Email as well as push:
+  // a restored user may not have the app open, or installed.
+  account_restored: { category: 'account', push: true, email: true },
   verification_failed: { category: 'account', push: true, email: true },
   files_expiring: { category: 'bookings', push: true, email: true }, // retention: 30d/7d download warnings
   // Chat. Muted by the `messages` preference rather than order_updates —
@@ -85,6 +90,24 @@ export async function notify(
   const target = targetFor(trigger, data);
   const payload = target ? { ...data, target } : data;
   try {
+    /**
+     * DISABLED ACCOUNTS GET NOTHING — and get it by never existing, not by
+     * being held back. Suppression sits ABOVE the insert deliberately: the
+     * row is normally written first and is the durable record, so gating
+     * only push/email would still leave an inbox that floods the moment the
+     * account is restored. No row, no email, no push, no backlog.
+     *
+     * A restore is therefore silent by design; the access-restored
+     * notification is sent explicitly by the restore endpoint, after status
+     * is back to active.
+     */
+    const { data: recipient } = await supabaseAdmin
+      .from('profiles')
+      .select('status')
+      .eq('id', userId)
+      .maybeSingle();
+    if (recipient?.status === 'disabled') return;
+
     // WRITE FIRST. The row is the record; delivery is best-effort on top of
     // it. Nothing below can prevent it being saved.
     await supabaseAdmin.from('notifications').insert({
