@@ -55,6 +55,9 @@ const SLIDES = [
   },
 ];
 
+/** Source px of the right edge that must go on slides with a baked "Skip". */
+const BAKED_SKIP_CROP = 92;
+
 /** Reserved band at the bottom of every slide for dots + button + insets. */
 const FOOTER_RESERVE = 128;
 
@@ -72,7 +75,14 @@ const FOOTER_RESERVE = 128;
  *    exactly under the real Skip control, which covers it.
  */
 function coverGeometry(W: number, H: number, src: { width: number; height: number }, bakedSkip: boolean) {
-  const scale = Math.max(W / src.width, H / src.height);
+  // Plain cover scale fills the screen, but on a WIDE screen (SE: 0.56) it
+  // leaves only ~52 source px of horizontal slack — less than the ~86 needed
+  // to crop the baked "Skip" away, so it surfaced past the real Skip pill.
+  // Zooming just enough to guarantee that slack removes it on every aspect.
+  // The extra zoom costs vertical crop, which the topCut bias below spends
+  // on the bottom (the baked panel) rather than the wordmark.
+  const cover = Math.max(W / src.width, H / src.height);
+  const scale = bakedSkip ? Math.max(cover, W / (src.width - BAKED_SKIP_CROP)) : cover;
   const dispW = src.width * scale;
   const dispH = src.height * scale;
   const overSrcX = (dispW - W) / scale;
