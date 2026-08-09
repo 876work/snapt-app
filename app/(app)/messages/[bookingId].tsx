@@ -7,6 +7,7 @@ import { Text, TextInput } from '../../../lib/text';
 import Svg, { Path } from 'react-native-svg';
 import { chatEnabled, fetchMessages, sendMessage, subscribeToMessages } from '../../../lib/chat';
 import { apiBase, authHeaders } from '../../../lib/api';
+import { CreatorAvatar } from '../../../components/ui/CreatorAvatar';
 import { colors, insetBottom } from '../../../lib/theme';
 
 /**
@@ -201,11 +202,11 @@ export default function MessageThread() {
         title={thread.other_name}
         right={
           <View style={styles.headerAvatar}>
-            {thread.other_avatar ? (
-              <Image source={{ uri: thread.other_avatar }} style={{ width: '100%', height: '100%' }} />
-            ) : (
-              <Text style={styles.headerAvatarInitial}>{thread.other_name.charAt(0).toUpperCase()}</Text>
-            )}
+            <CreatorAvatar
+              name={thread.other_name}
+              photo={thread.other_avatar ? { uri: thread.other_avatar } : null}
+              textSize={13}
+            />
           </View>
         }
       />

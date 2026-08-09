@@ -9,6 +9,7 @@ import { useAuth } from '../../../lib/store';
 import { signOutEverywhere } from '../../../lib/auth';
 import * as Updates from 'expo-updates';
 import Constants from 'expo-constants';
+import { CreatorAvatar } from '../../../components/ui/CreatorAvatar';
 import { colors, spacing, insetTop, insetBottom } from '../../../lib/theme';
 import { navShrinkOnScroll } from '../../../lib/navShrink';
 
@@ -36,6 +37,22 @@ export default function Profile() {
   const [updStatus, setUpdStatus] = React.useState<string | null>(null);
 
   const initial = (name || 'Y').charAt(0).toUpperCase();
+  /**
+   * Their own approved headshot. Same rule as Edit Profile: if the person has
+   * a vetted photo it is their avatar everywhere, and initials are the
+   * fallback only when there genuinely isn't one. A failed read leaves
+   * initials rather than asserting "no photo" from a request that never
+   * answered.
+   */
+  const [photo, setPhoto] = React.useState<{ uri: string } | null>(null);
+  React.useEffect(() => {
+    import('../../../lib/api').then(({ apiConfigured, fetchCreatorMe }) => {
+      if (!apiConfigured) return;
+      fetchCreatorMe().then((me) => {
+        if (me?.headshot_url) setPhoto({ uri: me.headshot_url });
+      });
+    });
+  }, []);
 
   return (
     <View style={styles.root}>
@@ -83,7 +100,7 @@ export default function Profile() {
         {/* Edit profile card */}
         <Pressable onPress={() => router.push('/profile/edit')} style={styles.userCard}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarInitial}>{initial}</Text>
+            <CreatorAvatar name={name || 'Y'} photo={photo} textSize={23} />
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.userName}>{name || 'You'}</Text>
@@ -507,8 +524,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#EFEBE3',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  avatarInitial: { fontSize: 23, fontWeight: '800', color: '#8A7530' },
   userName: { fontSize: 15, fontWeight: '800', letterSpacing: -0.3, color: colors.ink },
   userEmail: { fontSize: 11, color: colors.greyWarm, marginTop: 2 },
   editLink: { fontSize: 12, fontWeight: '700', color: colors.yellowDark, marginTop: 6 },

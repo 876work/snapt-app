@@ -2,6 +2,7 @@ import React from 'react';
 import { ActivityIndicator, Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Text } from '../../../lib/text';
+import { CreatorAvatar } from '../../../components/ui/CreatorAvatar';
 import { colors, spacing, insetTop } from '../../../lib/theme';
 import { navShrinkOnScroll } from '../../../lib/navShrink';
 import { apiBase, authHeaders } from '../../../lib/api';
@@ -120,11 +121,11 @@ export default function Messages() {
               style={[styles.row, t.unread > 0 && styles.rowUnread]}
             >
               <View style={styles.avatar}>
-                {t.other_avatar ? (
-                  <Image source={{ uri: t.other_avatar }} style={styles.avatarImg} />
-                ) : (
-                  <Text style={styles.avatarInitial}>{t.other_name.charAt(0).toUpperCase()}</Text>
-                )}
+                <CreatorAvatar
+                  name={t.other_name}
+                  photo={t.other_avatar ? { uri: t.other_avatar } : null}
+                  textSize={15}
+                />
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <View style={styles.rowHead}>
