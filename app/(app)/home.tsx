@@ -27,7 +27,7 @@ const MIRROR_REMOTE_FROM = Math.min(
 
 export default function Home() {
   const router = useRouter();
-  const { name, currency, setCurrency } = useAuth();
+  const { name, currency } = useAuth();
   const { resetDraft, setDraft } = useBookings();
   const bookings = useBookings((s) => s.bookings);
   const [mode, setMode] = React.useState<'in-person' | 'remote'>('in-person');
@@ -152,16 +152,11 @@ export default function Home() {
             <Text style={styles.greeting}>
               {greet}, {name || 'friend'} <Text style={{ fontSize: 13 }}>👋</Text>
             </Text>
+            {/* Currency is set in exactly two places — the signup step and
+                Profile → Currency. It was also a header control here, which
+                made a display preference compete with the bell for the
+                header's attention. */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Pressable
-                onPress={() => setCurrency(currency === 'USD' ? 'XCD' : 'USD')}
-                style={styles.currencyPill}
-              >
-                <Text style={styles.currencyLabel}>{currency}</Text>
-                <Svg width={9} height={6} viewBox="0 0 9 6" fill="none">
-                  <Path d="M1 1l3.5 3.5L8 1" stroke={colors.ink} strokeWidth={1.8} strokeLinecap="round" />
-                </Svg>
-              </Pressable>
               <Pressable onPress={() => router.push('/inbox')} style={styles.bellBtn}>
                 <Svg width={17} height={17} viewBox="0 0 24 24" fill="none">
                   <Path d="M6 9a6 6 0 0112 0c0 5 2 6 2 6H4s2-1 2-6z" stroke={colors.ink} strokeWidth={1.8} strokeLinejoin="round" />
@@ -622,16 +617,6 @@ const styles = StyleSheet.create({
   heroImg: { position: 'absolute', width: 220, height: 175, left: 151, top: 69 },
   heroTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 2 },
   greeting: { fontSize: 13, fontWeight: '800', letterSpacing: -0.2, color: '#fff' },
-  currencyPill: {
-    height: 32,
-    paddingHorizontal: 11,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.6)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  currencyLabel: { fontSize: 11, fontWeight: '800', color: colors.ink },
   bellBtn: {
     width: 32,
     height: 32,
