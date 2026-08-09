@@ -500,6 +500,20 @@ export function registerCreatorRoutes(app: FastifyInstance) {
        * pending slot stays empty.
        */
       const firstEver = !existingHeadshot;
+      /**
+       * DEPLOY ORDER. Until 20260810110000 runs there is no pending slot, and
+       * writing one would fail with 42703. A first upload is unaffected (it
+       * only touches the live slot), but a REPLACEMENT has nowhere safe to
+       * go — and the old behaviour, overwriting the approved photo, is
+       * exactly what this change exists to stop. So it is refused in plain
+       * words rather than failing cryptically or destroying the photo.
+       */
+      if (!firstEver && !(await headshotPendingColumnPresent())) {
+        return reply.code(503).send({
+          error: "Photo changes are briefly unavailable — your current photo is safe. Try again shortly.",
+          code: 'pending_slot_unavailable',
+        });
+      }
       ({ error } = await supabaseAdmin
         .from('creator_profiles')
         .update(
