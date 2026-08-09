@@ -766,12 +766,30 @@ export async function fetchEarnings(): Promise<{
   return request(`/v1/creator/earnings`);
 }
 
+export interface PayoutMethodOption {
+  id: string;
+  name: string;
+  /** Delivery promise badge — server-owned, so it changes without an OTA. */
+  eta: string;
+  fields: string[];
+  enabled: boolean;
+  /** Admin's creator-facing reason, only when disabled. */
+  note: string | null;
+}
+
 export interface PayoutMethods {
-  /** Per-method availability from the admin toggle. Absent = enabled. A
-   * creator's own selected method always reports enabled for them. */
+  /** Per-method availability from the admin toggle. Absent = enabled.
+   *  TRUTHFUL for everyone, including a creator whose own selection was
+   *  disabled — the server refuses cash-outs against it, so pretending it
+   *  is enabled would hide the thing they need to act on. */
   enabled?: Record<string, boolean>;
   selected?: string;
   methods?: Record<string, Record<string, string>>;
+  /** Names, ETAs and availability from the server — one source of truth.
+   *  Absent only when talking to a server older than this build. */
+  catalog?: PayoutMethodOption[];
+  /** The creator's saved method is currently switched off. */
+  selected_disabled?: boolean;
 }
 
 export async function fetchPayoutMethods(): Promise<PayoutMethods | null> {

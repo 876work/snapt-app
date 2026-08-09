@@ -11,10 +11,11 @@ import { useAuth } from '../../lib/store';
 import { formatMoney } from '../../lib/constants/business';
 import { colors, insetBottom } from '../../lib/theme';
 
-// The six real payout methods (Don, 2026-07-28). Field sets mirror the
-// server: cash needs none (pickup mechanics = pending product decision);
-// penny_pinch field pending confirmation of what the wallet requires.
-const METHODS: { id: string; name: string; eta: string; fields: { key: string; label: string }[] }[] = [
+// OFFLINE FALLBACK ONLY. The server owns this list (names, ETA badges,
+// required fields, availability) via /v1/creator/payout-methods, so a bank
+// outage or a renamed provider needs no app release. This copy renders only
+// before the fetch lands or when talking to an older server.
+const FALLBACK_METHODS: { id: string; name: string; eta: string; fields: { key: string; label: string }[] }[] = [
   { id: 'cash', name: 'Cash pickup', eta: 'Same day', fields: [] },
   { id: 'penny_pinch', name: 'Penny Pinch', eta: 'Instant', fields: [{ key: 'email', label: 'Penny Pinch email' }] },
   { id: 'cibc', name: 'CIBC', eta: '1–2 business days', fields: [{ key: 'holder_name', label: 'Account holder name' }, { key: 'account_number', label: 'Account number' }] },
@@ -22,6 +23,16 @@ const METHODS: { id: string; name: string; eta: string; fields: { key: string; l
   { id: 'bank_slu', name: 'Bank of Saint Lucia', eta: '1–2 business days', fields: [{ key: 'holder_name', label: 'Account holder name' }, { key: 'account_number', label: 'Account number' }] },
   { id: 'paypal', name: 'PayPal', eta: 'Within 24 hours', fields: [{ key: 'email', label: 'PayPal email' }] },
 ];
+
+type MethodDef = { id: string; name: string; eta: string; fields: { key: string; label: string }[] };
+
+/** Field labels for a server-supplied field key. */
+function fieldLabel(methodId: string, key: string): string {
+  if (key === 'holder_name') return 'Account holder name';
+  if (key === 'account_number') return 'Account number';
+  if (key === 'email') return methodId === 'paypal' ? 'PayPal email' : 'Penny Pinch email';
+  return key;
+}
 
 function methodSub(id: string, saved?: Record<string, string>): string {
   if (id === 'cash') return 'Pick up at a Snapt partner location';
@@ -44,6 +55,11 @@ export default function CashOut() {
   // CURRENT method was disabled still sees it (server reports it enabled
   // for them) — existing setups are honored, only new selections blocked.
   const [enabled, setEnabled] = React.useState<Record<string, boolean>>({});
+  // Server catalog (names/ETAs/fields/notes) + whether the creator's own
+  // saved method has been switched off.
+  const [catalog, setCatalog] = React.useState<MethodDef[] | null>(null);
+  const [notes, setNotes] = React.useState<Record<string, string | null>>({});
+  const [selectedDisabled, setSelectedDisabled] = React.useState(false);
   React.useEffect(() => {
     import('../../lib/api').then(({ apiConfigured, fetchPayoutMethods }) => {
       if (!apiConfigured) return;
@@ -51,11 +67,27 @@ export default function CashOut() {
         if (!pm) return;
         setSaved(pm.methods ?? {});
         setEnabled(pm.enabled ?? {});
+        setSelectedDisabled(Boolean(pm.selected_disabled));
+        if (pm.catalog?.length) {
+          setCatalog(
+            pm.catalog.map((m) => ({
+              id: m.id,
+              name: m.name,
+              eta: m.eta,
+              fields: m.fields.map((k) => ({ key: k, label: fieldLabel(m.id, k) })),
+            })),
+          );
+          setNotes(Object.fromEntries(pm.catalog.map((m) => [m.id, m.note])));
+        }
         if (pm.selected) setMethod(pm.selected);
       });
     });
   }, []);
-  const selectedDef = METHODS.find((m) => m.id === method)!;
+  const METHODS: MethodDef[] = catalog ?? FALLBACK_METHODS;
+  // Every method off — cash-out is impossible and must say so honestly
+  // rather than rendering an empty list under a live slider.
+  const anyEnabled = METHODS.some((m) => enabled[m.id] !== false);
+  const selectedDef = METHODS.find((m) => m.id === method) ?? METHODS[0];
   const configured = (id: string) => id === 'cash' || Boolean(saved[id]);
   const saveDetails = async () => {
     setMethodError(null);
@@ -133,6 +165,31 @@ export default function CashOut() {
           <Text style={styles.amountNote}>No cash-out fees. Pending funds aren't included.</Text>
         </View>
 
+        {/* The creator's own method was switched off. Say so plainly, name
+            the admin's reason, and point at the fix — their saved details
+            are untouched, so this is a re-pick, not a re-entry. */}
+        {selectedDisabled && anyEnabled && (
+          <View style={styles.noticeCard}>
+            <Text style={styles.noticeTitle}>Pick another payout method</Text>
+            <Text style={styles.noticeBody}>
+              {notes[method]
+                ? `${selectedDef?.name ?? 'Your saved method'} is unavailable — ${notes[method]}`
+                : `${selectedDef?.name ?? 'Your saved method'} is temporarily unavailable.`}{' '}
+              Your saved details are kept — choose another method below to cash out now.
+            </Text>
+          </View>
+        )}
+
+        {!anyEnabled && (
+          <View style={styles.noticeCard}>
+            <Text style={styles.noticeTitle}>Cash-out is temporarily unavailable</Text>
+            <Text style={styles.noticeBody}>
+              All payout methods are paused right now. Your balance is safe and nothing is lost —
+              try again shortly, or contact hello@snaptcarib.app if it stays this way.
+            </Text>
+          </View>
+        )}
+
         <Text style={styles.sectionTitle}>Send to</Text>
         <View style={styles.list}>
           {METHODS.map((m, i) => {
@@ -144,7 +201,11 @@ export default function CashOut() {
                 <Pressable
                   onPress={() => {
                     if (off) {
-                      setMethodError('That payout method is not currently available.');
+                      setMethodError(
+                        notes[m.id]
+                          ? `${m.name} is unavailable — ${notes[m.id]}`
+                          : `${m.name} is not currently available.`,
+                      );
                       return;
                     }
                     setMethod(m.id); setForm({}); setMethodError(null);
@@ -155,7 +216,9 @@ export default function CashOut() {
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={styles.methodName}>{m.name}</Text>
                     <Text style={[styles.methodSub, !ok && !off && { color: '#B98600', fontWeight: '700' }]}>
-                      {off ? 'Not currently available' : methodSub(m.id, saved[m.id])}
+                      {off
+                        ? notes[m.id] || 'Not currently available'
+                        : methodSub(m.id, saved[m.id])}
                     </Text>
                   </View>
                   <Text style={styles.methodEta}>{m.eta}</Text>
@@ -190,8 +253,14 @@ export default function CashOut() {
       <View style={styles.footer}>
         {methodError && configured(method) ? <Text style={styles.footerError}>{methodError}</Text> : null}
         <SlideToConfirm
-          label={`Slide to cash out ${formatMoney(available, currency)}`}
-          disabled={available <= 0}
+          label={
+            !anyEnabled
+              ? 'Cash-out unavailable'
+              : selectedDisabled
+                ? 'Pick an available method'
+                : `Slide to cash out ${formatMoney(available, currency)}`
+          }
+          disabled={available <= 0 || !anyEnabled || selectedDisabled}
           onConfirm={confirmCashOut}
         />
       </View>
@@ -207,6 +276,16 @@ const styles = StyleSheet.create({
   amountValue: { fontSize: 40, fontWeight: '800', letterSpacing: -1.2, color: '#fff', marginTop: 8 },
   amountNote: { fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 8 },
   sectionTitle: { fontSize: 14, fontWeight: '800', letterSpacing: -0.2, color: colors.ink, marginTop: 22, marginBottom: 12 },
+  noticeCard: {
+    marginTop: 18,
+    backgroundColor: colors.yellowSoft,
+    borderWidth: 1,
+    borderColor: colors.yellowSoftBorder,
+    borderRadius: 14,
+    padding: 14,
+  },
+  noticeTitle: { fontSize: 13.5, fontWeight: '800', color: colors.ink },
+  noticeBody: { fontSize: 12.5, color: '#6E5B23', lineHeight: 18, marginTop: 4 },
   list: {
     backgroundColor: '#fff',
     borderRadius: 16,

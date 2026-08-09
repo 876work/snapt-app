@@ -8,6 +8,13 @@ type ConfigMap = Record<string, unknown>;
 let cache: { at: number; config: ConfigMap } | null = null;
 const TTL_MS = 30_000;
 
+/** Drop the cache after an admin config write so the change bites on the
+ *  very next request instead of up to TTL later. Same-process only — fine
+ *  while the API is a single Render service. */
+export function bustConfigCache(): void {
+  cache = null;
+}
+
 export async function getConfig(): Promise<ConfigMap> {
   if (cache && Date.now() - cache.at < TTL_MS) return cache.config;
   const { data, error } = await supabaseAdmin.from('app_config').select('key, value');
@@ -134,6 +141,13 @@ export async function socialSelectionWindowHours(): Promise<number> {
 export async function enabledPayoutMethods(): Promise<Record<string, boolean>> {
   const config = await getConfig();
   return (config['payout_methods_enabled'] as Record<string, boolean>) ?? {};
+}
+
+/** Admin's creator-facing note per disabled method ("Bank transfers are
+ *  paused until Monday"). Absent = no note. */
+export async function payoutMethodNotes(): Promise<Record<string, string>> {
+  const config = await getConfig();
+  return (config['payout_methods_notes'] as Record<string, string>) ?? {};
 }
 
 // ---------------------------------------------------------------------------

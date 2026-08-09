@@ -3,26 +3,14 @@ import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
 import { notify } from '../notify.js';
 import { encryptField } from '../crypto.js';
-import { enabledPayoutMethods } from '../config.js';
+import { enabledPayoutMethods, payoutMethodNotes } from '../config.js';
+import { METHOD_FIELDS, PAYOUT_METHODS, methodName } from '../payout-methods.js';
 
 // Creator earnings: Pending (held, inside the 7-day dispute window) →
 // Available → Paid out. Held payouts whose hold has elapsed are released
 // lazily on read — a scheduled job can take this over later without any
 // schema change.
 
-// Payout methods (six, matching the cash-out screen design). Per-method
-// required fields; 'cash' needs none but its pickup locations + identity
-// verification are a PENDING PRODUCT DECISION (flagged — not guessed here).
-// 'penny_pinch' field is account_id pending confirmation of what the wallet
-// actually requires.
-const METHOD_FIELDS: Record<string, string[]> = {
-  cash: [],
-  penny_pinch: ['email'],
-  cibc: ['holder_name', 'account_number'],
-  republic_ec: ['holder_name', 'account_number'],
-  bank_slu: ['holder_name', 'account_number'],
-  paypal: ['email'],
-};
 
 export function registerEarningsRoutes(app: FastifyInstance) {
   app.get('/v1/creator/payout-methods', async (request, reply) => {
@@ -38,15 +26,37 @@ export function registerEarningsRoutes(app: FastifyInstance) {
       const { account_number_enc, account_number_last4, ...rest } = d;
       safe[m] = account_number_last4 ? { ...rest, account_number: `····${account_number_last4}` } : rest;
     }
-    // Which methods may be NEWLY selected (admin toggle). The creator's
-    // currently-selected method is always reported enabled for THEM — an
-    // admin disabling a method parks new signups, never existing setups.
+    /**
+     * Admin toggle state, TRUTHFUL for everyone. The old rule reported a
+     * creator's selected method as enabled for them (disabling only parked
+     * new signups). That rule is gone (Don, 2026-08-09): a disabled method
+     * now refuses cash-outs too, so the app needs the real state to prompt
+     * "pick another" — reporting it enabled would hide exactly the situation
+     * the creator must act on. Saved details are untouched either way.
+     */
     const toggles = await enabledPayoutMethods();
+    const notes = await payoutMethodNotes();
     const enabled: Record<string, boolean> = {};
-    for (const m of Object.keys(METHOD_FIELDS)) {
-      enabled[m] = toggles[m] !== false || pm.selected === m;
-    }
-    return { payout_methods: { selected: pm.selected, methods: safe, enabled } };
+    for (const m of Object.keys(METHOD_FIELDS)) enabled[m] = toggles[m] !== false;
+    // The catalog rides along so names and ETA badges have ONE source; the
+    // app's bundled list is an offline fallback only.
+    const catalog = PAYOUT_METHODS.map((m) => ({
+      id: m.id,
+      name: m.name,
+      eta: m.eta,
+      fields: m.fields,
+      enabled: toggles[m.id] !== false,
+      note: toggles[m.id] === false ? (notes[m.id] ?? null) : null,
+    }));
+    return {
+      payout_methods: {
+        selected: pm.selected,
+        methods: safe,
+        enabled,
+        catalog,
+        selected_disabled: Boolean(pm.selected && toggles[pm.selected] === false),
+      },
+    };
   });
 
   app.put<{ Body: { method?: string; details?: Record<string, string> } }>(
@@ -163,6 +173,21 @@ export function registerEarningsRoutes(app: FastifyInstance) {
       return reply.code(409).send({
         error: 'Add payout details for your selected method first',
         action: 'add_payout_details',
+      });
+    }
+    /**
+     * THE GUARD. Client hiding is not it — a disabled method is refused
+     * here no matter what any build renders. Requests already submitted are
+     * deliberately unaffected: disabling stops NEW requests; the admin
+     * fulfilment queue still owes the old ones.
+     */
+    const toggles = await enabledPayoutMethods();
+    if (toggles[selected] === false) {
+      const note = (await payoutMethodNotes())[selected];
+      return reply.code(409).send({
+        error: `${methodName(selected)} cash-outs are paused${note ? ` — ${note}` : ''}. Choose another payout method to cash out.`,
+        code: 'payout_method_disabled',
+        action: 'choose_method',
       });
     }
 

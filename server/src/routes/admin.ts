@@ -7,6 +7,8 @@ import { decryptField } from '../crypto.js';
 import { sendEmail } from '../email.js';
 import { workingDaysSince } from '../scheduler.js';
 import { reconcileNames } from '../name-match.js';
+import { PAYOUT_METHODS, methodName } from '../payout-methods.js';
+import { bustConfigCache, enabledPayoutMethods, payoutMethodNotes } from '../config.js';
 
 // Admin Portal (handoff §15) — original Phase 5 endpoints. Sits on the SAME
 // backend and data model as the apps (§15 mandate). The portal UI is now the
@@ -424,6 +426,112 @@ export function registerAdminRoutes(app: FastifyInstance) {
   // Manual payout fulfillment queue (no Stripe Connect): requested
   // cash-outs listed with the creator's payout details; admin marks paid
   // after sending money externally — audited with who and when.
+  // ---- Payout method switches --------------------------------------------
+  // Turn any of the six methods on or off from the portal — a bank outage
+  // is handled here, with no deploy of any kind. The creator-side guard is
+  // in earnings.ts (cash-out refuses a disabled method server-side).
+
+  /** Current state per method + how many creators have it as their saved
+   *  preference — the portal warns with this count before a disable. */
+  app.get('/v1/admin/payout-methods', async (request, reply) => {
+    const adminId = await requireAdmin(request, reply, ['admin', 'support']);
+    if (!adminId) return;
+    const toggles = await enabledPayoutMethods();
+    const notes = await payoutMethodNotes();
+    const { data: creators } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('payout_methods')
+      .not('payout_methods', 'is', null);
+    const savedCount: Record<string, number> = {};
+    for (const c of creators ?? []) {
+      const sel = (c.payout_methods as { selected?: string } | null)?.selected;
+      if (sel) savedCount[sel] = (savedCount[sel] ?? 0) + 1;
+    }
+    return {
+      methods: PAYOUT_METHODS.map((m) => ({
+        id: m.id,
+        name: m.name,
+        eta: m.eta,
+        enabled: toggles[m.id] !== false,
+        note: notes[m.id] ?? null,
+        saved_count: savedCount[m.id] ?? 0,
+      })),
+    };
+  });
+
+  /**
+   * Flip one method. Disabling requires a reason (audit) and takes an
+   * optional creator-facing note ("Bank transfers are paused until Monday").
+   *
+   * WRITTEN AS UPSERT + READ-BACK, deliberately. The generic config PUT is
+   * an UPDATE that silently no-ops when the key row is missing and still
+   * answers {updated:true} — this endpoint must not inherit that. Upsert
+   * creates the row if absent, and the follow-up read proves the value the
+   * caller is told about is the value the table now holds.
+   */
+  app.put<{ Params: { id: string }; Body: { enabled?: boolean; reason?: string; note?: string } }>(
+    '/v1/admin/payout-methods/:id',
+    async (request, reply) => {
+      const adminId = await requireAdmin(request, reply);
+      if (!adminId) return;
+      const id = request.params.id;
+      if (!PAYOUT_METHODS.some((m) => m.id === id)) {
+        return reply.code(404).send({ error: `No payout method '${id}'` });
+      }
+      const enabled = request.body?.enabled;
+      if (typeof enabled !== 'boolean') {
+        return reply.code(400).send({ error: 'enabled (boolean) is required' });
+      }
+      const reason = (request.body?.reason ?? '').trim();
+      const note = (request.body?.note ?? '').trim();
+      if (!enabled && reason.length < 3) {
+        return reply.code(400).send({ error: `A reason is required to disable ${methodName(id)}.` });
+      }
+
+      const toggles = { ...(await enabledPayoutMethods()), [id]: enabled };
+      const notes = { ...(await payoutMethodNotes()) };
+      if (!enabled && note) notes[id] = note;
+      else delete notes[id]; // re-enabling clears the outage note
+
+      const { error: upErr } = await supabaseAdmin.from('app_config').upsert(
+        [
+          { key: 'payout_methods_enabled', value: toggles, confirmed: true },
+          { key: 'payout_methods_notes', value: notes, confirmed: true },
+        ],
+        { onConflict: 'key' },
+      );
+      if (upErr) return reply.code(500).send({ error: `Config write failed: ${upErr.message}` });
+
+      // Read back and verify — a 200 from this endpoint MEANS the row holds
+      // the value, not merely that a statement ran.
+      const { data: check } = await supabaseAdmin
+        .from('app_config')
+        .select('key, value')
+        .in('key', ['payout_methods_enabled', 'payout_methods_notes']);
+      const held = Object.fromEntries((check ?? []).map((r) => [r.key, r.value]));
+      const heldToggles = (held['payout_methods_enabled'] ?? {}) as Record<string, boolean>;
+      if (heldToggles[id] !== enabled) {
+        return reply.code(500).send({ error: 'Config write did not stick — state unchanged, try again.' });
+      }
+      bustConfigCache();
+
+      const { data: creators } = await supabaseAdmin
+        .from('creator_profiles')
+        .select('payout_methods')
+        .not('payout_methods', 'is', null);
+      const affected = (creators ?? []).filter(
+        (c) => (c.payout_methods as { selected?: string } | null)?.selected === id,
+      ).length;
+
+      await audit(adminId, enabled ? 'payout_method_enabled' : 'payout_method_disabled', id, {
+        reason: reason || null,
+        note: !enabled && note ? note : null,
+        creators_with_method_saved: affected,
+      });
+      return { updated: true, id, enabled, note: !enabled && note ? note : null, creators_with_method_saved: affected };
+    },
+  );
+
   app.get('/v1/admin/payout-requests', async (request, reply) => {
     const adminId = await requireAdmin(request, reply, ['admin', 'support']);
     if (!adminId) return;
