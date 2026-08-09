@@ -25,6 +25,20 @@ interface Commitments {
   } | null;
   future_bookings: { booking_id: string; scheduled_at: string; client_name: string }[];
   pending_payouts: { count: number; total_usd: number };
+  client_bookings: {
+    booking_id: string;
+    scheduled_at: string;
+    creator_name: string | null;
+    price_usd: number;
+  }[];
+}
+
+interface CreatorOption {
+  user_id: string;
+  name: string | null;
+  email: string | null;
+  vetting_status: string;
+  is_available: boolean;
 }
 
 interface RestoreSummary {
@@ -55,6 +69,41 @@ export function AccountSwitch({
     queryKey: ['commitments', userId],
     queryFn: () => api<Commitments>(`/v1/admin/users/${userId}/commitments`),
     enabled: open === 'disable',
+  });
+
+  // Reassignment is the way OUT of the active-session block, so it lives
+  // inside the disable dialog rather than on some other screen the admin
+  // would have to go and find while a client waits.
+  const [reassignTo, setReassignTo] = useState('');
+  const [share, setShare] = useState('');
+  const creators = useQuery({
+    queryKey: ['creator-options'],
+    queryFn: () => api<{ creators: CreatorOption[] } | CreatorOption[]>('/v1/admin/creators?limit=200'),
+    enabled: open === 'disable',
+  });
+
+  const reassign = useMutation({
+    mutationFn: (body: { booking_id: string; creator_id: string; original_payout_usd: number }) =>
+      api<{ payout_moved_usd: number; original_payout_usd: number }>(
+        `/v1/admin/bookings/${body.booking_id}/reassign`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            creator_id: body.creator_id,
+            original_payout_usd: body.original_payout_usd,
+            reason: 'reassigned before disabling the account',
+          }),
+        },
+      ),
+    onSuccess: () => {
+      setReassignTo('');
+      setShare('');
+      setError(null);
+      // The blocker is gone; reload so the dialog reflects it.
+      commitments.refetch();
+      queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    },
+    onError: (e) => setError((e as Error).message),
   });
 
   const disable = useMutation({
@@ -94,6 +143,8 @@ export function AccountSwitch({
 
   const c = commitments.data;
   const blocking = c?.active_session ?? null;
+  // Either kind of commitment turns the confirm into an explicit override.
+  const overriding = Boolean(blocking) || (c?.client_bookings.length ?? 0) > 0;
 
   return (
     <>
@@ -136,8 +187,53 @@ export function AccountSwitch({
                     {formatMoney(blocking.creator_payout_usd)}
                   </div>
                   <div className="dialog-note">
-                    Reassign this booking before disabling. Disabling anyway leaves the client
-                    without a creator.
+                    Hand this to another creator before disabling. Disabling anyway leaves the
+                    client without one.
+                  </div>
+                  <div className="dialog-reassign">
+                    <select
+                      value={reassignTo}
+                      onChange={(e) => setReassignTo(e.target.value)}
+                      aria-label="Replacement creator"
+                    >
+                      <option value="">Choose a replacement…</option>
+                      {creatorOptions(creators.data)
+                        .filter((c) => c.vetting_status === 'approved' && c.user_id !== userId)
+                        .map((c) => (
+                          <option key={c.user_id} value={c.user_id}>
+                            {c.name || c.email || c.user_id.slice(0, 8)}
+                            {c.is_available ? '' : ' (unavailable)'}
+                          </option>
+                        ))}
+                    </select>
+                    <input
+                      type="number"
+                      min={0}
+                      max={blocking.creator_payout_usd}
+                      step="0.01"
+                      value={share}
+                      onChange={(e) => setShare(e.target.value)}
+                      placeholder={`Keep for ${blocking.started ? 'them' : 'them'} (0–${blocking.creator_payout_usd.toFixed(2)})`}
+                      aria-label="Amount to keep for the outgoing creator"
+                    />
+                    <button
+                      className="btn"
+                      disabled={!reassignTo || reassign.isPending}
+                      onClick={() =>
+                        reassign.mutate({
+                          booking_id: blocking.booking_id,
+                          creator_id: reassignTo,
+                          original_payout_usd: share === '' ? 0 : Number(share),
+                        })
+                      }
+                    >
+                      {reassign.isPending ? 'Reassigning…' : 'Reassign'}
+                    </button>
+                  </div>
+                  <div className="dialog-note">
+                    Leave the amount blank to move the whole payout to the replacement. What you
+                    keep here is paid to {blocking.client_name ? 'the outgoing creator' : 'them'} on
+                    the normal hold; the rest goes to whoever finishes the job.
                   </div>
                 </div>
               )}
@@ -160,6 +256,28 @@ export function AccountSwitch({
                 payouts ({c?.pending_payouts.count ?? 0}) stays owed. Disabling does not cancel
                 the obligation and voids nothing.
               </div>
+              {(c?.client_bookings.length ?? 0) > 0 && (
+                <div className="dialog-warn">
+                  <strong>
+                    {c!.client_bookings.length} paid booking
+                    {c!.client_bookings.length === 1 ? '' : 's'} they placed as a client
+                  </strong>
+                  <ul className="dialog-list">
+                    {c!.client_bookings.slice(0, 5).map((b) => (
+                      <li key={b.booking_id}>
+                        {formatWhen(b.scheduled_at)} · {b.creator_name ?? 'unassigned'} ·{' '}
+                        {formatMoney(b.price_usd)}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="dialog-note">
+                    These are NOT cancelled and no money is refunded — disabling an account never
+                    moves money. Cancel and refund them from the booking if this client should not
+                    be served; otherwise the assigned creator is told not to travel until it's
+                    confirmed.
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -180,11 +298,11 @@ export function AccountSwitch({
             <button
               className="btn danger"
               disabled={reason.trim().length < 3 || disable.isPending}
-              onClick={() => disable.mutate({ reason: reason.trim(), force: Boolean(blocking) })}
+              onClick={() => disable.mutate({ reason: reason.trim(), force: overriding })}
             >
               {disable.isPending
                 ? 'Disabling…'
-                : blocking
+                : overriding
                   ? 'Disable anyway'
                   : 'Disable account'}
             </button>
@@ -281,6 +399,12 @@ export function AccountSwitch({
       )}
     </>
   );
+}
+
+/** The creators endpoint has returned both shapes over its life; accept either. */
+function creatorOptions(data: { creators: CreatorOption[] } | CreatorOption[] | undefined): CreatorOption[] {
+  if (!data) return [];
+  return Array.isArray(data) ? data : (data.creators ?? []);
 }
 
 function Dialog({

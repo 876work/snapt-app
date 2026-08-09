@@ -60,6 +60,12 @@ const TRIGGERS: Record<string, TriggerSpec> = {
   // job is telling someone their account works again. Email as well as push:
   // a restored user may not have the app open, or installed.
   account_restored: { category: 'account', push: true, email: true },
+  // A creator changed mid-booking. All three parties need to know, and none
+  // of them can afford to find out on the day — push and email both.
+  booking_reassigned: { category: 'bookings', push: true, email: true },
+  // The client on a creator's upcoming booking was disabled. The booking is
+  // still standing, so this has to reach them BEFORE they travel to it.
+  client_account_disabled: { category: 'bookings', push: true, email: true },
   verification_failed: { category: 'account', push: true, email: true },
   files_expiring: { category: 'bookings', push: true, email: true }, // retention: 30d/7d download warnings
   // Chat. Muted by the `messages` preference rather than order_updates —

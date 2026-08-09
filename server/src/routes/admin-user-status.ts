@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { supabaseAdmin } from '../supabase.js';
 import { requireAdmin, audit } from '../admin-auth.js';
 import { notify } from '../notify.js';
+import { estimateCreatorPayout, feeRateFor, type BookingRow } from '../payments.js';
+import { getConfig } from '../config.js';
 
 /**
  * ADMIN HARD OFF SWITCH — disable / restore a user account.
@@ -37,6 +39,28 @@ interface Commitments {
   } | null;
   future_bookings: { booking_id: string; scheduled_at: string; client_name: string }[];
   pending_payouts: { count: number; total_usd: number };
+  /**
+   * Bookings this user holds AS THE CLIENT — money already taken, a creator
+   * already expecting to turn up. Disabling only ever looked at creator_id,
+   * so switching off a client silently left a creator booked for a shoot
+   * with someone who can no longer be contacted or let in.
+   */
+  client_bookings: {
+    booking_id: string;
+    scheduled_at: string;
+    creator_name: string | null;
+    price_usd: number;
+  }[];
+}
+
+/** Display names for a set of user ids, in one round trip. */
+async function namesFor(ids: string[]): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (!unique.length) return names;
+  const { data } = await supabaseAdmin.from('profiles').select('id, full_name').in('id', unique);
+  for (const p of data ?? []) names.set(p.id as string, (p.full_name as string) || '');
+  return names;
 }
 
 /** What this user owes the platform before they can be switched off. */
@@ -44,18 +68,25 @@ async function commitmentsFor(userId: string): Promise<Commitments> {
   const now = new Date();
   const { data: bookings } = await supabaseAdmin
     .from('bookings')
-    .select('id, client_id, scheduled_at, duration_hours, status, price_usd, pricing_snapshot')
+    .select('id, client_id, creator_id, scheduled_at, duration_hours, status, price_usd, pricing_snapshot')
     .eq('creator_id', userId)
     .in('status', ['pending', 'confirmed']);
 
-  const names = new Map<string, string>();
-  const clientIds = [...new Set((bookings ?? []).map((b) => b.client_id as string))];
-  if (clientIds.length) {
-    const { data: profiles } = await supabaseAdmin
-      .from('profiles')
-      .select('id, full_name')
-      .in('id', clientIds);
-    for (const p of profiles ?? []) names.set(p.id as string, (p.full_name as string) || 'Client');
+  const names = await namesFor((bookings ?? []).map((b) => b.client_id as string));
+
+  // Whether a session has actually STARTED is the sessions table's answer,
+  // not a guess from the clock: a creator who checked in late is still
+  // mid-shoot, and one who never showed is not.
+  const ids = (bookings ?? []).map((b) => b.id as string);
+  const live = new Set<string>();
+  if (ids.length) {
+    const { data: sessions } = await supabaseAdmin
+      .from('sessions')
+      .select('booking_id, session_active_at, session_ended_at')
+      .in('booking_id', ids);
+    for (const s of sessions ?? []) {
+      if (s.session_active_at && !s.session_ended_at) live.add(s.booking_id as string);
+    }
   }
 
   let active: Commitments['active_session'] = null;
@@ -64,22 +95,22 @@ async function commitmentsFor(userId: string): Promise<Commitments> {
     if (!b.scheduled_at) continue;
     const start = new Date(b.scheduled_at as string);
     const end = new Date(start.getTime() + (Number(b.duration_hours) || 1) * 3600_000);
-    const snapshot = (b.pricing_snapshot ?? {}) as Record<string, unknown>;
-    if (end >= now && start <= new Date(now.getTime() + 4 * 3600_000)) {
+    const started = live.has(b.id as string);
+    if (started || (end >= now && start <= new Date(now.getTime() + 4 * 3600_000))) {
       // Happening now, or close enough that reassignment is urgent.
       active = {
         booking_id: b.id as string,
         client_id: b.client_id as string,
-        client_name: names.get(b.client_id as string) ?? 'Client',
+        client_name: names.get(b.client_id as string) || 'Client',
         scheduled_at: b.scheduled_at as string,
-        started: start <= now,
-        creator_payout_usd: Number(snapshot['creator_payout_usd'] ?? 0),
+        started,
+        creator_payout_usd: await estimateCreatorPayout(b as unknown as BookingRow, userId),
       };
     } else if (start > now) {
       future.push({
         booking_id: b.id as string,
         scheduled_at: b.scheduled_at as string,
-        client_name: names.get(b.client_id as string) ?? 'Client',
+        client_name: names.get(b.client_id as string) || 'Client',
       });
     }
   }
@@ -91,10 +122,26 @@ async function commitmentsFor(userId: string): Promise<Commitments> {
     .in('status', ['held', 'requested', 'available']);
   const total = (payouts ?? []).reduce((s, p) => s + Number(p.amount_usd || 0), 0);
 
+  // The client side of the same person.
+  const { data: asClient } = await supabaseAdmin
+    .from('bookings')
+    .select('id, creator_id, scheduled_at, price_usd')
+    .eq('client_id', userId)
+    .eq('status', 'confirmed')
+    .gte('scheduled_at', now.toISOString())
+    .order('scheduled_at', { ascending: true });
+  const creatorNames = await namesFor((asClient ?? []).map((b) => b.creator_id as string));
+
   return {
     active_session: active,
     future_bookings: future.sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at)),
     pending_payouts: { count: (payouts ?? []).length, total_usd: Math.round(total * 100) / 100 },
+    client_bookings: (asClient ?? []).map((b) => ({
+      booking_id: b.id as string,
+      scheduled_at: b.scheduled_at as string,
+      creator_name: b.creator_id ? creatorNames.get(b.creator_id as string) || 'Creator' : null,
+      price_usd: Number(b.price_usd || 0),
+    })),
   };
 }
 
@@ -108,6 +155,171 @@ export function registerAdminUserStatusRoutes(app: FastifyInstance) {
       return commitmentsFor(request.params.userId);
     },
   );
+
+  /**
+   * REASSIGN a booking to another creator, splitting the payout.
+   *
+   * This is the way out of the active-session 409: a creator is mid-shoot (or
+   * about to be) and has to be switched off, so someone else takes the job
+   * and the money is divided between them.
+   *
+   * THE SPLIT IS WRITTEN NOW, not deferred. The outgoing creator's share
+   * becomes a real payout row at reassignment time, on the normal hold, so
+   * they can see what they earned instead of waiting on a booking they no
+   * longer have. createPayoutForBooking then pays the replacement the
+   * remainder when the session completes.
+   *
+   * The suggested split is pro-rata on elapsed time, which is a starting
+   * point and not a rule — a shoot abandoned ten minutes in may still be
+   * worth most of the fee, or none of it. The admin sets the number.
+   */
+  app.post<{
+    Params: { bookingId: string };
+    Body: { creator_id?: string; original_payout_usd?: number; reason?: string };
+  }>('/v1/admin/bookings/:bookingId/reassign', async (request, reply) => {
+    const adminId = await requireAdmin(request, reply);
+    if (!adminId) return;
+    const newCreatorId = request.body?.creator_id;
+    if (!newCreatorId) return reply.code(400).send({ error: 'creator_id required' });
+
+    const { data: booking } = await supabaseAdmin
+      .from('bookings')
+      .select('id, client_id, creator_id, status, scheduled_at, duration_hours, price_usd, pricing_snapshot, occasion, area, type')
+      .eq('id', request.params.bookingId)
+      .maybeSingle();
+    if (!booking) return reply.code(404).send({ error: 'Not found' });
+    if (!booking.creator_id) {
+      return reply.code(409).send({ error: 'That booking has no creator to reassign from — dispatch it instead.' });
+    }
+    if (booking.creator_id === newCreatorId) {
+      return reply.code(409).send({ error: 'That creator already has this booking.' });
+    }
+    if (!['pending', 'confirmed'].includes(booking.status as string)) {
+      return reply.code(409).send({ error: `A ${booking.status} booking cannot be reassigned.` });
+    }
+    const outgoingId = booking.creator_id as string;
+
+    // The replacement has to be able to actually do it.
+    const { data: replacement } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('user_id, vetting_status')
+      .eq('user_id', newCreatorId)
+      .maybeSingle();
+    if (!replacement || replacement.vetting_status !== 'approved') {
+      return reply.code(409).send({ error: 'That replacement is not an approved creator.' });
+    }
+    const { data: replacementProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id, full_name, status')
+      .eq('id', newCreatorId)
+      .maybeSingle();
+    if (!replacementProfile || replacementProfile.status === 'disabled') {
+      return reply.code(409).send({ error: 'That replacement account is disabled.' });
+    }
+
+    const full = await estimateCreatorPayout(booking as unknown as BookingRow, outgoingId);
+    // Pro-rata suggestion: how much of the booked time the outgoing creator
+    // actually covered. Zero before the session starts.
+    const start = booking.scheduled_at ? new Date(booking.scheduled_at as string) : null;
+    const durationMs = (Number(booking.duration_hours) || 1) * 3600_000;
+    const elapsed = start ? Math.min(Math.max(Date.now() - start.getTime(), 0), durationMs) : 0;
+    const suggested = Math.round(full * (elapsed / durationMs) * 100) / 100;
+
+    const requested = request.body?.original_payout_usd;
+    const originalShare =
+      typeof requested === 'number' && Number.isFinite(requested) ? Math.round(requested * 100) / 100 : suggested;
+    if (originalShare < 0 || originalShare > full) {
+      return reply.code(400).send({
+        error: `The outgoing creator's share must be between $0.00 and $${full.toFixed(2)}.`,
+        full_payout_usd: full,
+        suggested_usd: suggested,
+      });
+    }
+
+    // Outgoing creator's money first — before the booking moves, so a failure
+    // here cannot leave them without the job AND without the payout.
+    if (originalShare > 0) {
+      const config = await getConfig();
+      const holdDays = (config['payout_hold_days'] as number) ?? 7;
+      // The rate this share was already netted at — recorded, not zeroed, so
+      // the earnings breakdown and any later audit read the same number the
+      // money was actually computed with.
+      const { rate, isPromo } = await feeRateFor(outgoingId);
+      const { error: payErr } = await supabaseAdmin.from('creator_payouts').insert({
+        creator_id: outgoingId,
+        booking_id: booking.id,
+        amount_usd: originalShare,
+        fee_rate_applied: rate,
+        is_promo_rate: isPromo,
+        status: 'held',
+        hold_until: new Date(Date.now() + holdDays * 86400_000).toISOString(),
+      });
+      if (payErr) {
+        request.log.error({ err: payErr }, 'reassign: payout split failed');
+        return reply.code(500).send({ error: "Couldn't record the payout split — nothing was changed." });
+      }
+    }
+
+    const { error: moveErr } = await supabaseAdmin
+      .from('bookings')
+      .update({ creator_id: newCreatorId })
+      .eq('id', booking.id);
+    if (moveErr) {
+      request.log.error({ err: moveErr }, 'reassign: booking move failed');
+      return reply.code(500).send({ error: "Couldn't move that booking — check the payout split before retrying." });
+    }
+
+    // What the replacement stands to earn, at the OUTGOING creator's rate.
+    // Their actual payout is recomputed at their own rate when the session
+    // completes, so this is a reportable figure rather than a promise — the
+    // two differ only when one of them is on a promo rate.
+    const movedToReplacement = Math.round((full - originalShare) * 100) / 100;
+    // `booking_reassigned` / `payout_moved_usd` are read verbatim by the
+    // restore summary — renaming either silently empties that report.
+    await audit(adminId, 'booking_reassigned', outgoingId, {
+      booking_id: booking.id,
+      to_creator_id: newCreatorId,
+      full_payout_usd: full,
+      original_payout_usd: originalShare,
+      payout_moved_usd: movedToReplacement,
+      suggested_usd: suggested,
+      overrode_suggestion: typeof requested === 'number' && requested !== suggested,
+      reason: (request.body?.reason ?? '').trim() || null,
+    });
+
+    await notify(
+      outgoingId,
+      'booking_reassigned',
+      'A booking was reassigned',
+      originalShare > 0
+        ? `This booking has been passed to another creator. Your share of $${originalShare.toFixed(2)} is on its normal payout hold.`
+        : 'This booking has been passed to another creator.',
+      { booking_id: booking.id, audience: 'creator' },
+    );
+    await notify(
+      newCreatorId,
+      'booking_reassigned',
+      'A booking was assigned to you',
+      booking.type === 'remote'
+        ? 'A remote edit order has been passed to you — open it to pick up the client\'s footage.'
+        : `A ${booking.occasion ?? 'session'} booking near ${booking.area ?? 'you'} has been passed to you.`,
+      { booking_id: booking.id, audience: 'creator' },
+    );
+    await notify(
+      booking.client_id as string,
+      'booking_reassigned',
+      'Your creator has changed',
+      `${replacementProfile.full_name || 'Another creator'} will be covering your booking. The time, place and price are unchanged.`,
+      { booking_id: booking.id, audience: 'client' },
+    );
+
+    return {
+      reassigned: true,
+      full_payout_usd: full,
+      original_payout_usd: originalShare,
+      payout_moved_usd: movedToReplacement,
+    };
+  });
 
   /**
    * DISABLE. Requires a reason. Future bookings are returned to unassigned
@@ -139,6 +351,21 @@ export function registerAdminUserStatusRoutes(app: FastifyInstance) {
         return reply.code(409).send({
           error: 'This creator has a session in progress or starting within four hours. Reassign it before disabling.',
           code: 'active_session',
+          commitments,
+        });
+      }
+      /**
+       * The same person as a CLIENT. Their bookings are paid and a creator is
+       * expecting to turn up, so this refuses too — but it deliberately does
+       * NOT cancel or refund. Money never moves as a side effect of an admin
+       * toggle; cancelling is its own decision, made on the booking, with the
+       * refund rules that flow applies. Forcing past this leaves the bookings
+       * standing and raises an alert instead of quietly stranding a creator.
+       */
+      if (commitments.client_bookings.length > 0 && !request.body?.force) {
+        return reply.code(409).send({
+          error: `This client has ${commitments.client_bookings.length} paid booking${commitments.client_bookings.length === 1 ? '' : 's'} still to come. Cancel and refund ${commitments.client_bookings.length === 1 ? 'it' : 'them'} first, or disable anyway to leave ${commitments.client_bookings.length === 1 ? 'it' : 'them'} standing.`,
+          code: 'client_paid_bookings',
           commitments,
         });
       }
@@ -186,18 +413,47 @@ export function registerAdminUserStatusRoutes(app: FastifyInstance) {
       // some future code path forgets to check status.
       await supabaseAdmin.from('push_tokens').delete().eq('user_id', userId);
 
+      /**
+       * Forced past paid client bookings. They stay standing and no money
+       * moves — but the creator booked for them must not find out by turning
+       * up. One alert per booking for ops, one notification for the creator.
+       */
+      for (const cb of commitments.client_bookings) {
+        await supabaseAdmin.from('admin_alerts').insert({
+          alert_type: 'client_disabled_with_paid_booking',
+          booking_id: cb.booking_id,
+          detail: { client_id: userId, scheduled_at: cb.scheduled_at, price_usd: cb.price_usd },
+        });
+        const { data: b } = await supabaseAdmin
+          .from('bookings')
+          .select('creator_id')
+          .eq('id', cb.booking_id)
+          .maybeSingle();
+        if (b?.creator_id) {
+          await notify(
+            b.creator_id as string,
+            'client_account_disabled',
+            'A booking needs checking before you travel',
+            "The client on one of your upcoming bookings has had their Snapt account disabled. Don't set off for this one until we confirm it — we'll be in touch.",
+            { booking_id: cb.booking_id, audience: 'creator' },
+          );
+        }
+      }
+
       await audit(adminId, 'user_disabled', userId, {
         reason,
         bookings_unassigned: unassigned,
         pending_payouts: commitments.pending_payouts,
         was_available: creator?.is_available ?? null,
         active_session_forced: Boolean(commitments.active_session && request.body?.force),
+        client_bookings_left_standing: commitments.client_bookings.map((c) => c.booking_id),
         login_ban_applied: banned,
       });
 
       return {
         disabled: true,
         bookings_unassigned: unassigned.length,
+        client_bookings_left_standing: commitments.client_bookings.length,
         pending_payouts: commitments.pending_payouts,
         login_ban_applied: banned,
       };

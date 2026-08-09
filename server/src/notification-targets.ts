@@ -74,6 +74,11 @@ export function targetFor(trigger: string, data: TargetData = {}): string | null
     case 'reschedule_confirmed':
     case 'session_ended':
     case 'no_show_reported':
+    // Reassignment reaches all three parties at once, so it depends on the
+    // audience flag more than any other trigger: the outgoing creator, the
+    // replacement and the client each need their own side of the booking.
+    case 'booking_reassigned':
+    case 'client_account_disabled':
       if (b && data.audience === 'creator') return jobOffer(b);
       return b ? booking(b) : '/(app)/bookings';
 
