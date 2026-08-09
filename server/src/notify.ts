@@ -131,7 +131,14 @@ export async function notify(
         .select('email')
         .eq('id', userId)
         .maybeSingle();
-      if (profile?.email) await sendEmail(profile.email, title, `<p>${body}</p>`);
+      if (profile?.email) {
+        // The result was discarded, so a Resend outage looked exactly like a
+        // delivered email — the creator-application confirmation could fail
+        // for every applicant and nothing would say so. The inbox row is
+        // already written above, so this only reports; it never blocks.
+        const mail = await sendEmail(profile.email, title, `<p>${body}</p>`);
+        if (!mail.sent) console.error('[notify] email send FAILED', trigger, userId);
+      }
     }
     if (spec.push) {
       // §13 per-category muting, enforced on the push channel only — in-app

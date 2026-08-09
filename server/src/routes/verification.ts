@@ -424,13 +424,36 @@ export async function applyDecision(
   const blocked = flags.some((f) => f.risk === 'BLOCKLISTED_IDENTITY');
   const expired = flags.some((f) => f.risk === 'DOCUMENT_EXPIRED');
 
-  let rollup = 'in_review';
+  /**
+   * DEFAULT IS SILENT. This used to default to 'in_review', so ANY status we
+   * did not explicitly handle was read as "a human is reviewing this" — and
+   * two of them are routine:
+   *
+   *   'Not Started'  written by our own session-create the instant a creator
+   *                  taps Verify my identity
+   *   'In Progress'  Didit's status while they are still taking photos
+   *
+   * Both fell through to the default. The creator was told "A person is
+   * reviewing your documents — usually within 2 working days" before they
+   * had photographed anything, and the app dismissed the Didit sheet on
+   * sight of it (settled() counts in_review), which is the first-tap failure.
+   *
+   * Only a status we recognise as a DECISION may end an attempt. Anything
+   * else — including one Didit adds later that we have never seen — is
+   * in_progress: no notification, nothing closed, the flow keeps running.
+   */
+  let rollup = 'in_progress';
   if (is18 === false) rollup = 'failed_underage';
   else if (blocked || expired) rollup = 'in_review';
   else if (status === 'Approved') rollup = 'approved';
   else if (status === 'Declined') rollup = 'declined';
   else if (status === 'In Review') rollup = 'in_review';
   else if (status === 'Abandoned' || status === 'Expired') rollup = 'in_progress';
+  else if (status !== 'Not Started' && status !== 'In Progress' && status !== 'Pending') {
+    // Unrecognised: treat as still running, but make it visible rather than
+    // silently swallowed, so a new Didit status is noticed by us not them.
+    log?.error({ status, sessionId: session.id }, 'unmapped didit status — treated as in_progress');
+  }
 
   const profilePatch: Record<string, unknown> = {
     verification_status: rollup,

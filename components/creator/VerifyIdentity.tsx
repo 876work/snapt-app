@@ -106,13 +106,28 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
   const settled = (s: string | null) =>
     s === 'approved' || s === 'declined' || s === 'in_review' || s === 'failed_underage';
 
-  /** Poll until the webhook lands a decision, or we run out of patience. */
+  /**
+   * Poll until the webhook lands a decision for THIS attempt.
+   *
+   * `before` is the status as it stood when the sheet opened. Without it a
+   * status that was already settled — or one that turns settled for a reason
+   * unrelated to what the creator is doing right now — closes the Didit sheet
+   * the instant it appears. That was the first-tap failure: an early webhook
+   * rolled the application up to in_review while Didit was still on its first
+   * screen, this returned true on the very first poll, and dismissBrowser()
+   * fired ~2.5s in.
+   *
+   * A decision only counts if it ARRIVED while the sheet was open. Belt and
+   * braces with the server-side default fix — either alone closes the bug,
+   * and the pair means a future unmapped status cannot reopen it.
+   */
   const waitForDecision = React.useCallback(
-    async (timeoutMs = 150_000): Promise<boolean> => {
+    async (before: string | null, timeoutMs = 150_000): Promise<boolean> => {
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 2500));
-        if (settled(await fetchStatus())) return true;
+        const now = await fetchStatus();
+        if (settled(now) && now !== before) return true;
       }
       return false;
     },
@@ -177,6 +192,8 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
         return;
       }
       const body = (await res.json()) as { url?: string };
+      // Snapshot BEFORE the sheet opens — see waitForDecision.
+      const statusBeforeOpen = status?.status ?? null;
       if (!body.url) {
         setError("Verification didn't return a link. Submit your application — our team will verify you manually.");
         return;
@@ -199,7 +216,7 @@ export function VerifyIdentity({ onStatus }: { onStatus?: (s: string) => void })
           presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
           dismissButtonStyle: 'close',
         });
-        const landed = await waitForDecision();
+        const landed = await waitForDecision(statusBeforeOpen);
         if (landed) {
           await WebBrowser.dismissBrowser().catch(() => {
             /* they closed it first — fine, the status is already in hand */

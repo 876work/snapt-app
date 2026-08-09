@@ -410,16 +410,43 @@ export function registerCreatorRoutes(app: FastifyInstance) {
      * the applicant's behalf. When there is no row yet, say what to do
      * instead of failing with a 500.
      */
-    if (!existing) {
-      return reply.code(409).send({
-        error: 'Pick at least one thing you shoot first — then add your photo.',
-        code: 'application_not_started',
+    /**
+     * ANY ORDER. The photo step must not depend on having picked a specialty
+     * first — that ordering was invisible to the creator, and the draft save
+     * is debounced, so five selected specialties could still mean no row on
+     * the server and a refusal that read as nonsense.
+     *
+     * Create the row when it is missing. `specialties: []` needs
+     * 20260810090000_specialties_any_order.sql; until that runs the insert
+     * trips the old cardinality check, so the previous message is kept as the
+     * fallback rather than surfacing a constraint error. Deploy order does
+     * not matter either way.
+     */
+    let error = null as { message: string } | null;
+    if (existing) {
+      ({ error } = await supabaseAdmin
+        .from('creator_profiles')
+        .update({ headshot_path: storagePath, headshot_status: 'pending' })
+        .eq('user_id', user.id));
+    } else {
+      const { error: insertErr } = await supabaseAdmin.from('creator_profiles').insert({
+        user_id: user.id,
+        vetting_status: 'not_started',
+        specialties: [],
+        headshot_path: storagePath,
+        headshot_status: 'pending',
       });
+      if (insertErr) {
+        request.log.error(
+          { err: insertErr, userId: user.id },
+          'headshot row create failed — specialties migration likely not run',
+        );
+        return reply.code(409).send({
+          error: 'Pick at least one thing you shoot first — then add your photo.',
+          code: 'application_not_started',
+        });
+      }
     }
-    const { error } = await supabaseAdmin
-      .from('creator_profiles')
-      .update({ headshot_path: storagePath, headshot_status: 'pending' })
-      .eq('user_id', user.id);
     if (error) {
       /**
        * NEVER the raw Postgres string. An applicant hit
