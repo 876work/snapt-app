@@ -94,6 +94,40 @@ export function registerNotificationRoutes(app: FastifyInstance): void {
     },
   );
 
+  /**
+   * Delete one notification, permanently. Scoped to the caller's own rows:
+   * the user_id filter means another user's id simply matches nothing, so a
+   * wrong owner is indistinguishable from a missing row (404, no leak).
+   *
+   * Returns the fresh unread count so the client's badge can settle from the
+   * server's number rather than guessing locally — deleting an unread row
+   * must move the badge, and only the server knows the true remainder.
+   *
+   * Idempotent: deleting an already-deleted row returns 404, which the
+   * client treats as "already gone" rather than an error.
+   */
+  app.delete<{ Params: { id: string } }>(
+    '/v1/notifications/:id',
+    async (request, reply) => {
+      const user = requireUser(request);
+      const { data, error } = await supabaseAdmin
+        .from('notifications')
+        .delete()
+        .eq('id', request.params.id)
+        .eq('user_id', user.id)
+        .select('id')
+        .maybeSingle();
+      if (error) return reply.code(500).send({ error: error.message });
+      if (!data) return reply.code(404).send({ error: 'Not found' });
+      const { count } = await supabaseAdmin
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .is('read_at', null);
+      return { deleted: true, unread: count ?? 0 };
+    },
+  );
+
   // ---- Admin: promotional sends ------------------------------------------
 
   /**
