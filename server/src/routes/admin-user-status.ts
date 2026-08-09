@@ -199,6 +199,25 @@ export function registerAdminUserStatusRoutes(app: FastifyInstance) {
     }
     const outgoingId = booking.creator_id as string;
 
+    /**
+     * Never split money that has already been paid out. Status alone nearly
+     * covers this — every createPayoutForBooking call site moves the booking
+     * to completed/no_show — but one of them writes the payout BEFORE the
+     * status update, leaving a window where a reassignment would add a split
+     * on top of a full payout. Checking the payout rows directly closes that
+     * window and does not rely on call sites keeping their ordering.
+     */
+    const { data: paidAlready } = await supabaseAdmin
+      .from('creator_payouts')
+      .select('id')
+      .eq('booking_id', booking.id)
+      .limit(1);
+    if ((paidAlready ?? []).length > 0) {
+      return reply.code(409).send({
+        error: 'That booking has already been paid out — it cannot be reassigned.',
+      });
+    }
+
     // The replacement has to be able to actually do it.
     const { data: replacement } = await supabaseAdmin
       .from('creator_profiles')
