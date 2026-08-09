@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Text } from '../../../lib/text';
 import { CreatorAvatar } from '../../../components/ui/CreatorAvatar';
@@ -202,8 +202,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  avatarImg: { width: '100%', height: '100%' },
-  avatarInitial: { fontSize: 17, fontWeight: '800', color: 'rgba(0,0,0,0.4)' },
   rowHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   name: { flex: 1, fontSize: 14, fontWeight: '700', color: colors.ink },
   nameUnread: { fontWeight: '800' },

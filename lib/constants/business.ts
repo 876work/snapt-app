@@ -99,7 +99,18 @@ function formatDisplayValue(v: number, currency: Currency): string {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   });
-  return `${sign}${currency === 'XCD' ? 'EC$' : '$'}${num}`;
+  /**
+   * XCD is prefixed with its ISO code, matching the server-side formatter
+   * that writes emails and notifications (server/src/money.ts). "EC$" was
+   * the local symbol and read naturally here, but it left a creator seeing
+   * "EC$0.00" in the app and "XCD 0.00" in the same figure by email — and
+   * "EC$" is Saint-Lucia-specific in a way the code is not, which is the
+   * opposite of the groundwork this currency work is for.
+   *
+   * USD keeps "$": it is unambiguous in-app, and changing it would restyle
+   * every catalog price and checkout line for no gain.
+   */
+  return `${sign}${currency === 'XCD' ? 'XCD ' : '$'}${num}`;
 }
 
 export function formatMoney(usd: number, currency: Currency): string {

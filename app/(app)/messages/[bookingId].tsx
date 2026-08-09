@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { KeyboardScrollView } from '../../../components/ui/KeyboardScrollView';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
@@ -307,7 +307,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerAvatarInitial: { fontSize: 13, fontWeight: '800', color: 'rgba(0,0,0,0.4)' },
   subject: {
     fontSize: 11.5,
     fontWeight: '700',
