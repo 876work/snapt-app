@@ -152,16 +152,24 @@ function Slide({
     };
   }, [reduceMotion, g.leftCut, ampL, ampR, W]);
 
-  // Text runs slightly ahead of the swipe and settles with a small rise;
-  // the body's opacity window is narrower than the headline's, so the
-  // headline lands first and the body follows — the stagger.
+  // Text rises and fades on entry; the body's opacity window is narrower
+  // than the headline's, so the headline lands first and the body follows —
+  // the stagger.
+  //
+  // VERTICAL ONLY, deliberately. A horizontal translate keyed off dx pushed
+  // the copy block sideways whenever scrollX was stale, and on a 375pt screen
+  // that clipped the headline clean off the edge — observed on SE, on both
+  // the swipe and the button path. The horizontal component bought a barely
+  // perceptible effect in exchange for a layout that could break; the rise
+  // and the stagger, which are what the motion is actually for, do not
+  // depend on it. Image parallax stays: it is bounded by the crop, so a bad
+  // value can only under-move it, never expose an edge.
   const titleStyle = useAnimatedStyle(() => {
     if (reduceMotion) return { opacity: 1 };
     const dx = scrollX.value - index * W;
     return {
       opacity: interpolate(dx, [-0.75 * W, 0, 0.75 * W], [0, 1, 0], Extrapolation.CLAMP),
       transform: [
-        { translateX: -0.14 * dx },
         { translateY: interpolate(dx, [-W, 0, W], [14, 0, 14], Extrapolation.CLAMP) },
       ],
     };
@@ -172,7 +180,6 @@ function Slide({
     return {
       opacity: interpolate(dx, [-0.5 * W, 0, 0.5 * W], [0, 1, 0], Extrapolation.CLAMP),
       transform: [
-        { translateX: -0.14 * dx },
         { translateY: interpolate(dx, [-W, 0, W], [22, 0, 22], Extrapolation.CLAMP) },
       ],
     };
