@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
-import { headshotColumnsPresent } from '../schema-probe.js';
+import { headshotColumnsPresent, headshotPendingColumnPresent } from '../schema-probe.js';
 import { eligibleCreators } from '../availability.js';
 import { creatorStanding } from '../strikes.js';
 import { notify } from '../notify.js';
@@ -378,22 +378,36 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       .from('creator_profiles')
       .select(
         ((await headshotColumnsPresent())
-          ? 'vetting_status, background_check_status, specialties, verified, base_area, service_radius_km, availability, blocked_dates, service_type, is_available, applied_at, rejection_reason, headshot_path, headshot_status'
+          ? `vetting_status, background_check_status, specialties, verified, base_area, service_radius_km, availability, blocked_dates, service_type, is_available, applied_at, rejection_reason, headshot_path, headshot_status${(await headshotPendingColumnPresent()) ? ', headshot_pending_path' : ''}`
           : 'vetting_status, background_check_status, specialties, verified, base_area, service_radius_km, availability, blocked_dates, service_type, is_available, applied_at, rejection_reason') as '*',
       )
       .eq('user_id', user.id)
       .maybeSingle();
     if (error) return reply.code(500).send({ error: error.message });
-    let headshotUrl: string | null = null;
-    if (data?.headshot_path) {
-      const { createDownloadUrl } = await import('../storage.js');
-      headshotUrl = await createDownloadUrl('portfolio', data.headshot_path).catch(() => null);
-    }
-    const { headshot_path, ...rest } = data ?? ({} as Record<string, unknown>);
+    /**
+     * BOTH SLOTS, for the owner only.
+     *
+     * headshot_url is the live, client-facing photo; headshot_pending_url is
+     * a replacement under review. Returning both is what lets the app show a
+     * creator "this is what clients see, this is what you just sent" instead
+     * of one ambiguous image whose status they have to infer.
+     */
+    const { createDownloadUrl } = await import('../storage.js');
+    const sign = (p: unknown) =>
+      typeof p === 'string' && p
+        ? createDownloadUrl('portfolio', p).catch(() => null)
+        : Promise.resolve(null);
+    const [headshotUrl, pendingUrl] = await Promise.all([
+      sign(data?.headshot_path),
+      sign((data as Record<string, unknown> | null)?.headshot_pending_path),
+    ]);
+    const { headshot_path, headshot_pending_path, ...rest } =
+      data ?? ({} as Record<string, unknown>);
     return {
       status: statusOf(data),
       ...rest,
       headshot_url: headshotUrl,
+      headshot_pending_url: pendingUrl,
     };
   });
 
@@ -439,9 +453,13 @@ export function registerCreatorRoutes(app: FastifyInstance) {
     }
     const { data: existing } = await supabaseAdmin
       .from('creator_profiles')
-      .select('vetting_status, headshot_status')
+      .select('vetting_status, headshot_status, headshot_path')
       .eq('user_id', user.id)
       .maybeSingle();
+    // "Do they already have a live photo?" — not "have they uploaded before".
+    // A creator whose only photo was rejected has nothing to protect either.
+    const existingHeadshot =
+      existing?.headshot_path != null && existing?.headshot_status === 'approved';
     /**
      * UPDATE, not upsert. `upsert` builds an INSERT tuple and only then
      * resolves the conflict, so Postgres evaluates creator_profiles'
@@ -469,9 +487,26 @@ export function registerCreatorRoutes(app: FastifyInstance) {
      */
     let error = null as { message: string } | null;
     if (existing) {
+      /**
+       * A REPLACEMENT MUST NOT UNSEAT THE APPROVED PHOTO.
+       *
+       * This used to overwrite headshot_path and flip the status to pending,
+       * so tapping "change photo" removed a vetted creator's public face
+       * instantly — client surfaces only sign an APPROVED headshot — and left
+       * them showing an initial, possibly mid-booking, until a human looked.
+       *
+       * FIRST UPLOAD IS DIFFERENT ON PURPOSE: with nothing approved yet there
+       * is nothing to protect, so it goes straight to the live slot and the
+       * pending slot stays empty.
+       */
+      const firstEver = !existingHeadshot;
       ({ error } = await supabaseAdmin
         .from('creator_profiles')
-        .update({ headshot_path: storagePath, headshot_status: 'pending' })
+        .update(
+          firstEver
+            ? { headshot_path: storagePath, headshot_pending_path: null, headshot_status: 'pending' }
+            : { headshot_pending_path: storagePath, headshot_status: 'pending' },
+        )
         .eq('user_id', user.id));
     } else {
       const { error: insertErr } = await supabaseAdmin.from('creator_profiles').insert({
@@ -616,13 +651,32 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       const approve = request.body?.approve === true;
       const { data: row } = await supabaseAdmin
         .from('creator_profiles')
-        .select('headshot_status')
+        .select('headshot_status, headshot_path, headshot_pending_path')
         .eq('user_id', request.params.userId)
         .maybeSingle();
       if (!row?.headshot_status) return reply.code(404).send({ error: 'No headshot to review' });
+      /**
+       * APPROVE PROMOTES, REJECT PRESERVES.
+       *
+       * A pending replacement becomes the live photo and the pending slot is
+       * cleared. A rejection clears the pending slot and leaves headshot_path
+       * exactly as it was — so a creator whose replacement is refused keeps
+       * the photo clients already know, rather than dropping to an initial as
+       * punishment for trying.
+       *
+       * With no pending photo this is a first-upload review: the photo is
+       * already in the live slot, so only the status moves.
+       */
+      const patch: Record<string, unknown> = {
+        headshot_status: approve ? 'approved' : 'rejected',
+      };
+      if (row.headshot_pending_path) {
+        if (approve) patch.headshot_path = row.headshot_pending_path;
+        patch.headshot_pending_path = null;
+      }
       const { error } = await supabaseAdmin
         .from('creator_profiles')
-        .update({ headshot_status: approve ? 'approved' : 'rejected' })
+        .update(patch)
         .eq('user_id', request.params.userId);
       if (error) return reply.code(500).send({ error: error.message });
       await supabaseAdmin

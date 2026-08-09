@@ -596,8 +596,10 @@ export function reportNoShowApi(id: string, attemptedContact?: boolean) {
 import type { CreatorStatus } from './store';
 
 export interface CreatorMe {
-  /** Signed URL of the uploaded headshot (any status), for self-view. */
+  /** Signed URL of the LIVE, client-facing headshot. */
   headshot_url?: string | null;
+  /** Signed URL of a replacement awaiting review. Owner and admin only. */
+  headshot_pending_url?: string | null;
   headshot_status?: 'pending' | 'approved' | 'rejected' | null;
   status: CreatorStatus;
   specialties?: string[];

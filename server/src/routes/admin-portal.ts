@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { supabaseAdmin } from '../supabase.js';
-import { headshotColumnsPresent } from '../schema-probe.js';
+import { headshotColumnsPresent, headshotPendingColumnPresent } from '../schema-probe.js';
 import { audit, requireAdmin } from '../admin-auth.js';
 import { configNumber } from '../config.js';
 import { suspendUser } from './moderation.js';
@@ -591,7 +591,7 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
       .from('creator_profiles')
       .select(
         ((await headshotColumnsPresent())
-          ? 'user_id, vetting_status, background_check_status, background_check_completed_at, specialties, service_type, service_radius_km, base_area, bio, portfolio_link, declared_legal_name, availability, blocked_dates, verified, promo_fee_rate, is_available, applied_at, rejection_reason, payout_methods, created_at, headshot_path, headshot_status'
+          ? 'user_id, vetting_status, background_check_status, background_check_completed_at, specialties, service_type, service_radius_km, base_area, bio, portfolio_link, declared_legal_name, availability, blocked_dates, verified, promo_fee_rate, is_available, applied_at, rejection_reason, payout_methods, created_at, headshot_path, headshot_status' + ((await headshotPendingColumnPresent()) ? ', headshot_pending_path' : '')
           : 'user_id, vetting_status, background_check_status, background_check_completed_at, specialties, service_type, service_radius_km, base_area, bio, portfolio_link, declared_legal_name, availability, blocked_dates, verified, promo_fee_rate, is_available, applied_at, rejection_reason, payout_methods, created_at') as '*',
       )
       .eq('user_id', id)
@@ -656,8 +656,21 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
 
     // The headshot the applicant/creator uploaded, signed for the panel.
     // Pending ones show here FIRST — review is the whole point.
+    /**
+     * REVIEW THE PHOTO UNDER REVIEW.
+     *
+     * This signed headshot_path — the photo clients are ALREADY seeing — so a
+     * reviewer handed a replacement would have approved the one it was meant
+     * to replace, and the actual submission would never have been looked at.
+     * The pending slot wins when it exists; otherwise this is a first upload
+     * and the live slot is the submission.
+     */
     let headshotUrl: string | null = null;
-    if ((creator as Record<string, unknown>).headshot_path) {
+    const pendingPath = (creator as Record<string, unknown>).headshot_pending_path;
+    if (typeof pendingPath === 'string' && pendingPath) {
+      const { createDownloadUrl } = await import('../storage.js');
+      headshotUrl = await createDownloadUrl('portfolio', pendingPath).catch(() => null);
+    } else if ((creator as Record<string, unknown>).headshot_path) {
       const { createDownloadUrl } = await import('../storage.js');
       headshotUrl = await createDownloadUrl(
         'portfolio',

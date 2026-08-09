@@ -21,3 +21,23 @@ export async function headshotColumnsPresent(): Promise<boolean> {
   probe = { at: Date.now(), present: !error };
   return probe.present;
 }
+
+/**
+ * Same guard, for headshot_pending_path (20260810110000_headshot_pending.sql).
+ * Deploying this code before that migration must NOT empty creator/me or the
+ * admin creator detail — PostgREST rejects the whole select on one unknown
+ * column, so the column is only ever named once it provably exists.
+ */
+let pendingProbe: { at: number; present: boolean } | null = null;
+
+export async function headshotPendingColumnPresent(): Promise<boolean> {
+  if (pendingProbe && (pendingProbe.present || Date.now() - pendingProbe.at < TTL_MS)) {
+    return pendingProbe.present;
+  }
+  const { error } = await supabaseAdmin
+    .from('creator_profiles')
+    .select('headshot_pending_path')
+    .limit(1);
+  pendingProbe = { at: Date.now(), present: !error };
+  return pendingProbe.present;
+}

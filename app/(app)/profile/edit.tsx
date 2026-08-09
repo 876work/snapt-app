@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
 import { CreatorAvatar } from '../../../components/ui/CreatorAvatar';
+import { HeadshotUpload } from '../../../components/creator/HeadshotUpload';
 import { useAuth } from '../../../lib/store';
 import { realAuth, saveProfile } from '../../../lib/auth';
 import { colors, spacing, insetBottom } from '../../../lib/theme';
@@ -31,19 +32,25 @@ export default function EditProfile() {
    * than hidden, so nobody assumes a photo awaiting review is already public.
    */
   const [photo, setPhoto] = React.useState<{ uri: string } | null>(null);
+  const [pendingUrl, setPendingUrl] = React.useState<string | null>(null);
   const [photoStatus, setPhotoStatus] = React.useState<string | null>(null);
-  React.useEffect(() => {
-    import('../../../lib/api').then(({ apiConfigured, fetchCreatorMe }) => {
-      if (!apiConfigured) return;
-      fetchCreatorMe().then((me) => {
-        // A failed read leaves initials — never assert "no photo" from a
-        // request that did not answer.
-        if (!me) return;
-        setPhotoStatus(me.headshot_status ?? null);
-        if (me.headshot_url) setPhoto({ uri: me.headshot_url });
-      });
-    });
+  const [isCreator, setIsCreator] = React.useState(false);
+  const [picking, setPicking] = React.useState(false);
+  const loadPhoto = React.useCallback(async () => {
+    const { apiConfigured, fetchCreatorMe } = await import('../../../lib/api');
+    if (!apiConfigured) return;
+    const me = await fetchCreatorMe();
+    // A failed read leaves initials — never assert "no photo" from a request
+    // that did not answer.
+    if (!me) return;
+    setIsCreator(true);
+    setPhotoStatus(me.headshot_status ?? null);
+    setPendingUrl(me.headshot_pending_url ?? null);
+    setPhoto(me.headshot_url ? { uri: me.headshot_url } : null);
   }, []);
+  React.useEffect(() => {
+    loadPhoto();
+  }, [loadPhoto]);
 
   const save = async () => {
     if (saving) return;
@@ -74,18 +81,44 @@ export default function EditProfile() {
               </Svg>
             </View>
           </View>
-          <Text style={styles.changePhoto}>Change photo</Text>
-          {photo != null && photoStatus === 'pending' && (
+          {/* Only creators have a reviewed photo. Pure clients keep initials
+              (Don, 2026-08-09) — client photos are a post-launch feature and
+              a half-built one is worse than none. */}
+          {isCreator ? (
+            <Pressable onPress={() => setPicking(true)} hitSlop={8}>
+              <Text style={styles.changePhoto}>Change photo</Text>
+            </Pressable>
+          ) : null}
+          {pendingUrl != null && (
             <Text style={styles.photoPending}>
-              Awaiting review — clients still see your previous photo until this one is approved.
+              Your new photo is with us for review — clients keep seeing the one above until it's
+              approved.
             </Text>
           )}
-          {photo != null && photoStatus === 'rejected' && (
+          {pendingUrl == null && photoStatus === 'rejected' && (
             <Text style={styles.photoPending}>
-              This photo wasn't approved. Upload a clear, well-lit photo of your face.
+              Your last photo wasn't approved. Upload a clear, front-facing photo of just you.
+            </Text>
+          )}
+          {pendingUrl == null && photo != null && photoStatus === 'pending' && (
+            <Text style={styles.photoPending}>
+              Awaiting review — it isn't visible to clients yet.
             </Text>
           )}
         </View>
+
+        {picking && (
+          <View style={{ marginBottom: 22 }}>
+            <HeadshotUpload
+              currentUrl={pendingUrl ?? photo?.uri ?? null}
+              status={photoStatus as 'pending' | 'approved' | 'rejected' | null}
+              onUploaded={() => {
+                setPicking(false);
+                loadPhoto();
+              }}
+            />
+          </View>
+        )}
 
         <Text style={styles.fieldLabel}>FULL NAME</Text>
         <TextInput value={n} onChangeText={setN} placeholder="Your name" placeholderTextColor="#9A9A9A" style={styles.input} />
