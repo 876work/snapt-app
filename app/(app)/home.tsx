@@ -16,13 +16,12 @@ import { colors, insetTop } from '../../lib/theme';
 import { navShrinkOnScroll } from '../../lib/navShrink';
 
 /**
- * Entry prices, derived from the SAME tables the booking and upload flows
- * price from — never a hardcoded string that can drift from what someone is
- * actually charged. Both tables mirror their app_config rows; the server
- * remains the charging authority.
+ * Entry prices: MIRROR values as the initial render, replaced by the live
+ * config the moment it loads. The old module-load computation meant an
+ * admin price change never reached this screen until an app update.
  */
-const SESSION_FROM_USD = Math.min(...Object.values(PRICING_TABLE.photo));
-const REMOTE_FROM_USD = Math.min(
+const MIRROR_SESSION_FROM = Math.min(...Object.values(PRICING_TABLE.photo));
+const MIRROR_REMOTE_FROM = Math.min(
   ...Object.values(REMOTE_PACKAGES).flatMap((tiers) => tiers.map((t) => t.priceUsd)),
 );
 
@@ -65,6 +64,30 @@ export default function Home() {
   const [featuredLoading, setFeaturedLoading] = React.useState(true);
   const [featuredFailed, setFeaturedFailed] = React.useState(false);
   const [featuredReloadKey, setFeaturedReloadKey] = React.useState(0);
+
+  // "From $X" prices — live config, mirror until it arrives.
+  const [fromPrices, setFromPrices] = React.useState({
+    session: MIRROR_SESSION_FROM,
+    remote: MIRROR_REMOTE_FROM,
+  });
+  React.useEffect(() => {
+    let cancelled = false;
+    import('../../lib/api').then(({ apiConfigured, fetchPricingConfig }) => {
+      if (!apiConfigured) return;
+      fetchPricingConfig().then((c) => {
+        if (cancelled || !c) return;
+        const sessionVals = Object.values(c.pricingTable['photo'] ?? {});
+        const remoteVals = Object.values(c.remoteTable).flatMap((t) => Object.values(t));
+        setFromPrices({
+          session: sessionVals.length ? Math.min(...sessionVals) : MIRROR_SESSION_FROM,
+          remote: remoteVals.length ? Math.min(...remoteVals) : MIRROR_REMOTE_FROM,
+        });
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   React.useEffect(() => {
     let cancelled = false;
     import('../../lib/api').then(async ({ apiConfigured, fetchFeaturedCreators }) => {
@@ -158,7 +181,7 @@ export default function Home() {
               <Text style={[styles.cardLabel, { marginBottom: 0 }]}>In person or remote?</Text>
               {/* From the real pricing table, not a hardcoded string. */}
               <Text style={styles.fromPrice}>
-                Sessions from {formatMoney(SESSION_FROM_USD, currency)}
+                Sessions from {formatMoney(fromPrices.session, currency)}
               </Text>
             </View>
             <Text style={styles.pricingClaim}>Standard pricing. No haggling.</Text>
@@ -300,7 +323,7 @@ export default function Home() {
                 </Svg>
               }
               title="Edited content"
-              sub={`From ${formatMoney(REMOTE_FROM_USD, currency)}`}
+              sub={`From ${formatMoney(fromPrices.remote, currency)}`}
             />
           </View>
 
@@ -316,7 +339,7 @@ export default function Home() {
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.remoteTitle}>Already have footage?</Text>
               <Text style={styles.remoteSub}>
-                Get it professionally edited, from {formatMoney(REMOTE_FROM_USD, currency)}. No shoot needed.
+                Get it professionally edited, from {formatMoney(fromPrices.remote, currency)}. No shoot needed.
               </Text>
             </View>
             <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">

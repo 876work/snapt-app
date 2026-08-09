@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-native';
 import { KeyboardScrollView } from '../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../lib/text';
 import { useRouter } from 'expo-router';
@@ -29,13 +29,15 @@ interface Addon {
   priceUsd: number;
 }
 
-// CONFIRMED in-person add-ons (Don, 2026-07-28), mirrored in the
-// in_person_addons config row — the server charges from config, these only
-// render. extra revision matches the remote rate by design.
-const ADDONS: Addon[] = [
-  { id: 'rush', title: 'Rush delivery', sub: 'Edited content within 6 hours of your session', priceUsd: 25 },
-  { id: 'extra-photos', title: 'Extra edited photos', sub: '+10 additional retouched shots', priceUsd: 18 },
-  { id: 'revision', title: 'Extra revision round', sub: '1 free round included; per additional round', priceUsd: 15 },
+// In-person add-ons: labels are static copy; PRICES come from the live
+// in_person_addons config row (these values are the offline fallback only)
+// and the rush window hours come from delivery_windows. The server charges
+// from the same rows, so what renders here cannot drift from the charge.
+const ADDON_FALLBACK = { rush: 25, extra_photos: 18, extra_revision: 15 };
+const ADDONS: Omit<Addon, 'priceUsd'>[] = [
+  { id: 'rush', title: 'Rush delivery', sub: '' }, // sub built from config hours
+  { id: 'extra-photos', title: 'Extra edited photos', sub: '+10 additional retouched shots' },
+  { id: 'revision', title: 'Extra revision round', sub: '1 free round included; per additional round' },
 ];
 
 export default function OrderSummary() {
@@ -85,14 +87,88 @@ export default function OrderSummary() {
     };
   }, [draft.occasion, draft.date, draft.time, draft.durationHours, draft.area, draft.creatorId]);
 
-  // Display price from the confirmed table (service type × duration); the
-  // server recomputes from config at booking creation (§8).
-  const base = draft.durationHours != null
+  // ---- Live pricing --------------------------------------------------------
+  // Add-on display prices + rush hours from /v1/config (fallback constants).
+  const [cfg, setCfg] = React.useState<import('../../lib/api').PricingConfig | null>(null);
+  React.useEffect(() => {
+    if (!apiConfigured) return;
+    let stale = false;
+    import('../../lib/api').then(({ fetchPricingConfig }) =>
+      fetchPricingConfig().then((c) => {
+        if (!stale && c) setCfg(c);
+      }),
+    );
+    return () => {
+      stale = true;
+    };
+  }, []);
+  const addonPriceUsd = (id: string): number => {
+    const a = cfg?.inPersonAddons ?? ADDON_FALLBACK;
+    return id === 'rush' ? a.rush : id === 'extra-photos' ? a.extra_photos : a.extra_revision;
+  };
+  const rushHours = cfg?.rushHours ?? 6;
+
+  // THE TOTAL: the server's own quote — the same quoteBooking() that prices
+  // the PaymentSheet, fetched read-only. The number shown and the number
+  // charged are one number from one function. Mock mode keeps local math.
+  const quoteParams = React.useCallback(() => {
+    const d = useBookings.getState().draft;
+    return {
+      type: d.type === 'in-person' ? 'in_person' : 'remote',
+      occasion: d.occasion,
+      media_kind: d.mediaKind,
+      duration_hours: d.durationHours,
+      social_tier: d.social?.id,
+      area: d.area,
+      meeting_point: d.meetingPoint || undefined,
+      meeting_lat: d.meetingLat ?? undefined,
+      meeting_lng: d.meetingLng ?? undefined,
+      date: d.date,
+      time: d.time,
+      creator_id: isServerCreatorId(d.creatorId) ? d.creatorId : undefined,
+      addons: {
+        rush: addons.includes('rush'),
+        extra_photos: addons.includes('extra-photos'),
+        extra_revisions: addons.includes('revision') ? 1 : 0,
+      },
+    };
+  }, [addons]);
+  const [quote, setQuote] = React.useState<import('../../lib/api').CheckoutQuote | null>(null);
+  const [quoteFailed, setQuoteFailed] = React.useState(false);
+  const [quoteReloadKey, setQuoteReloadKey] = React.useState(0);
+  React.useEffect(() => {
+    if (!apiConfigured) return;
+    let stale = false;
+    setQuote(null);
+    setQuoteFailed(false);
+    const t = setTimeout(async () => {
+      const { quoteCheckoutApi } = await import('../../lib/api');
+      const r = await quoteCheckoutApi(quoteParams());
+      if (stale) return;
+      if (!r || 'error' in r) setQuoteFailed(true);
+      else setQuote(r);
+    }, 350); // debounce addon toggles
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [quoteParams, draft.durationHours, draft.date, draft.time, draft.creatorId, quoteReloadKey]);
+
+  // Fallback math renders ONLY in mock mode (no API). In API mode the rows
+  // show the server quote, and until it arrives the total is a placeholder —
+  // never a locally computed guess.
+  const mirrorBase = draft.durationHours != null
     ? draft.social?.price_usd ?? packagePrice(draft.mediaKind, draft.durationHours) ?? 0
     : 0;
-  const addonsTotal = ADDONS.filter((a) => addons.includes(a.id)).reduce((s, a) => s + a.priceUsd, 0);
-  const serviceFee = (base + addonsTotal) * CLIENT_SERVICE_FEE_RATE;
-  const total = base + addonsTotal + serviceFee;
+  const mirrorAddons = addons.reduce((s, id) => s + addonPriceUsd(id), 0);
+  const base = apiConfigured && quote ? quote.snapshot.session_price_usd : mirrorBase;
+  const addonsTotal = apiConfigured && quote ? quote.snapshot.addons_usd : mirrorAddons;
+  const serviceFee =
+    apiConfigured && quote
+      ? quote.snapshot.client_service_fee_usd
+      : (mirrorBase + mirrorAddons) * (cfg?.clientServiceFeeRate ?? CLIENT_SERVICE_FEE_RATE);
+  const total = apiConfigured && quote ? quote.total_usd : mirrorBase + mirrorAddons + serviceFee;
+  const priced = !apiConfigured || quote != null;
 
 
   const setDraftTime = (time: string) => {
@@ -220,8 +296,8 @@ export default function OrderSummary() {
             </Svg>
             <Text style={styles.etaText}>
               {addons.includes('rush')
-                ? 'Rush: edited content delivered within 6 hours of your session.'
-                : 'Edited content is delivered within 24 hours of your session.'}
+                ? `Rush: edited content delivered within ${rushHours} hours of your session.`
+                : `Edited content is delivered within ${cfg?.standardHours ?? 24} hours of your session.`}
             </Text>
           </View>
           <Divider />
@@ -245,9 +321,11 @@ export default function OrderSummary() {
                 <View style={styles.addonRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.addonTitle}>{a.title}</Text>
-                    <Text style={styles.addonSub}>{a.sub}</Text>
+                    <Text style={styles.addonSub}>
+                      {a.id === 'rush' ? `Edited content within ${rushHours} hours of your session` : a.sub}
+                    </Text>
                   </View>
-                  <Text style={styles.addonPrice}>+{formatMoney(a.priceUsd, currency)}</Text>
+                  <Text style={styles.addonPrice}>+{formatMoney(addonPriceUsd(a.id), currency)}</Text>
                   <Pressable
                     onPress={() =>
                       setAddons((prev) => (on ? prev.filter((x) => x !== a.id) : [...prev, a.id]))
@@ -262,24 +340,45 @@ export default function OrderSummary() {
           })}
         </View>
 
-        {/* Price breakdown */}
+        {/* Price breakdown — the server's own quote in API mode. Until it
+            arrives, a placeholder; if it can't be fetched, a retry — NEVER a
+            locally computed number that might differ from the charge. */}
         <View style={[styles.card, { marginTop: 20, gap: 9 }]}>
-          <PriceRow label="Session" value={formatMoney(base, currency)} />
-          <PriceRow label="Add-ons" value={formatMoney(addonsTotal, currency)} />
-          <PriceRow label="Service fee" value={formatMoney(serviceFee, currency)} />
-          <Divider />
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total</Text>
-            {/* Total = sum of the converted lines above, so the breakdown
-                always adds up on screen (rounding absorbed here). */}
-            <Text style={styles.totalValue}>
-              {formatMoneyTotal([base, addonsTotal, serviceFee], currency)}
-            </Text>
-          </View>
-          {currency === 'XCD' && (
-            <Text style={styles.usdChargeNote}>
-              You'll be charged {formatMoney(total, 'USD')} USD — XCD figures are approximate.
-            </Text>
+          {apiConfigured && quoteFailed ? (
+            <View style={{ alignItems: 'center', paddingVertical: 10, gap: 6 }}>
+              <Text style={styles.quoteFailedTitle}>Couldn't price your booking</Text>
+              <Text style={styles.quoteFailedBody}>
+                Check your connection and try again — payment stays disabled until the real total
+                is on screen.
+              </Text>
+              <Pressable onPress={() => setQuoteReloadKey((k) => k + 1)} style={styles.quoteRetry}>
+                <Text style={styles.quoteRetryLabel}>Try again</Text>
+              </Pressable>
+            </View>
+          ) : apiConfigured && !quote ? (
+            <View style={{ alignItems: 'center', paddingVertical: 14 }}>
+              <ActivityIndicator color={colors.yellowDark} />
+            </View>
+          ) : (
+            <>
+              <PriceRow label="Session" value={formatMoney(base, currency)} />
+              <PriceRow label="Add-ons" value={formatMoney(addonsTotal, currency)} />
+              <PriceRow label="Service fee" value={formatMoney(serviceFee, currency)} />
+              <Divider />
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Total</Text>
+                {/* Total = sum of the converted lines above, so the breakdown
+                    always adds up on screen (rounding absorbed here). */}
+                <Text style={styles.totalValue}>
+                  {formatMoneyTotal([base, addonsTotal, serviceFee], currency)}
+                </Text>
+              </View>
+              {currency === 'XCD' && (
+                <Text style={styles.usdChargeNote}>
+                  You'll be charged {formatMoney(total, 'USD')} USD — XCD figures are approximate.
+                </Text>
+              )}
+            </>
           )}
         </View>
 
@@ -359,9 +458,12 @@ export default function OrderSummary() {
             Pay button is the single real confirmation. Two commit gestures
             for one action taught people to swipe past the one that counts. */}
         <Button
-          title={busy ? 'Working…' : 'Continue to payment'}
+          title={busy ? 'Working…' : priced ? 'Continue to payment' : 'Pricing…'}
           arrow
           loading={busy}
+          // Payment stays closed until the server's own total is on screen —
+          // never charge against a number the user hasn't seen.
+          disabled={!priced || quoteFailed}
           onPress={book}
         />
       </View>
@@ -480,6 +582,10 @@ const styles = StyleSheet.create({
   switchKnobOn: { alignSelf: 'flex-end' },
   totalRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
   usdChargeNote: { fontSize: 11, color: colors.grey, fontWeight: '600', marginTop: 2 },
+  quoteFailedTitle: { fontSize: 14.5, fontWeight: '800', color: colors.ink, textAlign: 'center' },
+  quoteFailedBody: { fontSize: 12.5, color: colors.grey, textAlign: 'center', lineHeight: 18 },
+  quoteRetry: { marginTop: 8, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.yellow },
+  quoteRetryLabel: { fontSize: 13, color: colors.ink },
   usdNote: { fontSize: 11, color: colors.grey, lineHeight: 15.5, marginTop: 10, textAlign: 'center' },
   totalLabel: { fontSize: 15, fontWeight: '700', color: colors.ink },
   totalValue: { fontSize: 20, fontWeight: '800', color: colors.ink },

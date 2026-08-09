@@ -18,10 +18,11 @@ import {
 import { colors, insetBottom } from '../../lib/theme';
 
 const ADDONS = [
-  // Confirmed flat rates (Don, 2026-07-27), mirrored in the remote_addons
-  // config row — the server charges from config, these only render. The
-  // extra-files add-on is gone: 15 files is a hard ceiling per order.
-  { id: 'rush', title: 'Rush turnaround', sub: 'Finished edit within 6 hours of upload — flat rate, any package', priceUsd: 20 },
+  // Labels are static copy; PRICES and the rush window render from the live
+  // remote_addons / delivery_windows config (these values are offline
+  // fallback only). The server charges from the same rows. The extra-files
+  // add-on is gone: 15 files is a hard ceiling per order.
+  { id: 'rush', title: 'Rush turnaround', sub: '', priceUsd: 20 },
   { id: 'revision', title: 'Extra revision round', sub: '1 free round included; per additional round', priceUsd: 15 },
 ];
 
@@ -34,11 +35,30 @@ export default function RemoteOrderSummary() {
 
   const [addons, setAddons] = React.useState<string[]>([]);
 
-  const pkg =
+  // Live prices with mirror fallback: package price, addon rates, fee rate,
+  // and the rush/standard delivery hours all come from /v1/config, the same
+  // rows the server charges from. (The FINAL charge is the server's own
+  // number regardless — /v1/checkout/intent re-prices — this keeps what the
+  // screen SHOWS in agreement with it.)
+  const [cfg, setCfg] = React.useState<import('../../lib/api').PricingConfig | null>(null);
+  React.useEffect(() => {
+    import('../../lib/api').then(({ apiConfigured, fetchPricingConfig }) => {
+      if (!apiConfigured) return;
+      fetchPricingConfig().then((c) => {
+        if (c) setCfg(c);
+      });
+    });
+  }, []);
+  const mirrorPkg =
     REMOTE_PACKAGES[mediaKind].find((p) => p.tier === tier) ?? REMOTE_PACKAGES[mediaKind][0];
+  const pkg = { ...mirrorPkg, priceUsd: cfg?.remoteTable?.[mediaKind]?.[mirrorPkg.tier] ?? mirrorPkg.priceUsd };
   const style = EDIT_STYLES.find((s) => s.id === styleId) ?? EDIT_STYLES[0];
-  const addonsTotal = ADDONS.filter((a) => addons.includes(a.id)).reduce((s, a) => s + a.priceUsd, 0);
-  const serviceFee = (pkg.priceUsd + addonsTotal) * CLIENT_SERVICE_FEE_RATE;
+  const addonPriceUsd = (id: string): number =>
+    id === 'rush' ? cfg?.remoteAddons.rush ?? 20 : cfg?.remoteAddons.extra_revision ?? 15;
+  const rushHours = cfg?.rushHours ?? 6;
+  const standardHours = cfg?.standardHours ?? 24;
+  const addonsTotal = ADDONS.filter((a) => addons.includes(a.id)).reduce((s, a) => s + addonPriceUsd(a.id), 0);
+  const serviceFee = (pkg.priceUsd + addonsTotal) * (cfg?.clientServiceFeeRate ?? CLIENT_SERVICE_FEE_RATE);
   const total = pkg.priceUsd + addonsTotal + serviceFee;
 
 
@@ -195,9 +215,9 @@ export default function RemoteOrderSummary() {
                 <View style={styles.addonRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.addonTitle}>{a.title}</Text>
-                    <Text style={styles.addonSub}>{a.sub}</Text>
+                    <Text style={styles.addonSub}>{a.id === 'rush' ? `Finished edit within ${rushHours} hours of upload — flat rate, any package` : a.sub}</Text>
                   </View>
-                  <Text style={styles.addonPrice}>+{formatMoney(a.priceUsd, currency)}</Text>
+                  <Text style={styles.addonPrice}>+{formatMoney(addonPriceUsd(a.id), currency)}</Text>
                   <Pressable
                     onPress={() => setAddons((p) => (on ? p.filter((x) => x !== a.id) : [...p, a.id]))}
                     style={[styles.switchTrack, on && styles.switchTrackOn]}
@@ -216,7 +236,7 @@ export default function RemoteOrderSummary() {
             <Path d="M12 7.5V12l3 2" stroke={colors.success} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
           </Svg>
           <Text style={styles.etaText}>
-            {addons.includes('rush') ? 'Delivered within 6 hours of upload' : 'Delivered within 24 hours'} · 1 free
+            {addons.includes('rush') ? `Delivered within ${rushHours} hours of upload` : `Delivered within ${standardHours} hours`} · 1 free
             revision included
           </Text>
         </View>

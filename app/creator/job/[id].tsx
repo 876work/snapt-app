@@ -38,6 +38,17 @@ export default function CreatorJob() {
   const [code, setCode] = React.useState('');
   const [contactConfirmed, setContactConfirmed] = React.useState(false);
   const [actionError, setActionError] = React.useState<string | null>(null);
+  // Rush window hours from live config — the notice must promise the same
+  // number the delivery clock enforces. Fallback matches the server default.
+  const [rushHours, setRushHours] = React.useState(6);
+  React.useEffect(() => {
+    import('../../../lib/api').then(({ apiConfigured: cfgd, fetchPricingConfig }) => {
+      if (!cfgd) return;
+      fetchPricingConfig().then((c) => {
+        if (c) setRushHours(c.rushHours);
+      });
+    });
+  }, []);
   const [picked, setPicked] = React.useState<{ uri: string; name: string; mimeType?: string }[]>([]);
 
   // DEEP LINK SELF-HYDRATION. Opening this screen from a notification never
@@ -96,8 +107,8 @@ export default function CreatorJob() {
     <View style={styles.rushNotice}>
       <Text style={styles.rushNoticeTitle}>Rush job — edits due within hours</Text>
       <Text style={styles.rushNoticeBody}>
-        This client paid for rush delivery, so their edits are due within 6 hours of the session
-        ending. The rush fee is included in your payout for this job.
+        This client paid for rush delivery, so their edits are due within {rushHours} hours of the
+        session ending. The rush fee is included in your payout for this job.
       </Text>
     </View>
   ) : null;

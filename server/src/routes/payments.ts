@@ -28,6 +28,23 @@ export function registerPaymentRoutes(app: FastifyInstance) {
    * the card sheet had even opened. The booking is now created by the
    * webhook once Stripe confirms — see checkout.ts.
    */
+  /**
+   * READ-ONLY QUOTE — the number the summary screen DISPLAYS. Runs the
+   * exact same quoteBooking the intent route charges from, so the total on
+   * screen and the total on the PaymentSheet are one number from one
+   * function. Creates nothing, charges nothing.
+   */
+  app.post<{ Body: CreateBookingBody }>('/v1/checkout/quote', async (request, reply) => {
+    const user = requireUser(request);
+    const { quoteBooking, isQuoteFailure } = await import('../booking-quote.js');
+    const result = await quoteBooking(user.id, request.body ?? {});
+    if (isQuoteFailure(result)) {
+      const { status, error, ...extra } = result.failure;
+      return reply.code(status).send({ error, ...extra });
+    }
+    return { total_usd: result.quote.total, snapshot: result.quote.snapshot };
+  });
+
   app.post<{ Body: CreateBookingBody }>('/v1/checkout/intent', async (request, reply) => {
     const user = requireUser(request);
     const stripe = requireStripe();

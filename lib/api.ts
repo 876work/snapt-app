@@ -232,6 +232,61 @@ export interface SocialCatalog {
  * LIVE bundle catalog from app_config — an admin price edit shows here with
  * no app update. Callers fall back to the SOCIAL_TIERS mirror when offline.
  */
+/**
+ * Live pricing for DISPLAY — one fetch, every price surface. The static
+ * mirrors (PRICING_TABLE, REMOTE_PACKAGES, addon constants) are fallback
+ * only; the server charges from these same config rows, so a screen that
+ * renders this never drifts from what the card is charged.
+ */
+export interface PricingConfig {
+  pricingTable: Record<string, Record<string, number>>;
+  remoteTable: Record<string, Record<string, number>>;
+  inPersonAddons: { rush: number; extra_photos: number; extra_revision: number };
+  remoteAddons: { rush: number; extra_revision: number };
+  clientServiceFeeRate: number;
+  rushHours: number;
+  standardHours: number;
+}
+export async function fetchPricingConfig(): Promise<PricingConfig | null> {
+  const result = await request<{ config: Record<string, unknown> }>(`/v1/config`);
+  if (!result) return null;
+  const c = result.config;
+  const ipa = (c['in_person_addons'] ?? {}) as Record<string, number>;
+  const ra = (c['remote_addons'] ?? {}) as Record<string, number>;
+  const dw = (c['delivery_windows'] ?? {}) as { standard_hours?: number; rush_hours?: number };
+  return {
+    pricingTable: (c['pricing_table'] ?? {}) as PricingConfig['pricingTable'],
+    remoteTable: (c['remote_pricing_table'] ?? {}) as PricingConfig['remoteTable'],
+    inPersonAddons: {
+      rush: ipa.rush ?? 25,
+      extra_photos: ipa.extra_photos ?? 18,
+      extra_revision: ipa.extra_revision ?? 15,
+    },
+    remoteAddons: { rush: ra.rush ?? 20, extra_revision: ra.extra_revision ?? 15 },
+    clientServiceFeeRate: Number(c['client_service_fee_rate'] ?? 0.08),
+    rushHours: dw.rush_hours ?? 6,
+    standardHours: dw.standard_hours ?? 24,
+  };
+}
+
+/** The server's own price for the summary screen — same function that
+ * prices the PaymentSheet, without creating anything. */
+export interface CheckoutQuote {
+  total_usd: number;
+  snapshot: {
+    session_price_usd: number;
+    addons: { rush_usd: number; extra_photos_usd: number; extra_revisions_usd: number };
+    addons_usd: number;
+    subtotal_usd: number;
+    client_service_fee_usd: number;
+    total_usd: number;
+    xcd_per_usd: number;
+  };
+}
+export function quoteCheckoutApi(params: Record<string, unknown>) {
+  return authedPost<CheckoutQuote>(`/v1/checkout/quote`, params);
+}
+
 export async function fetchSocialCatalog(): Promise<SocialCatalog | null> {
   const result = await request<{ config: Record<string, unknown> }>(`/v1/config`);
   if (!result) return null;

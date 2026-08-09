@@ -33,6 +33,20 @@ export default function DurationAndPackage() {
   // Live bundle catalog: admin price edits apply with no app update. The
   // hardcoded mirror only covers offline/mock mode.
   const [tiers, setTiers] = React.useState<SocialTierDef[]>(SOCIAL_TIERS);
+  // Duration prices: live pricing_table with the static mirror as fallback —
+  // the same live-first pattern the Social catalog above already uses. An
+  // admin price edit shows here without an app update.
+  const [liveTable, setLiveTable] = React.useState<Record<string, Record<string, number>> | null>(null);
+  React.useEffect(() => {
+    import('../../lib/api').then(({ apiConfigured, fetchPricingConfig }) => {
+      if (!apiConfigured) return;
+      fetchPricingConfig().then((c) => {
+        if (c) setLiveTable(c.pricingTable);
+      });
+    });
+  }, []);
+  const priceFor = (kind: MediaKind, hours: number): number | undefined =>
+    liveTable?.[kind]?.[String(hours)] ?? packagePrice(kind, hours);
   React.useEffect(() => {
     if (!isSocial) return;
     import('../../lib/api').then(({ apiConfigured, fetchSocialCatalog }) => {
@@ -128,7 +142,7 @@ export default function DurationAndPackage() {
             // Only Events has a confirmed default (2h) — no badge for other
             // occasions until their defaults are specified.
             const rec = recommendedHours === d.hours;
-            const price = packagePrice(draft.mediaKind, d.hours);
+            const price = priceFor(draft.mediaKind, d.hours);
             return (
               <Pressable
                 key={d.hours}
@@ -169,7 +183,7 @@ export default function DurationAndPackage() {
                 ? formatMoney(draft.social.price_usd, currency)
                 : '—'
               : selected != null
-                ? formatMoney(packagePrice(draft.mediaKind, selected.hours) ?? 0, currency)
+                ? formatMoney(priceFor(draft.mediaKind, selected.hours) ?? 0, currency)
                 : '—'}
           </Text>
         </View>

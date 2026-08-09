@@ -24,7 +24,21 @@ export default function ChooseYourEdit() {
   const currency = useAuth((s) => s.currency);
   const { mediaKind, setMediaKind, styleId, setStyleId, tier, setTier, files } = useUpload();
   const selStyle = EDIT_STYLES.find((s) => s.id === styleId) ?? EDIT_STYLES[0];
-  const packages = REMOTE_PACKAGES[mediaKind];
+  // Live remote prices, mirror as fallback — names and descriptions are
+  // static copy; only the number can drift, so only the number goes live.
+  const [liveRemote, setLiveRemote] = React.useState<Record<string, Record<string, number>> | null>(null);
+  React.useEffect(() => {
+    import('../../lib/api').then(({ apiConfigured, fetchPricingConfig }) => {
+      if (!apiConfigured) return;
+      fetchPricingConfig().then((c) => {
+        if (c) setLiveRemote(c.remoteTable);
+      });
+    });
+  }, []);
+  const packages = REMOTE_PACKAGES[mediaKind].map((p) => ({
+    ...p,
+    priceUsd: liveRemote?.[mediaKind]?.[p.tier] ?? p.priceUsd,
+  }));
 
 
   return (
