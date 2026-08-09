@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { api, downloadFile } from '../api';
 import { useAuth } from '../auth';
 import { EmptyState, SectionSkeleton, formatMoney, formatWhen } from '../components/ui';
+import { PayoutMethodSwitches } from '../components/PayoutMethodSwitches';
 
 interface PayoutRequest {
   creator_id: string;
@@ -102,6 +103,10 @@ export function Payouts() {
           {sentFlash}
         </div>
       )}
+
+      {/* Availability sits above the queue on purpose: when a bank is down,
+          turning it off is the first thing you come here to do. */}
+      <PayoutMethodSwitches canEdit={isAdmin} />
 
       {isLoading ? (
         <SectionSkeleton rows={4} />
