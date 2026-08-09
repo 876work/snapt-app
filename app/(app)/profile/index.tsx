@@ -309,9 +309,16 @@ export default function Profile() {
         <View style={styles.updBlock}>
           <Text style={styles.updTitle}>Build &amp; updates</Text>
           <Text style={styles.updLine}>
-            App: v{Constants.nativeApplicationVersion ?? '?'} (build {Constants.nativeBuildVersion ?? '?'}) · code{' '}
-            {/* Stamped by scripts/publish-ota.sh at publish time; the factory
-                bundle has no stamp, and its identity is the build number. */}
+            {/* Constants.nativeApplicationVersion / nativeBuildVersion are
+                DEPRECATED in SDK 57 (they point at expo-application, which
+                isn't installed) — both returned null, which is why this line
+                read "v? (build ?)". expoConfig.version is the real value and
+                needs no native module. The build NUMBER can't be read in JS
+                at all here: eas.json uses appVersionSource "remote", so EAS
+                assigns it at build time and it never reaches app.json. The
+                runtime hash below identifies the binary instead. */}
+            App: v{Constants.expoConfig?.version ?? '?'} · code{' '}
+            {/* Stamped by scripts/publish-ota.sh at publish time. */}
             {process.env.EXPO_PUBLIC_COMMIT ?? 'factory'}
           </Text>
           <Text style={styles.updLine}>
