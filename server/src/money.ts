@@ -1,5 +1,6 @@
 import { supabaseAdmin } from './supabase.js';
 import { getConfig } from './config.js';
+import { methodName } from './payout-methods.js';
 
 /**
  * THE ONE PLACE MONEY BECOMES TEXT.
@@ -111,9 +112,12 @@ export async function formatPayout(amountUsd: number, creatorId: string): Promis
     .eq('user_id', creatorId)
     .maybeSingle();
   const selected = (data?.payout_methods as { selected?: string } | null)?.selected;
-  if (!selected || !LOCAL_SETTLEMENT.has(selected)) return usd;
+  // Naming the destination is what makes the figure checkable: the creator
+  // matches it against one account, not against "your payout method".
+  const where = selected ? ` sent to ${methodName(selected)}` : ' sent';
+  if (!selected || !LOCAL_SETTLEMENT.has(selected)) return `${usd}${where}`;
   const rate = await displayRate();
-  // Whole dollars on purpose — precision here would imply a guarantee we
-  // cannot make about someone else's conversion.
-  return `${usd} (about XCD ${Math.round(amountUsd * rate)})`;
+  // Whole dollars, "about", and "at today's rate" all do the same job: this
+  // is an estimate of what a bank will deposit, not a figure we control.
+  return `${usd}${where} (about XCD ${Math.round(amountUsd * rate)} at today's rate)`;
 }

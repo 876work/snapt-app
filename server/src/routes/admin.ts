@@ -678,7 +678,7 @@ export function registerAdminRoutes(app: FastifyInstance) {
     // Highlight the row only when this fulfilment WAS one row. A batch has
     // no single "the payout record" to open, and picking one arbitrarily
     // would point at a number that isn't the one in the message.
-    await notify(creatorId, 'payout_paid', 'Payout sent', '{amount} has been sent to your payout method.',
+    await notify(creatorId, 'payout_paid', 'Payout sent', '{amount}.',
       rows.length === 1 ? { payout_id: rows[0].id } : {}, { amount: total });
     return { fulfilled: true, amount_usd: total };
   });

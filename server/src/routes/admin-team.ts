@@ -427,7 +427,7 @@ export function registerAdminTeamRoutes(app: FastifyInstance) {
         const total = await formatPayout(Number(paid.amount_usd), user_id);
         to = creator.email;
         subject = 'Payout sent';
-        html = `<p>Hi ${creator.full_name || 'there'} — ${total} was sent to your payout method on ${new Date(paid.paid_out_at!).toLocaleDateString()}.</p>`;
+        html = `<p>Hi ${creator.full_name || 'there'} — ${total} on ${new Date(paid.paid_out_at!).toLocaleDateString()}.</p>`;
       } else {
         return reply.code(400).send({ error: 'kind must be booking_confirmation, refund_notice, or payout_notification' });
       }
