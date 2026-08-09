@@ -182,6 +182,28 @@ export default function CreatorHome() {
 
   // Declining is irreversible (the offer reassigns server-side), so it goes
   // through a slide-to-confirm sheet rather than a bare tap.
+  /**
+   * NO WORKING HOURS = NO OFFERS, EVER.
+   *
+   * The matching engine needs a window on the requested weekday, so a creator
+   * with an empty week is invisible to booking — and until now the app said
+   * nothing, leaving them to conclude Snapt simply has no work. This is the
+   * one place they would look, and the fix is ten seconds away in Schedule.
+   *
+   * null = not known yet (never assume a problem while loading).
+   */
+  const [hasHours, setHasHours] = React.useState<boolean | null>(null);
+  React.useEffect(() => {
+    import('../../lib/api').then(({ apiConfigured: cfgd, fetchCreatorMe }) => {
+      if (!cfgd) return;
+      fetchCreatorMe().then((me) => {
+        if (!me) return; // a failed read must not accuse them of an empty week
+        const week = (me.availability ?? {}) as Record<string, unknown[]>;
+        setHasHours(Object.values(week).some((w) => Array.isArray(w) && w.length > 0));
+      });
+    });
+  }, []);
+
   const [declineTarget, setDeclineTarget] = React.useState<JobOffer | null>(null);
   const confirmDecline = async () => {
     if (!declineTarget) return false;
@@ -239,6 +261,24 @@ export default function CreatorHome() {
         {/* Approved creators without a live headshot — the backfill path.
             Client-side they're an initial-letter tile until this is done. */}
         <HeadshotNudge />
+        {/* Empty week — the single reason a creator can be approved, available
+            and still never hear anything. Ranked above everything else here
+            because no other item on this screen can happen until it's fixed. */}
+        {hasHours === false && (
+          <Pressable
+            onPress={() => router.push('/creator/schedule')}
+            style={styles.noHoursCard}
+          >
+            <Text style={styles.noHoursTitle}>You have no working hours set</Text>
+            <Text style={styles.noHoursBody}>
+              Clients can't book you until you do — you won't receive any job offers. Setting them
+              takes a few seconds.
+            </Text>
+            <View style={styles.noHoursCta}>
+              <Text style={styles.noHoursCtaLabel}>Set your hours in Schedule</Text>
+            </View>
+          </Pressable>
+        )}
         {reconsent && (
           <View style={{ backgroundColor: '#FFF4D6', borderRadius: 14, padding: 14, marginBottom: 12 }}>
             <Text style={{ fontSize: 13.5, fontWeight: '800', color: colors.ink }}>
@@ -539,6 +579,25 @@ export default function CreatorHome() {
 }
 
 const styles = StyleSheet.create({
+  noHoursCard: {
+    backgroundColor: '#FDEBEA',
+    borderWidth: 1,
+    borderColor: '#F2C4C1',
+    borderRadius: 14,
+    padding: 15,
+    marginBottom: 12,
+  },
+  noHoursTitle: { fontSize: 14, fontWeight: '800', color: '#B4231F' },
+  noHoursBody: { fontSize: 12.5, color: '#8C3A2E', lineHeight: 18, marginTop: 5 },
+  noHoursCta: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.ink,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    marginTop: 11,
+  },
+  noHoursCtaLabel: { color: '#fff', fontWeight: '800', fontSize: 12.5 },
   section: { marginBottom: 18 },
   howList: { gap: 9, marginTop: 12, alignSelf: 'stretch' },
   howItem: { fontSize: 13, color: '#5C574E', lineHeight: 19 },

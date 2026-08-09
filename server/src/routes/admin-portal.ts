@@ -157,8 +157,31 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
       items: clock.filter((d) => d.state !== 'on_track').slice(0, 12),
     };
 
+    /**
+     * SUPPLY HEALTH: approved creators who cannot be offered work.
+     *
+     * Matching needs approved AND is_available AND a window on the requested
+     * weekday. The first two are deliberate decisions; the third can be
+     * silently empty, and nothing in the product compared them — so a creator
+     * could be approved, never open Schedule, and sit invisible forever with
+     * neither them nor us knowing.
+     *
+     * BOTH failure modes are counted because they are independent: fixing a
+     * creator's empty week left them still unbookable on the paused flag.
+     */
+    const { data: approvedCreators } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('user_id, is_available, availability')
+      .eq('vetting_status', 'approved');
+    const unbookableRows = (approvedCreators ?? []).filter((c) => {
+      const week = (c.availability ?? {}) as Record<string, unknown[]>;
+      const hasHours = Object.values(week).some((w) => Array.isArray(w) && w.length > 0);
+      return !hasHours || c.is_available === false;
+    });
+
     // Names for every participant referenced above, plus acknowledgers.
     const ids: string[] = [];
+    for (const c of unbookableRows) ids.push(c.user_id as string);
     for (const r of activeRows ?? []) {
       const embed = r.bookings as unknown;
       const b = (Array.isArray(embed) ? embed[0] : embed) as { client_id: string; creator_id: string | null };
@@ -193,11 +216,34 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
       revenue: spark14((recentCharges ?? []).map((t) => ({ created_at: t.created_at, amount: Number(t.amount_usd) }))),
     };
 
+    const creators_unbookable = {
+      total: unbookableRows.length,
+      no_hours: unbookableRows.filter((c) => {
+        const week = (c.availability ?? {}) as Record<string, unknown[]>;
+        return !Object.values(week).some((w) => Array.isArray(w) && w.length > 0);
+      }).length,
+      paused: unbookableRows.filter((c) => c.is_available === false).length,
+      items: unbookableRows.slice(0, 12).map((c) => {
+        const week = (c.availability ?? {}) as Record<string, unknown[]>;
+        const hasHours = Object.values(week).some((w) => Array.isArray(w) && w.length > 0);
+        return {
+          user_id: c.user_id as string,
+          name: names.get(c.user_id as string)?.name ?? null,
+          reason: !hasHours && c.is_available === false
+            ? 'no working hours · paused'
+            : !hasHours
+              ? 'no working hours set'
+              : 'paused',
+        };
+      }),
+    };
+
     return {
       server_time: nowIso,
       grace_minutes: graceMinutes,
       sparks,
       deliveries,
+      creators_unbookable,
       alerts: alerts.map((a) => ({
         ...a,
         acknowledged_by_name: a.acknowledged_by ? names.get(a.acknowledged_by)?.name ?? null : null,

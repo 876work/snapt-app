@@ -57,6 +57,12 @@ interface TodayData {
     approaching_rush: number;
     items: DeliveryItem[];
   };
+  creators_unbookable?: {
+    total: number;
+    no_hours: number;
+    paused: number;
+    items: { user_id: string; name: string | null; reason: string }[];
+  };
   alerts: {
     id: string;
     alert_type: string;
@@ -261,6 +267,45 @@ export function Today() {
       {/* DELIVERY CLOCK — above the decision queues because a missed
           delivery is already costing us, while a queue is only waiting.
           Rush is called out separately: the client paid for the speed. */}
+      {/* SUPPLY HEALTH. An approved creator with no working hours (or paused)
+          can never be offered work, and until this tile existed nothing said
+          so — the portal showed them as a perfectly normal active creator. */}
+      {data?.creators_unbookable && data.creators_unbookable.total > 0 && (
+        <div className="section">
+          <h2>Creators who can't be booked</h2>
+          <div className="tiles decisions">
+            <Link to="/creators" className={`card tile ${data.creators_unbookable.no_hours > 0 ? 'hot' : 'quiet'}`}>
+              <div className="value num">{data.creators_unbookable.total}</div>
+              <div className="label">
+                approved but unbookable
+                {data.creators_unbookable.no_hours > 0 && ` · ${data.creators_unbookable.no_hours} with NO HOURS`}
+                {data.creators_unbookable.paused > 0 && ` · ${data.creators_unbookable.paused} paused`}
+              </div>
+            </Link>
+          </div>
+          <div className="card" style={{ marginTop: 10, padding: 0 }}>
+            {data.creators_unbookable.items.map((c, i) => (
+              <Link
+                key={c.user_id}
+                to={`/creators/${c.user_id}`}
+                className="row"
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '11px 14px',
+                  borderTop: i === 0 ? 'none' : '1px solid var(--line)',
+                }}
+              >
+                <span>{c.name ?? c.user_id.slice(0, 8)}</span>
+                <span className="muted">{c.reason}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {data && (data.deliveries.late > 0 || data.deliveries.approaching > 0) && (
         <div className="section">
           <h2>Delivery clock</h2>

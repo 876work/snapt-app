@@ -41,6 +41,35 @@ function statusOf(row: { vetting_status: string } | null): string {
   }
 }
 
+/**
+ * The weekly template a creator starts with — 06:00-22:00, all seven days.
+ *
+ * Shared by the draft and apply endpoints, and mirrored by the column default
+ * (migration 20260810100000). Three places agree on purpose: whichever path
+ * creates the row, the creator comes out BOOKABLE. An empty week is invisible
+ * to the matching engine, which is how an approved creator sat unbookable
+ * with nothing in the product saying so.
+ *
+ * Not 24h deliberately — a 3am offer against hours nobody chose reads as a
+ * broken app. Overnight is there for any creator who sets it themselves, and
+ * `is_available` remains the explicit way to say "not taking work".
+ */
+const DEFAULT_AVAILABILITY: Record<string, { start: string; end: string }[]> = {
+  mon: [{ start: '06:00', end: '22:00' }],
+  tue: [{ start: '06:00', end: '22:00' }],
+  wed: [{ start: '06:00', end: '22:00' }],
+  thu: [{ start: '06:00', end: '22:00' }],
+  fri: [{ start: '06:00', end: '22:00' }],
+  sat: [{ start: '06:00', end: '22:00' }],
+  sun: [{ start: '06:00', end: '22:00' }],
+};
+
+/** Does this saved week contain a single bookable window? */
+function hasAnyHours(availability: unknown): boolean {
+  const week = (availability ?? {}) as Record<string, unknown[]>;
+  return Object.values(week).some((windows) => Array.isArray(windows) && windows.length > 0);
+}
+
 export function registerCreatorRoutes(app: FastifyInstance) {
   // Creator application. Approval is server-side (this endpoint never grants
   // it) — the client-side "creatorStatus" simulation is display-only now.
@@ -52,7 +81,7 @@ export function registerCreatorRoutes(app: FastifyInstance) {
     const body = request.body ?? {};
     const { data: existing } = await supabaseAdmin
       .from('creator_profiles')
-      .select('vetting_status')
+      .select('vetting_status, availability')
       .eq('user_id', user.id)
       .maybeSingle();
     if (existing && existing.vetting_status !== 'not_started') {
@@ -68,7 +97,18 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       bio: body.bio ?? null,
       portfolio_link: body.portfolio_link?.trim() || null,
       declared_legal_name: body.declared_legal_name?.trim() || null,
-    };
+    } as Record<string, unknown>;
+    /**
+     * ROOT CAUSE FIX. This endpoint created the row with no availability at
+     * all, leaving it on the old '{}' column default; a row that then reached
+     * `approved` without a complete apply could never be offered work.
+     *
+     * Seeded only when there are no hours yet, so a creator who has saved
+     * their own week never has it overwritten by an autosave.
+     */
+    if (!existing || !hasAnyHours(existing.availability)) {
+      patch.availability = DEFAULT_AVAILABILITY;
+    }
     const { error } = await supabaseAdmin
       .from('creator_profiles')
       .upsert(patch, { onConflict: 'user_id' });
@@ -204,15 +244,7 @@ export function registerCreatorRoutes(app: FastifyInstance) {
          * New applications only. Nothing backfills existing rows, so a
          * creator who has saved their own hours keeps them.
          */
-        availability: body.availability ?? {
-          mon: [{ start: '06:00', end: '22:00' }],
-          tue: [{ start: '06:00', end: '22:00' }],
-          wed: [{ start: '06:00', end: '22:00' }],
-          thu: [{ start: '06:00', end: '22:00' }],
-          fri: [{ start: '06:00', end: '22:00' }],
-          sat: [{ start: '06:00', end: '22:00' }],
-          sun: [{ start: '06:00', end: '22:00' }],
-        },
+        availability: body.availability ?? DEFAULT_AVAILABILITY,
       },
       { onConflict: 'user_id' },
     );
