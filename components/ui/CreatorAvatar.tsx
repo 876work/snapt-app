@@ -16,8 +16,26 @@ export function CreatorAvatar({
   photo: number | { uri: string } | null;
   textSize?: number;
 }) {
-  if (photo != null) {
-    return <Image source={photo} style={styles.fill} resizeMode="cover" />;
+  /**
+   * A SIGNED URL THAT FAILS FALLS BACK TO INITIALS, never a broken image.
+   * Headshot URLs are short-lived signed links to a private bucket, so an
+   * expired or refused one is a normal event, not an exception — and a grey
+   * torn-image box is a worse answer than the letter we already have.
+   */
+  const [failed, setFailed] = React.useState(false);
+  React.useEffect(() => {
+    setFailed(false); // a new photo deserves its own attempt
+  }, [typeof photo === 'object' && photo !== null ? photo.uri : photo]);
+
+  if (photo != null && !failed) {
+    return (
+      <Image
+        source={photo}
+        style={styles.fill}
+        resizeMode="cover"
+        onError={() => setFailed(true)}
+      />
+    );
   }
   return (
     <View style={[styles.fill, styles.center]}>

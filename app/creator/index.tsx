@@ -6,6 +6,7 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { SlideToConfirm } from '../../components/ui/SlideToConfirm';
 import { PushOfferNudge } from '../../components/creator/PushOfferNudge';
 import { HeadshotNudge } from '../../components/creator/HeadshotNudge';
+import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { useAuth } from '../../lib/store';
 import { JobOffer, useCreator } from '../../lib/store/creator';
 import {
@@ -193,6 +194,8 @@ export default function CreatorHome() {
    * null = not known yet (never assume a problem while loading).
    */
   const [hasHours, setHasHours] = React.useState<boolean | null>(null);
+  /** Their approved headshot, signed. null = none yet, or the read failed. */
+  const [photo, setPhoto] = React.useState<{ uri: string } | null>(null);
   React.useEffect(() => {
     import('../../lib/api').then(({ apiConfigured: cfgd, fetchCreatorMe }) => {
       if (!cfgd) return;
@@ -200,6 +203,7 @@ export default function CreatorHome() {
         if (!me) return; // a failed read must not accuse them of an empty week
         const week = (me.availability ?? {}) as Record<string, unknown[]>;
         setHasHours(Object.values(week).some((w) => Array.isArray(w) && w.length > 0));
+        if (me.headshot_url) setPhoto({ uri: me.headshot_url });
       });
     });
   }, []);
@@ -225,12 +229,10 @@ export default function CreatorHome() {
             <Text style={styles.headerMode}>Creator mode</Text>
             <Text style={styles.headerName}>{name || 'Creator'}</Text>
           </View>
+          {/* Their OWN face. This rendered a bundled stock photo of "jordan",
+              so every approved creator saw a stranger as their avatar. */}
           <View style={styles.headerAvatar}>
-            <Image
-              source={require('../../assets/design/creators/jordan.webp')}
-              style={{ width: '100%', height: '100%' }}
-              resizeMode="cover"
-            />
+            <CreatorAvatar name={name || 'Creator'} photo={photo} textSize={17} />
           </View>
         </View>
         <View style={styles.availCard}>

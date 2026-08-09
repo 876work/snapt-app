@@ -5,6 +5,7 @@ import { Text, TextInput } from '../../../lib/text';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
+import { CreatorAvatar } from '../../../components/ui/CreatorAvatar';
 import { useAuth } from '../../../lib/store';
 import { realAuth, saveProfile } from '../../../lib/auth';
 import { colors, spacing, insetBottom } from '../../../lib/theme';
@@ -17,6 +18,32 @@ export default function EditProfile() {
   const [p, setP] = React.useState(phone);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  /**
+   * THE APPROVED HEADSHOT IS THE PROFILE PHOTO.
+   *
+   * This screen previously rendered an initial-letter tile and nothing else —
+   * no <Image> anywhere in it — so a creator with a vetted, client-facing
+   * photo was shown a letter as though they had never uploaded one.
+   *
+   * `headshot_url` is signed for the OWNER at any status, deliberately: you
+   * should see the photo you just submitted. `pending` is labelled rather
+   * than hidden, so nobody assumes a photo awaiting review is already public.
+   */
+  const [photo, setPhoto] = React.useState<{ uri: string } | null>(null);
+  const [photoStatus, setPhotoStatus] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    import('../../../lib/api').then(({ apiConfigured, fetchCreatorMe }) => {
+      if (!apiConfigured) return;
+      fetchCreatorMe().then((me) => {
+        // A failed read leaves initials — never assert "no photo" from a
+        // request that did not answer.
+        if (!me) return;
+        setPhotoStatus(me.headshot_status ?? null);
+        if (me.headshot_url) setPhoto({ uri: me.headshot_url });
+      });
+    });
+  }, []);
 
   const save = async () => {
     if (saving) return;
@@ -37,7 +64,9 @@ export default function EditProfile() {
       <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <View style={{ alignItems: 'center', marginTop: 8, marginBottom: 24 }}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarInitial}>{(n || 'Y').charAt(0).toUpperCase()}</Text>
+            <View style={styles.avatarClip}>
+              <CreatorAvatar name={n || 'Y'} photo={photo} textSize={30} />
+            </View>
             <View style={styles.cameraBadge}>
               <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
                 <Path d="M4 8a2 2 0 012-2h1.5l1-1.5h5l1 1.5H18a2 2 0 012 2v9a2 2 0 01-2 2H6a2 2 0 01-2-2V8z" stroke="#fff" strokeWidth={1.9} strokeLinejoin="round" />
@@ -46,6 +75,16 @@ export default function EditProfile() {
             </View>
           </View>
           <Text style={styles.changePhoto}>Change photo</Text>
+          {photo != null && photoStatus === 'pending' && (
+            <Text style={styles.photoPending}>
+              Awaiting review — clients still see your previous photo until this one is approved.
+            </Text>
+          )}
+          {photo != null && photoStatus === 'rejected' && (
+            <Text style={styles.photoPending}>
+              This photo wasn't approved. Upload a clear, well-lit photo of your face.
+            </Text>
+          )}
         </View>
 
         <Text style={styles.fieldLabel}>FULL NAME</Text>
@@ -100,7 +139,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarInitial: { fontSize: 34, fontWeight: '800', color: '#8A7530' },
+  /**
+   * The photo clips to the circle HERE rather than on the parent — the camera
+   * badge is positioned at -2 and overhangs deliberately, so clipping the
+   * outer box would slice it in half.
+   */
+  avatarClip: { width: '100%', height: '100%', borderRadius: 46, overflow: 'hidden' },
+
   cameraBadge: {
     position: 'absolute',
     bottom: -2,
@@ -115,6 +160,14 @@ const styles = StyleSheet.create({
     borderColor: colors.offWhite,
   },
   changePhoto: { fontSize: 13, fontWeight: '700', color: colors.yellowDark, marginTop: 12 },
+  photoPending: {
+    fontSize: 11.5,
+    color: colors.grey,
+    lineHeight: 16.5,
+    textAlign: 'center',
+    marginTop: 7,
+    paddingHorizontal: 24,
+  },
   fieldLabel: { fontSize: 12, fontWeight: '700', color: colors.greyWarm, letterSpacing: 0.3, marginHorizontal: 2, marginBottom: 7 },
   input: {
     height: 52,
