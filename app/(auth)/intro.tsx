@@ -173,6 +173,22 @@ function Slide({
         source={item.image}
         style={[{ position: 'absolute', top: -g.topCut, left: 0, width: g.dispW, height: g.dispH }, imageStyle]}
       />
+      {/* Between the artwork and the copy, per slide. As a sibling of the
+          list it painted OVER the text it exists to make readable. */}
+      <View style={styles.scrim} pointerEvents="none">
+        <Svg width="100%" height="100%" preserveAspectRatio="none">
+          <Defs>
+            <LinearGradient id={`scrim-${item.key}`} x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor="#140F05" stopOpacity="0" />
+              <Stop offset="0.28" stopColor="#140F05" stopOpacity="0.30" />
+              <Stop offset="0.48" stopColor="#140F05" stopOpacity="0.80" />
+              <Stop offset="0.60" stopColor="#140F05" stopOpacity="1" />
+              <Stop offset="1" stopColor="#140F05" stopOpacity="1" />
+            </LinearGradient>
+          </Defs>
+          <Rect x="0" y="0" width="100%" height="100%" fill={`url(#scrim-${item.key})`} />
+        </Svg>
+      </View>
       <View style={[styles.copy, { bottom: insetBottom + FOOTER_RESERVE }]} pointerEvents="none">
         <Animated.View style={titleStyle}>
           <Text style={styles.title}>{item.title}</Text>
@@ -244,24 +260,6 @@ export default function Intro() {
         )}
         keyExtractor={(i) => i.key}
       />
-
-      {/* Scrim: fixed over the lower half so white copy reads on the yellow
-          artwork (and the assets' baked bottom panel disappears into it).
-          The top of the image stays undimmed. */}
-      <View style={styles.scrim} pointerEvents="none">
-        <Svg width="100%" height="100%" preserveAspectRatio="none">
-          <Defs>
-            <LinearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor="#140F05" stopOpacity="0" />
-              <Stop offset="0.28" stopColor="#140F05" stopOpacity="0.30" />
-              <Stop offset="0.48" stopColor="#140F05" stopOpacity="0.80" />
-              <Stop offset="0.60" stopColor="#140F05" stopOpacity="1" />
-              <Stop offset="1" stopColor="#140F05" stopOpacity="1" />
-            </LinearGradient>
-          </Defs>
-          <Rect x="0" y="0" width="100%" height="100%" fill="url(#scrim)" />
-        </Svg>
-      </View>
 
       {/* Skip — screens 1 and 2 only, gone on 3. Sits exactly over the corner
           where s1/s2 bake a "Skip" into the artwork, so on screens where the
