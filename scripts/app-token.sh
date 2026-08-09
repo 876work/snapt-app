@@ -13,12 +13,16 @@
 #
 #   ./scripts/app-token.sh client     → ~/.snapt-client-token
 #   ./scripts/app-token.sh creator    → ~/.snapt-creator-token
+#   ./scripts/app-token.sh admin      → ~/.snapt-admin-token
+#
+# 'admin' is the SAME mechanism, not a second one: admin auth is a normal
+# Supabase login whose user id sits in admin_users. Use your portal email.
 set -euo pipefail
 
 ROLE="${1:-client}"
 case "$ROLE" in
-  client|creator) ;;
-  *) echo "usage: $0 {client|creator}" >&2; exit 2 ;;
+  client|creator|admin) ;;
+  *) echo "usage: $0 {client|creator|admin}" >&2; exit 2 ;;
 esac
 OUT="$HOME/.snapt-${ROLE}-token"
 
@@ -74,4 +78,18 @@ print(f"Token written to {out} — {int((claims['exp'] - time.time()) / 60)} min
 PY
 then
   exit 1
+fi
+
+# The 403 from requireAdmin is identical for an expired token, a missing
+# admin_users row and a deactivated admin. Probe once so the difference is
+# visible here rather than hours later.
+if [[ "$ROLE" == "admin" ]]; then
+  API="${SNAPT_API:-https://snapt-api.onrender.com}"
+  CODE="$(curl -sS --max-time 45 -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer $(cat "$OUT")" "$API/v1/admin/unassigned" || echo 000)"
+  case "$CODE" in
+    200) echo "Admin access confirmed against $API." ;;
+    403) echo "Signed in, but this account is NOT an active admin (no admin_users row, or active=false)." >&2 ;;
+    *)   echo "Token written, but the admin check returned HTTP $CODE." >&2 ;;
+  esac
 fi
