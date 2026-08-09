@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
@@ -34,6 +34,11 @@ export default function Home() {
   const [occasion, setOccasion] = React.useState<Occasion | null>(null);
   const [area, setArea] = React.useState<Area | null>(null);
   const [areaOpen, setAreaOpen] = React.useState(false);
+  // Trust-tile explainer sheets. These tiles used to navigate to pages that
+  // didn't match their labels (Verified creators → the full legal document,
+  // How matching works → the Help hub).
+  const [verifyOpen, setVerifyOpen] = React.useState(false);
+  const [matchingOpen, setMatchingOpen] = React.useState(false);
 
   // What this user actually has going on. Pure derivation from the store's
   // bookings — see lib/homeState.ts for the precedence order.
@@ -292,7 +297,7 @@ export default function Home() {
               a marketplace nobody has used yet. */}
           <View style={styles.features}>
             <Feature
-              onPress={() => router.push('/legal/trust-safety')}
+              onPress={() => setVerifyOpen(true)}
               icon={
                 <Svg width={21} height={21} viewBox="0 0 24 24" fill="none">
                   <Path d="M12 3l7 2.5v5.6c0 4.4-3 7.8-7 9.4-4-1.6-7-5-7-9.4V5.5L12 3z" stroke="#E0A400" strokeWidth={1.7} strokeLinejoin="round" />
@@ -300,11 +305,11 @@ export default function Home() {
                 </Svg>
               }
               title="Verified creators"
-              sub="What we check"
+              sub="How we vet"
             />
             <View style={styles.featureDiv} />
             <Feature
-              onPress={() => router.push('/help')}
+              onPress={() => setMatchingOpen(true)}
               icon={
                 <Svg width={21} height={21} viewBox="0 0 24 24" fill="none">
                   <Path d="M13 3L5 13h6l-1 8 8-11h-6l1-7z" stroke="#E0A400" strokeWidth={1.7} strokeLinejoin="round" />
@@ -426,6 +431,101 @@ export default function Home() {
         </View>
       </ScrollView>
 
+      {/* WHAT VERIFIED MEANS. Copy is deliberately limited to what we DO:
+          Didit government-ID verification, the 18+ check, and portfolio
+          review. Background checks are NOT claimed — the police certificate
+          of character is labelled coming soon. Trust & Safety was corrected
+          once for overclaiming exactly this; don't reintroduce it here. */}
+      <ExplainerSheet open={verifyOpen} onClose={() => setVerifyOpen(false)} title="How we vet creators">
+        <ExplainerRow
+          title="Government ID, verified"
+          body="Every creator verifies a government-issued ID through Didit, our identity partner, with a live face match against the document."
+        />
+        <ExplainerRow
+          title="18 or older"
+          body="Age is checked from the verified document itself — never a typed-in birthday."
+        />
+        <ExplainerRow
+          title="Portfolio reviewed"
+          body="A real person reviews every creator's work and profile before they can take bookings."
+        />
+        <ExplainerRow
+          title="Police certificate of character"
+          body="Coming soon — we're building local certificate checks into creator vetting."
+          soon
+        />
+        <Pressable
+          onPress={() => {
+            setVerifyOpen(false);
+            router.push('/legal/trust-safety');
+          }}
+        >
+          <Text style={styles.sheetLink}>Read the full Trust & Safety policy →</Text>
+        </Pressable>
+      </ExplainerSheet>
+
+      <ExplainerSheet open={matchingOpen} onClose={() => setMatchingOpen(false)} title="How matching works">
+        <ExplainerRow
+          title="Real availability"
+          body="You only see dates and times creators have actually opened — no requests into the void."
+        />
+        <ExplainerRow
+          title="Your area"
+          body="Matching covers our northern Saint Lucia service area — pick a spot and we only offer creators who cover it."
+        />
+        <ExplainerRow
+          title="Specialties are a hard filter"
+          body="Booking a wedding? You'll only ever be matched with creators who shoot weddings. Same for every occasion."
+        />
+        <ExplainerRow
+          title="Pick, or let us match"
+          body='Choose a specific creator from the list, or tap "Match me automatically" and the best available creator for your occasion, time and area takes the job.'
+        />
+      </ExplainerSheet>
+    </View>
+  );
+}
+
+function ExplainerSheet({
+  open,
+  onClose,
+  title,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable style={{ flex: 1 }} onPress={onClose} />
+        <View style={styles.sheet}>
+          <View style={styles.grabber} />
+          <Text style={styles.sheetTitle}>{title}</Text>
+          {children}
+          <Pressable onPress={onClose} style={styles.sheetClose}>
+            <Text style={styles.sheetCloseLabel}>Close</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function ExplainerRow({ title, body, soon }: { title: string; body: string; soon?: boolean }) {
+  return (
+    <View style={styles.expRow}>
+      <View style={styles.expRowHead}>
+        <Text style={styles.expRowTitle}>{title}</Text>
+        {soon && (
+          <View style={styles.soonChip}>
+            <Text style={styles.soonChipLabel}>COMING SOON</Text>
+          </View>
+        )}
+      </View>
+      <Text style={styles.expRowBody}>{body}</Text>
     </View>
   );
 }
@@ -673,6 +773,26 @@ const styles = StyleSheet.create({
   feature: { flex: 1, alignItems: 'center', gap: 6, paddingHorizontal: 6 },
   featureDiv: { width: 1, backgroundColor: '#F0EDE6', marginVertical: 3 },
   featureTitle: { fontSize: 10.5, fontWeight: '800', letterSpacing: -0.1, color: colors.ink, textAlign: 'center' },
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(26,26,26,0.45)' },
+  sheet: {
+    backgroundColor: colors.offWhite,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingTop: 10,
+    paddingHorizontal: 22,
+    paddingBottom: 34,
+  },
+  grabber: { width: 40, height: 5, borderRadius: 3, backgroundColor: '#D8D8D8', alignSelf: 'center', marginBottom: 16 },
+  sheetTitle: { fontSize: 19, fontWeight: '800', letterSpacing: -0.3, color: colors.ink, marginBottom: 14 },
+  sheetLink: { fontSize: 13.5, fontWeight: '800', color: colors.yellowDark, marginTop: 14 },
+  sheetClose: { alignSelf: 'center', marginTop: 18, paddingHorizontal: 26, paddingVertical: 11, borderRadius: 999, backgroundColor: '#F1EEE7' },
+  sheetCloseLabel: { fontSize: 14, fontWeight: '700', color: colors.ink },
+  expRow: { marginBottom: 13 },
+  expRowHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  expRowTitle: { fontSize: 14.5, fontWeight: '800', color: colors.ink },
+  expRowBody: { fontSize: 13, color: colors.grey, lineHeight: 19, marginTop: 3 },
+  soonChip: { backgroundColor: '#FFF4D6', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2.5 },
+  soonChipLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 0.4, color: '#8A6800' },
   railFailed: { marginHorizontal: 20, marginTop: 6, paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#F1EEE7' },
   railFailedText: { fontSize: 12.5, color: colors.grey, textAlign: 'center' },
   featureSub: { fontSize: 9.5, color: colors.greyWarm, marginTop: 2, textAlign: 'center' },
