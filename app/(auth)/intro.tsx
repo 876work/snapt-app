@@ -76,9 +76,11 @@ function coverGeometry(W: number, H: number, src: { width: number; height: numbe
   const dispW = src.width * scale;
   const dispH = src.height * scale;
   const overSrcX = (dispW - W) / scale;
+  // Left cap 55: the baked wordmark starts at src x≈60 and faces at ≈85+,
+  // so 55 keeps both on-screen at every aspect (observed clipped at 85).
   const leftCutSrc = bakedSkip
-    ? Math.min(Math.max(overSrcX - 86, 0), 85)
-    : Math.min(overSrcX * 0.5, 100);
+    ? Math.min(Math.max(overSrcX - 86, 0), 55)
+    : Math.min(overSrcX * 0.5, 55);
   const leftCut = leftCutSrc * scale;
   const rightCut = dispW - W - leftCut;
   // Wider-than-art screens (rare) crop vertically instead; keep the top
@@ -251,9 +253,10 @@ export default function Intro() {
           <Defs>
             <LinearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">
               <Stop offset="0" stopColor="#140F05" stopOpacity="0" />
-              <Stop offset="0.42" stopColor="#140F05" stopOpacity="0.34" />
-              <Stop offset="0.72" stopColor="#140F05" stopOpacity="0.82" />
-              <Stop offset="1" stopColor="#140F05" stopOpacity="0.95" />
+              <Stop offset="0.28" stopColor="#140F05" stopOpacity="0.30" />
+              <Stop offset="0.48" stopColor="#140F05" stopOpacity="0.80" />
+              <Stop offset="0.60" stopColor="#140F05" stopOpacity="1" />
+              <Stop offset="1" stopColor="#140F05" stopOpacity="1" />
             </LinearGradient>
           </Defs>
           <Rect x="0" y="0" width="100%" height="100%" fill="url(#scrim)" />
@@ -304,7 +307,12 @@ const styles = StyleSheet.create({
   copy: { position: 'absolute', left: 24, right: 24 },
   title: { fontSize: 28, fontWeight: '800', letterSpacing: -0.8, color: '#fff', marginBottom: 10 },
   sub: { fontSize: 14.5, lineHeight: 21, color: 'rgba(255,255,255,0.88)' },
-  scrim: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '58%' },
+    // 72% tall with full opacity from 60% of its own height (= 71% down the
+  // screen). The copy sits at ~81% and the assets bake their own text onto a
+  // light panel from ~78% — both land in the solid region. Measured against
+  // screenshots, not guessed: at 62% the ramp finished BELOW the copy and
+  // left it washed out over the artwork.
+  scrim: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '72%' },
   skip: {
     position: 'absolute',
     top: insetTop + 6,
