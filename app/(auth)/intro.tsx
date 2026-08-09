@@ -2,6 +2,7 @@ import React from 'react';
 import { AccessibilityInfo, Image, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Animated, {
   Extrapolation,
+  withTiming,
   type SharedValue,
   interpolate,
   interpolateColor,
@@ -300,8 +301,19 @@ export default function Intro() {
             if (last) {
               router.push('/(auth)/signup');
             } else {
-              listRef.current?.scrollToIndex({ index: page + 1, animated: !reduceMotion });
-              if (reduceMotion) setPage(page + 1);
+              const next = page + 1;
+              listRef.current?.scrollToIndex({ index: next, animated: !reduceMotion });
+              // scrollX MUST be advanced by hand here. A programmatic
+              // scrollToIndex does not feed the animated scroll handler, so
+              // scrollX stayed at 0 while the list sat on page 2 — every
+              // slide reached by the button rendered its copy offset by
+              // -0.14 * -W (~52pt right) and clipped the headline off the
+              // edge. Swiping was always fine, which is why it survived the
+              // iPhone 17 pass; the SE screenshot caught it.
+              scrollX.value = reduceMotion
+                ? next * W
+                : withTiming(next * W, { duration: 300 });
+              setPage(next);
             }
           }}
         />
