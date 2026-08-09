@@ -233,12 +233,17 @@ export function registerMessageRoutes(app: FastifyInstance): void {
       .maybeSingle();
     // '||' not '??': a fresh profile has full_name '', which is not null.
     const name = (sender?.full_name || '').split(' ')[0] || 'Your booking';
+    // Truncate by CODE POINT, not by UTF-16 unit. `.slice()` counts units,
+    // and most emoji are surrogate pairs — a cut landing mid-pair emitted a
+    // lone surrogate (U+D83D…) that renders as � in the notification. The
+    // spread operator iterates code points, so a character is never halved.
     const preview = String(last.body ?? '');
+    const chars = [...preview];
     await notify(
       recipient,
       'message_received',
       `New message from ${name}`,
-      preview.length > 120 ? `${preview.slice(0, 117)}…` : preview,
+      chars.length > 120 ? `${chars.slice(0, 117).join('')}…` : preview,
       { booking_id: bookingId, thread_id: bookingId },
     );
     return { notified: true };
