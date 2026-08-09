@@ -27,6 +27,8 @@ export interface JobOffer {
   deliveredAt?: string | null;
   /** Remote orders: tier key in REMOTE_PACKAGES (photos_6_10, standard, …). */
   remoteTier?: string | null;
+  /** Remote edits: the look the client ordered (EDIT_STYLES id). */
+  editStyle?: string | null;
   mediaKind?: 'photo' | 'video' | 'both';
 }
 

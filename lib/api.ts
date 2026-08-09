@@ -898,7 +898,10 @@ export function declineBookingApi(id: string) {
 }
 
 export interface SessionState {
-  safety_code: string | null;
+  /** Client-only. The server withholds this key from the creator entirely —
+   *  the code proves the client is present, so a creator must never be able
+   *  to read it from an API response. */
+  safety_code?: string | null;
   client_checked_in_at: string | null;
   creator_checked_in_at: string | null;
   session_active_at: string | null;

@@ -46,6 +46,28 @@ async function getOrCreateSession(bookingId: string) {
   return data;
 }
 
+/**
+ * THE SAFETY CODE IS THE CLIENT'S, AND ONLY THE CLIENT'S.
+ *
+ * Both session endpoints used to return the whole row to either party, so an
+ * assigned creator could read the code with a single request and "verify" a
+ * check-in without ever meeting the client — which is the one thing the code
+ * exists to make impossible. It proves presence only if the creator can
+ * obtain it exclusively from the person standing in front of them.
+ *
+ * Every session response goes through here. The creator still gets the
+ * timestamps their screen needs; the code is simply absent.
+ */
+function sessionFor(
+  session: Record<string, unknown>,
+  viewerId: string,
+  clientId: string,
+): Record<string, unknown> {
+  if (viewerId === clientId) return session;
+  const { safety_code: _withheld, ...rest } = session;
+  return rest;
+}
+
 export function registerSessionRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>('/v1/bookings/:id/session', async (request, reply) => {
     const user = requireUser(request);
@@ -54,7 +76,8 @@ export function registerSessionRoutes(app: FastifyInstance) {
     if (user.id !== booking.client_id && user.id !== booking.creator_id) {
       return reply.code(403).send({ error: 'Not your booking' });
     }
-    return { session: await getOrCreateSession(booking.id) };
+    const session = await getOrCreateSession(booking.id);
+    return { session: sessionFor(session, user.id, booking.client_id) };
   });
 
   app.post<{ Params: { id: string } }>('/v1/bookings/:id/session/check-in', async (request, reply) => {
@@ -94,7 +117,7 @@ export function registerSessionRoutes(app: FastifyInstance) {
         );
       }
     }
-    return { session: { ...session, ...patch } };
+    return { session: sessionFor({ ...session, ...patch }, user.id, booking.client_id) };
   });
 
   // Creator verifies the client's safety code — this is what flips the

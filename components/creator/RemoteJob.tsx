@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { Text } from '../../lib/text';
 import { DeliverPanel, useUploadBatch } from './DeliverUploader';
 import type { JobOffer } from '../../lib/store/creator';
-import { REMOTE_PACKAGES } from '../../lib/store/upload';
+import { EDIT_STYLES, REMOTE_PACKAGES } from '../../lib/store/upload';
 import { colors } from '../../lib/theme';
 
 /**
@@ -134,6 +134,9 @@ export function RemoteJob({ job }: { job: JobOffer }) {
   const pkg = job.remoteTier
     ? REMOTE_PACKAGES[job.mediaKind ?? 'photo']?.find((p) => p.tier === job.remoteTier)
     : undefined;
+  // Resolved through the known style list rather than printed raw, so an
+  // unrecognised id renders nothing instead of arbitrary stored text.
+  const style = job.editStyle ? EDIT_STYLES.find((e) => e.id === job.editStyle) : undefined;
 
   const deadlineCard = dueAt ? (
     <View
@@ -166,6 +169,15 @@ export function RemoteJob({ job }: { job: JobOffer }) {
         <Text style={styles.orderLabel}>THE ORDER</Text>
         <Text style={styles.orderName}>{pkg?.name ?? 'Remote edit'}</Text>
         {!!pkg?.desc && <Text style={styles.orderDesc}>{pkg.desc}</Text>}
+        {style && (
+          <View style={styles.styleRow}>
+            <View style={[styles.styleDot, { backgroundColor: style.tint }]} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.styleName}>{style.name}</Text>
+              <Text style={styles.styleDesc}>{style.desc}</Text>
+            </View>
+          </View>
+        )}
       </View>
 
       {!delivered && deadlineCard}
@@ -293,6 +305,18 @@ const styles = StyleSheet.create({
   orderLabel: { fontSize: 10, fontWeight: '800', color: colors.yellowDark, letterSpacing: 0.5 },
   orderName: { fontSize: 15.5, fontWeight: '800', color: colors.ink, marginTop: 6 },
   orderDesc: { fontSize: 12.5, color: colors.grey, marginTop: 3, lineHeight: 18 },
+  styleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F0EDE6',
+  },
+  styleDot: { width: 12, height: 12, borderRadius: 6, marginTop: 3 },
+  styleName: { fontSize: 13, fontWeight: '800', color: colors.ink },
+  styleDesc: { fontSize: 12, color: colors.grey, marginTop: 2, lineHeight: 17 },
   deadlineCard: {
     backgroundColor: '#fff',
     borderRadius: 14,

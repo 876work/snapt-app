@@ -135,6 +135,10 @@ export default function RemoteOrderSummary() {
         type: 'remote',
         media_kind: mediaKind,
         remote_tier: pkg.tier,
+        // The look the client chose. It was collected on the previous screen
+        // and then dropped on the floor — the editor received an order with
+        // no indication of how it should be graded.
+        edit_style: styleId,
         addons: {
           rush: addons.includes('rush'),
           extra_revisions: addons.includes('revision') ? 1 : 0,

@@ -35,6 +35,9 @@ export interface CreateBookingBody {
   duration_hours?: number;
   remote_tier?: string;
   social_tier?: string;
+  /** Remote edits: the look the client chose (EDIT_STYLES id). Descriptive
+   *  only — it never affects price, but the editor cannot work without it. */
+  edit_style?: string;
   addons?: { rush?: boolean; extra_photos?: boolean; extra_revisions?: number };
   area?: string;
   meeting_point?: string;
@@ -300,6 +303,7 @@ export async function quoteBooking(
         media_kind: mediaKind,
         duration_hours: durationHours,
         remote_tier: body.remote_tier ?? null,
+        edit_style: body.edit_style ?? null,
         ...(socialSnapshot ?? {}),
         session_price_usd: sessionPrice,
         addons: addonsDetail,
@@ -334,6 +338,7 @@ export function packBookingParams(body: CreateBookingBody): Record<string, strin
   put('b_dur', body.duration_hours);
   put('b_remote_tier', body.remote_tier);
   put('b_social_tier', body.social_tier);
+  put('b_style', body.edit_style);
   put('b_area', body.area);
   put('b_mp', body.meeting_point);
   put('b_lat', body.meeting_lat);
@@ -355,6 +360,7 @@ export function unpackBookingParams(md: Record<string, string>): CreateBookingBo
     duration_hours: md.b_dur ? Number(md.b_dur) : undefined,
     remote_tier: md.b_remote_tier,
     social_tier: md.b_social_tier,
+    edit_style: md.b_style,
     area: md.b_area,
     meeting_point: md.b_mp,
     meeting_lat: md.b_lat ? Number(md.b_lat) : undefined,

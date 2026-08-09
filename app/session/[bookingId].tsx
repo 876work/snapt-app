@@ -80,7 +80,7 @@ export default function SessionDay() {
       const poll = () =>
         fetchSessionApi(bookingId).then((s) => {
           if (stop || !s) return;
-          setRealCode(s.safety_code);
+          setRealCode(s.safety_code ?? null);
           setStage(
             s.session_ended_at
               ? 'wrapped'
