@@ -140,7 +140,16 @@ export default function CreatorAssignment() {
             <View style={{ gap: 12 }}>
               {creators.map((c, idx) => {
                 const active = !auto && draft.creatorId === c.id;
+                /**
+                 * Row one IS the top-ranked creator now — the server sorts by
+                 * specialty, then area, then same-day load, then rotation, and
+                 * never returns 0. So the badge finally reflects a real
+                 * computation instead of asserting one.
+                 */
                 const best = idx === 0;
+                const matchesOccasion =
+                  !!draft.occasion && c.specialties.includes(draft.occasion);
+                const matchesArea = !!draft.area && c.loc === draft.area;
                 return (
                   <Pressable
                     key={c.id}
@@ -183,19 +192,19 @@ export default function CreatorAssignment() {
                           <Circle cx="12" cy="10" r="2.3" stroke="#8A8377" strokeWidth={1.8} />
                         </Svg>
                         <Text style={styles.dist}>
-                          {c.distanceKm != null
-                            ? `${c.distanceKm.toFixed(1)} km from your meeting area`
-                            : c.loc || 'Saint Lucia'}
+                          {c.loc ? `Based in ${c.loc}` : 'Saint Lucia'}
                         </Text>
                       </View>
-                      {best && draft.occasion && (
+                      {/* Only claims what is true of THIS creator. The old
+                          line asserted "closest to your area" off a distance
+                          that is centroid-to-centroid — it read identically
+                          for everyone in the same area, so it distinguished
+                          nothing while sounding precise. */}
+                      {best && (matchesOccasion || matchesArea) && (
                         <Text style={styles.why}>
-                          Specializes in {draft.occasion}
-                          {c.distanceKm != null
-                            ? ' · closest to your area'
-                            : c.loc && draft.area === c.loc
-                              ? ` · based in ${c.loc}`
-                              : ''}
+                          {matchesOccasion ? `Shoots ${draft.occasion}` : ''}
+                          {matchesOccasion && matchesArea ? ' · ' : ''}
+                          {matchesArea ? `based in ${c.loc}` : ''}
                         </Text>
                       )}
                       <View style={styles.tagRow}>

@@ -87,7 +87,11 @@ export async function reassignBooking(
   if (booking.scheduled_at) {
     const date = booking.scheduled_at.slice(0, 10);
     const time = new Date(booking.scheduled_at).toTimeString().slice(0, 5);
-    const creators = await eligibleCreators(booking.occasion, booking.area ?? undefined);
+    const creators = await eligibleCreators(
+      booking.occasion,
+      booking.area ?? undefined,
+      String(booking.scheduled_at ?? '').slice(0, 10) || undefined,
+    );
     const slots = await dayAvailability(
       booking.occasion,
       date,

@@ -75,7 +75,7 @@ export default function CreatorPreview() {
                   <Circle cx="12" cy="10" r="2.3" stroke="#8A8377" strokeWidth={1.8} />
                 </Svg>
                 <Text style={styles.dist}>
-                  {creator.distanceKm != null ? `${creator.distanceKm.toFixed(1)} km` : creator.loc || '—'}
+                  {creator.loc || '—'}
                 </Text>
               </View>
             </View>

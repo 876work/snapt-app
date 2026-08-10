@@ -55,7 +55,12 @@ function pad(n: number): string {
 }
 
 /** Approved creators with the booking's occasion as a specialty (§12: exclusion, not ranking). */
-export async function eligibleCreators(occasion: string, area?: string): Promise<EligibleCreator[]> {
+export async function eligibleCreators(
+  occasion: string,
+  area?: string,
+  /** YYYY-MM-DD of the requested session, for the same-day load count. */
+  day?: string,
+): Promise<EligibleCreator[]> {
   const { data, error } = await supabaseAdmin
     .from('creator_profiles')
     // Cast: the dynamic column list defeats supabase-js's literal-string
@@ -151,16 +156,73 @@ export async function eligibleCreators(occasion: string, area?: string): Promise
   const enforced = creators.filter(
     (c) => penalties.get(c.user_id) !== 'excluded' && consented.has(c.user_id),
   );
+  /**
+   * REAL RANKING, in a stated order — never a comparator returning 0 with
+   * the database deciding.
+   *
+   * The old sort ranked by centroid-to-centroid distance, which only ever
+   * distinguishes "same area or not", then fell through to 0. Equal
+   * candidates came back in whatever order the query produced, and the
+   * booking screen labelled row one BEST MATCH.
+   *
+   *   1. strike penalty — deprioritized creators sink (unchanged)
+   *   2. specialty      — they actually shoot this occasion
+   *   3. area           — exact base_area match
+   *   4. load           — fewest jobs already accepted that day
+   *   5. ROTATION       — least recently offered work wins
+   *
+   * Rotation is last on purpose: it decides only between candidates who are
+   * otherwise equal. A fully deterministic order means one creator takes
+   * every auto-matched job and the rest conclude Snapt has no work for them.
+   * Spreading offers is supply retention, not fairness decoration.
+   */
+  const ids = enforced.map((c) => c.user_id);
+  const load = new Map<string, number>();
+  const lastOffered = new Map<string, number>();
+  if (ids.length > 0) {
+    const { data: theirBookings } = await supabaseAdmin
+      .from('bookings')
+      .select('creator_id, scheduled_at, created_at, status')
+      .in('creator_id', ids)
+      .in('status', ['pending', 'confirmed', 'completed']);
+    for (const b of theirBookings ?? []) {
+      const cid = b.creator_id as string;
+      // Load counts only work they have ACCEPTED for the requested day —
+      // a pending offer is not yet a commitment.
+      if (day && b.status !== 'pending' && String(b.scheduled_at ?? '').slice(0, 10) === day) {
+        load.set(cid, (load.get(cid) ?? 0) + 1);
+      }
+      // Rotation reads the last time work was PUT IN FRONT of them, accepted
+      // or not — being offered and declining still means they had their turn.
+      const at = Date.parse(String(b.created_at ?? '')) || 0;
+      if (at > (lastOffered.get(cid) ?? 0)) lastOffered.set(cid, at);
+    }
+  }
+
+  const rank = new Map<string, { specialty: number; area: number; load: number; last: number }>();
+  for (const c of enforced) {
+    rank.set(c.user_id, {
+      specialty: (c.specialties ?? []).includes(occasion) ? 0 : 1,
+      area: area && c.base_area === area ? 0 : 1,
+      load: load.get(c.user_id) ?? 0,
+      // Never offered anything = longest wait. They go first.
+      last: lastOffered.get(c.user_id) ?? 0,
+    });
+  }
+
   enforced.sort((a, b) => {
     const pa = penalties.get(a.user_id) === 'deprioritized' ? 1 : 0;
     const pb = penalties.get(b.user_id) === 'deprioritized' ? 1 : 0;
     if (pa !== pb) return pa - pb;
-    // Nearest first when distances are known; area match as tiebreak.
-    if (a.distance_km != null && b.distance_km != null && a.distance_km !== b.distance_km) {
-      return a.distance_km - b.distance_km;
-    }
-    if (area) return Number(b.base_area === area) - Number(a.base_area === area);
-    return 0;
+    const ra = rank.get(a.user_id)!;
+    const rb = rank.get(b.user_id)!;
+    if (ra.specialty !== rb.specialty) return ra.specialty - rb.specialty;
+    if (ra.area !== rb.area) return ra.area - rb.area;
+    if (ra.load !== rb.load) return ra.load - rb.load;
+    if (ra.last !== rb.last) return ra.last - rb.last;
+    // Never 0 — a stable, explicable last resort beats the database's
+    // incidental row order.
+    return a.user_id.localeCompare(b.user_id);
   });
   return enforced;
 }
@@ -273,7 +335,7 @@ export async function dayAvailability(
   durationHours: number,
   area?: string,
 ): Promise<SlotAvailability[]> {
-  const creators = await eligibleCreators(occasion, area);
+  const creators = await eligibleCreators(occasion, area, date);
   const earliestStartMs = Date.now() + (await minimumLeadMinutes('in_person')) * 60_000;
   const intervals = await bookingIntervals(
     creators.map((c) => c.user_id),

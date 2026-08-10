@@ -243,7 +243,7 @@ export async function quoteBooking(
     scheduledAtIso = scheduled.toISOString();
 
     const occasion = body.occasion as string;
-    const creators = await eligibleCreators(occasion, body.area);
+    const creators = await eligibleCreators(occasion, body.area, body.date);
     const slots = await dayAvailability(occasion, body.date, durationHours as number, body.area);
     const slot = slots.find((s) => s.time === body.time);
 
@@ -288,6 +288,33 @@ export async function quoteBooking(
     } else {
       assignedCreatorId =
         creators.find((c) => slot.creator_ids.includes(c.user_id))?.user_id ?? slot.creator_ids[0] ?? null;
+    }
+
+    /**
+     * RECORD THE DECISION. Without this, "why did I get this creator?" has
+     * no answer at all — re-running the query later gives a different one,
+     * because availability, strikes and bookings have all moved since.
+     * Best effort: a logging failure must never cost someone their booking.
+     */
+    try {
+      await supabaseAdmin.from('match_decisions').insert({
+        booking_id: null,
+        chosen_creator_id: assignedCreatorId,
+        mode: body.creator_id ? 'manual' : 'auto',
+        occasion: body.occasion ?? null,
+        area: body.area ?? null,
+        scheduled_for: scheduledAtIso,
+        candidates: creators.slice(0, 25).map((c, i) => ({
+          creator_id: c.user_id,
+          rank: i,
+          base_area: c.base_area,
+          shoots_occasion: (c.specialties ?? []).includes(body.occasion as string),
+          free_in_slot: slot?.creator_ids?.includes(c.user_id) ?? false,
+          chosen: c.user_id === assignedCreatorId,
+        })),
+      });
+    } catch {
+      /* never block a booking on its own audit trail */
     }
 
     // Service-area boundary is authoritative here, not on the device.
