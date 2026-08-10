@@ -22,6 +22,8 @@ export default function Verify() {
   const [code, setCode] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  /** Set by CodeInput; pulls focus back to box one after a failure. */
+  const focusFirst = React.useRef<(() => void) | null>(null);
   const [resent, setResent] = React.useState(false);
 
   const verify = async () => {
@@ -31,7 +33,12 @@ export default function Verify() {
     const result = await verifySignupCode(String(email), code);
     setBusy(false);
     if (result.error) {
+      // Clear and refocus so the next attempt starts at box one. The guard
+      // stays ARMED against this code — a wrong one must never resubmit
+      // itself.
       setError(result.error);
+      setCode('');
+      focusFirst.current?.();
       return;
     }
     // Session is live now — persist the phone captured at signup (payout
@@ -63,7 +70,13 @@ export default function Verify() {
           <Text style={{ fontWeight: '800', color: colors.ink }}>{email}</Text>. Enter it below to
           confirm your account.
         </Text>
-        <CodeInput length={codeLength} value={code} onChange={setCode} />
+        <CodeInput
+          length={codeLength}
+          value={code}
+          onChange={setCode}
+          onComplete={verify}
+          focusRef={focusFirst}
+        />
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable onPress={resend} disabled={resent}>
           <Text style={styles.resend}>{resent ? 'Code re-sent — check your inbox.' : "Didn't get it? Resend code"}</Text>

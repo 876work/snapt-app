@@ -17,6 +17,8 @@ export default function ForgotCode() {
   const [code, setCode] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  /** Set by CodeInput; pulls focus back to box one after a failure. */
+  const focusFirst = React.useRef<(() => void) | null>(null);
 
   const verify = async () => {
     if (busy) return;
@@ -25,7 +27,12 @@ export default function ForgotCode() {
     const result = await verifyResetCode(String(email), code);
     setBusy(false);
     if (result.error) {
+      // Clear and refocus so the next attempt starts at box one. The guard
+      // stays ARMED against this code — a wrong one must never resubmit
+      // itself.
       setError(result.error);
+      setCode('');
+      focusFirst.current?.();
       return;
     }
     router.push('/(auth)/forgot-reset');
@@ -39,7 +46,13 @@ export default function ForgotCode() {
           We sent a {codeLength}-digit code to{' '}
           <Text style={{ fontWeight: '800', color: colors.ink }}>{email}</Text>.
         </Text>
-        <CodeInput length={codeLength} value={code} onChange={setCode} />
+        <CodeInput
+          length={codeLength}
+          value={code}
+          onChange={setCode}
+          onComplete={verify}
+          focusRef={focusFirst}
+        />
         {error ? <Text style={styles.err}>{error}</Text> : null}
         <Button
           title={busy ? 'Checking…' : 'Continue'}
