@@ -43,7 +43,14 @@ export function useNavShrinkAnim(): { opacity: Animated.AnimatedInterpolation<nu
     Animated.timing(anim, { toValue: shrunk ? 0 : 1, duration: 180, useNativeDriver: true }).start();
   }, [shrunk, anim]);
   return {
-    opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }),
-    scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }),
+    /**
+     * THE PILL STAYS SOLID. It used to fade to 0.5 while shrunk, which over
+     * the off-white page read as translucent grey with washed-out labels —
+     * and because the shrunk state persists until you scroll back up, that
+     * was the bar's normal appearance for most of a session, not a moment.
+     * Scale alone gets it out of the way; a half-legible control does not.
+     */
+    opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [1, 1] }),
+    scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }),
   };
 }

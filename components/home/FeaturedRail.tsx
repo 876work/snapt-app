@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { Text } from '../../lib/text';
 import { CreatorAvatar } from '../ui/CreatorAvatar';
+import { WorkImage } from '../ui/WorkImage';
 import type { FeaturedCreator } from '../../lib/api';
 import { colors } from '../../lib/theme';
 
@@ -32,7 +33,7 @@ export function FeaturedRail({
   return (
     <>
       <View style={styles.head}>
-        <Text style={styles.title}>Featured creators</Text>
+        <Text style={styles.title}>Creators</Text>
         {list.length > 0 && (
           <Pressable
             onPress={() => router.push('/creators')}
@@ -67,7 +68,7 @@ export function FeaturedRail({
               style={styles.card}
             >
               <View style={styles.workWrap}>
-                <Image source={{ uri: c.work[0] }} style={styles.work} resizeMode="cover" />
+                <WorkImage uri={c.work[0]} style={styles.work} />
                 {c.work.length > 1 && (
                   <View style={styles.countPill}>
                     <Text style={styles.countLabel}>{c.work.length} shots</Text>

@@ -272,6 +272,77 @@ export function registerCreatorRoutes(app: FastifyInstance) {
   // Public featured rail for the client home: approved creators' public
   // card info only. Browsing, not matching — assignment still goes through
   // the fully-gated eligibleCreators path.
+  /**
+   * EVERY BOOKABLE CREATOR — the "See all" list.
+   *
+   * Distinct from /featured on purpose: featured is a shop window (capped,
+   * and it hides anyone without published work, because a card with no
+   * photography sells nothing). This is the directory, so the only test is
+   * "can a client actually book them": approved, available, and with at
+   * least one working-hours window. A creator who is paused or has an empty
+   * week is unbookable and must not appear — showing them produces a
+   * client who picks someone the matcher will never offer the job to.
+   */
+  app.get('/v1/creators/all', async () => {
+    const withHeadshots = await headshotColumnsPresent();
+    const { data } = await supabaseAdmin
+      .from('creator_profiles')
+      .select(
+        (withHeadshots
+          ? 'user_id, specialties, verified, base_area, availability, headshot_path, headshot_status, profiles!creator_profiles_user_id_fkey!inner(full_name)'
+          : 'user_id, specialties, verified, base_area, availability, profiles!creator_profiles_user_id_fkey!inner(full_name)') as '*',
+      )
+      .eq('vetting_status', 'approved')
+      .eq('is_available', true);
+
+    const bookable = (data ?? []).filter((c: any) => {
+      const week = (c.availability ?? {}) as Record<string, unknown[]>;
+      return Object.values(week).some((w) => Array.isArray(w) && w.length > 0);
+    });
+    const ids = bookable.map((c: any) => c.user_id as string);
+    if (!ids.length) return { creators: [] };
+
+    const { data: shots } = await supabaseAdmin
+      .from('portfolio_items')
+      .select('creator_id, storage_path, created_at')
+      .in('creator_id', ids)
+      .in('status', ['approved', 'auto'])
+      .not('storage_path', 'is', null)
+      .order('created_at', { ascending: false });
+    const pathsByCreator = new Map<string, string[]>();
+    for (const shot of shots ?? []) {
+      const list = pathsByCreator.get(shot.creator_id as string) ?? [];
+      if (list.length < 3) list.push(shot.storage_path as string);
+      pathsByCreator.set(shot.creator_id as string, list);
+    }
+
+    const { createDownloadUrl } = await import('../storage.js');
+    const creators = await Promise.all(
+      bookable.map(async (c: any) => ({
+        id: c.user_id,
+        full_name: c.profiles.full_name,
+        specialties: c.specialties ?? [],
+        verified: c.verified,
+        base_area: c.base_area,
+        avatar_url:
+          c.headshot_status === 'approved' && c.headshot_path
+            ? await createDownloadUrl('portfolio', c.headshot_path).catch(() => null)
+            : null,
+        // Unlike featured, an empty portfolio does NOT exclude anyone here —
+        // the directory's job is completeness, and the card degrades to a
+        // stated empty state rather than hiding a bookable person.
+        work: (
+          await Promise.all(
+            (pathsByCreator.get(c.user_id) ?? []).map((p) =>
+              createDownloadUrl('portfolio', p).catch(() => null),
+            ),
+          )
+        ).filter((u): u is string => u !== null),
+      })),
+    );
+    return { creators };
+  });
+
   app.get('/v1/creators/featured', async () => {
     const { data } = await supabaseAdmin
       .from('creator_profiles')

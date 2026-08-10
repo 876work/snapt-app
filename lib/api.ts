@@ -284,6 +284,22 @@ export interface FeaturedCreator extends Creator {
  * published work, so an empty array here means "nobody qualifies yet" — the
  * rail renders its honest empty state rather than avatar placeholders.
  */
+/**
+ * Every bookable creator, for the "See all" directory. Separate endpoint
+ * from featured: that one is a capped shop window that hides creators with
+ * no published work; this one is the full list of people a client can
+ * actually book. null = the request FAILED, so the screen can say so
+ * instead of claiming the marketplace is empty.
+ */
+export async function fetchAllCreators(): Promise<FeaturedCreator[] | null> {
+  const result = await request<{ creators: ServerCreator[] }>('/v1/creators/all');
+  if (!result?.creators) return null;
+  return mapServerCreators(result.creators).map((c, i) => ({
+    ...c,
+    work: result.creators[i]?.work ?? [],
+  }));
+}
+
 export async function fetchFeaturedCreators(): Promise<FeaturedCreator[] | null> {
   const result = await request<{ creators: ServerCreator[] }>(`/v1/creators/featured`);
   if (!result) return null;
