@@ -296,7 +296,11 @@ export async function quoteBooking(
      * because availability, strikes and bookings have all moved since.
      * Best effort: a logging failure must never cost someone their booking.
      */
-    try {
+    // computeQuote runs TWICE per successful booking — once for
+    // /v1/checkout/intent and again in the webhook — so an ungated insert
+    // wrote two rows per booking. The decision is made here, at quote time;
+    // the webhook is just re-pricing what was already decided.
+    if (!postPayment) try {
       await supabaseAdmin.from('match_decisions').insert({
         booking_id: null,
         chosen_creator_id: assignedCreatorId,
