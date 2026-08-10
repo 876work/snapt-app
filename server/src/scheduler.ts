@@ -1,6 +1,11 @@
 import { supabaseAdmin } from './supabase.js';
 import { notify } from './notify.js';
 import { runRetention } from './retention.js';
+// The grace is defined where the draft endpoints live, because "how long is
+// a draft honoured" is one policy read from two places: that module decides
+// whether to OFFER a returning client their files, this one decides when to
+// DELETE them. They must never disagree.
+import { DRAFT_GRACE_HOURS } from './routes/upload-drafts.js';
 
 // Phase 5 job runner — the two named line items:
 // 1. Payout release moves from lazy-on-read to scheduled, so the
@@ -308,8 +313,6 @@ async function nudgeUndeliveredUploads(): Promise<void> {
  * deleted_at. That is the right way round: an orphaned object costs pennies,
  * a deleted paid file costs the order.
  */
-const DRAFT_GRACE_HOURS = 24;
-
 async function sweepAbandonedDrafts(): Promise<void> {
   const cutoff = new Date(Date.now() - DRAFT_GRACE_HOURS * 3600_000).toISOString();
   const { data: stale } = await supabaseAdmin

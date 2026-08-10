@@ -26,7 +26,16 @@ const MAX_IMAGE_BYTES = 50 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 750 * 1024 * 1024;
 const MAX_RAW_FILES = 15;
 
-/** How long an unclaimed draft is honoured — matches the sweep's grace. */
+/**
+ * How long an unclaimed draft lives — THE definition, imported by the sweep
+ * in scheduler.ts rather than restated there.
+ *
+ * These two readings have to be the same number, and for a while they were
+ * the same number written twice. Drift would not have thrown; it would have
+ * shown: set the endpoint's value higher and a returning client is offered
+ * files the sweep is about to delete, set it lower and files that are still
+ * perfectly good are hidden and re-uploaded. One constant, one meaning.
+ */
 export const DRAFT_GRACE_HOURS = 24;
 
 /** A uuid we minted, not something a caller can point anywhere it likes. */
