@@ -12,6 +12,8 @@ import { REMOTE_PACKAGES } from '../../lib/store/upload';
 import { activeHomeStates, shouldShowEducation } from '../../lib/homeState';
 import type { FeaturedCreator, SocialProof } from '../../lib/api';
 import { formatMoney } from '../../lib/constants/business';
+import { TourOverlay } from '../../components/tour/TourOverlay';
+import { claimTourRun, markTourSeenSilently, registerTourTarget, useTour } from '../../lib/tour';
 import { colors, insetTop } from '../../lib/theme';
 import { navShrinkOnScroll } from '../../lib/navShrink';
 
@@ -58,6 +60,49 @@ export default function Home() {
    */
   const [cardsReady, setCardsReady] = React.useState(false);
   const showEducation = React.useMemo(() => shouldShowEducation(bookings), [bookings]);
+
+  /**
+   * FIRST-RUN TOUR — fired from here because Home is the only place that
+   * knows every earlier gate has cleared.
+   *
+   * The conditions are all "has nothing else got the screen":
+   *  - signed in and hydrated, so we are past the router's own gates
+   *  - profileComplete !== false, because complete-profile is enforced on
+   *    EVERY cold launch, not just at signup — an OAuth account missing a
+   *    phone hits it again, and the tour must not land on top of it
+   *  - client mode only. Creator mode gets no tour; the new-creator empty
+   *    state already explains how work arrives
+   *  - no booking history. Someone who has booked does not need telling how
+   *    to book, so they are marked done without ever seeing it
+   *
+   * claimTourRun() is what makes a mid-tour kill safe: it records the
+   * attempt up front, and the second attempt is marked seen the moment it
+   * starts, so a crash on this screen can never loop.
+   */
+  const startTour = useTour((s) => s.start);
+  const authHydrated = useAuth((s) => s.hydrated);
+  const authSignedIn = useAuth((s) => s.signedIn);
+  const authProfileComplete = useAuth((s) => s.profileComplete);
+  const appMode = useAuth((s) => s.mode);
+  const tourChecked = React.useRef(false);
+  React.useEffect(() => {
+    if (tourChecked.current) return;
+    if (!authHydrated || !authSignedIn) return;
+    if (authProfileComplete === false) return; // complete-profile owns the screen
+    if (appMode === 'creator') return;
+    // cardsReady means the bookings fetch ANSWERED — until then "have they
+    // booked before" is unknown, and guessing it wrong either spams a
+    // returning client or silently marks a new one as done.
+    if (!cardsReady) return;
+    tourChecked.current = true;
+    if (bookings.length > 0) {
+      void markTourSeenSilently();
+      return;
+    }
+    void claimTourRun().then((run) => {
+      if (run) startTour();
+    });
+  }, [authHydrated, authSignedIn, authProfileComplete, appMode, cardsReady, bookings.length, startTour]);
 
   /**
    * The bell dot and the state card read the SAME source, so they can never
@@ -199,7 +244,11 @@ export default function Home() {
           {cardsReady && <StateCarousel states={activeStates} />}
 
           {/* Booking card */}
-          <View style={styles.bookCard}>
+          <View
+            style={styles.bookCard}
+            ref={(node) => registerTourTarget('quickstart', node as unknown as View | null)}
+            collapsable={false}
+          >
             <View style={styles.cardHead}>
               <Text style={[styles.cardLabel, { marginBottom: 0 }]}>In person or remote?</Text>
               {/* From the real pricing table, not a hardcoded string. */}
@@ -352,7 +401,12 @@ export default function Home() {
 
           {/* Remote edit as a real product, not a toggle label. Someone with
               200 photos on their phone has no idea we solve that. */}
-          <Pressable onPress={() => router.push('/upload')} style={styles.remoteCard}>
+          <Pressable
+            onPress={() => router.push('/upload')}
+            style={styles.remoteCard}
+            ref={(node) => registerTourTarget('footage', node as unknown as View | null)}
+            collapsable={false}
+          >
             <View style={styles.remoteIcon}>
               <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
                 <Path d="M6.5 18a4 4 0 01-.5-7.97A5.5 5.5 0 0117 9.5a3.5 3.5 0 011 6.9" stroke={colors.ink} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
@@ -500,6 +554,9 @@ export default function Home() {
           body='Choose a specific creator from the list, or tap "Match me automatically" and the best available creator for your occasion, time and area takes the job.'
         />
       </ExplainerSheet>
+      {/* Last in the tree so it sits above everything Home renders. It shows
+          nothing until the firing rules above say so. */}
+      <TourOverlay />
     </View>
   );
 }

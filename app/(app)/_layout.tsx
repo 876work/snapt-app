@@ -4,6 +4,7 @@ import { Animated, AppState, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
 import { colors, insetBottom } from '../../lib/theme';
 import { navShrinkReset, useNavShrinkAnim } from '../../lib/navShrink';
+import { registerTourTarget } from '../../lib/tour';
 import { BookingsIcon, HomeIcon, MessagesIcon, ProfileIcon } from '../../components/ui/Icons';
 import { apiBase, authHeaders } from '../../lib/api';
 import { useAuth } from '../../lib/store';
@@ -70,6 +71,13 @@ function PillTabBar({ state, navigation }: TabBarProps) {
               navigation.navigate(tab.name);
             }}
             style={[styles.item, active && styles.itemActive]}
+            /* Registered so the tour can measure where these ACTUALLY are.
+               Hardcoded tab geometry breaks silently the next time the pill
+               changes, and a halo over nothing is worse than no tour. */
+            ref={(node) => {
+              if (tab.name === 'messages') registerTourTarget('messages', node as unknown as View | null);
+              if (tab.name === 'profile') registerTourTarget('profile', node as unknown as View | null);
+            }}
           >
             <View>
               <tab.Icon color={active ? colors.ink : 'rgba(255,255,255,0.75)'} />
