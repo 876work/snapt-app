@@ -213,6 +213,16 @@ export default function BookingDetail() {
               />
             </View>
             <View style={{ gap: 10, marginTop: 18 }}>
+              {/* The tracker's first stage — "Files received, we're assigning
+                  it to your editor now" — is written for exactly this state,
+                  but the only link to it lived under `active`, so a pending
+                  remote order could not reach the screen describing it. */}
+              {remote && (
+                <Button
+                  title="Track your order"
+                  onPress={() => router.push(`/order/${booking.id}`)}
+                />
+              )}
               <Button
                 title="Cancel booking"
                 variant="ghost"

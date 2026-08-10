@@ -36,10 +36,27 @@ export function SocialPipeline({
   const [error, setError] = React.useState<string | null>(null);
   const [delivered, setDelivered] = React.useState(false);
 
+  /**
+   * Final edits already registered on the server, from a session that ended
+   * before the slide. The selection endpoint only knows about proofs, so
+   * without this a creator who uploaded their finals and killed the app came
+   * back to an empty dropzone and a DEAD slider — their work was on the
+   * booking, invisible to them, and unreachable. Same family as the
+   * uploaded-but-never-delivered hole, one screen over.
+   */
+  const [existingFinals, setExistingFinals] = React.useState(0);
+
   const load = React.useCallback(async () => {
-    const { fetchSelectionApi } = await import('../../lib/api');
-    const s = await fetchSelectionApi(bookingId);
+    const { fetchSelectionApi, fetchMediaListingApi } = await import('../../lib/api');
+    const [s, listing] = await Promise.all([
+      fetchSelectionApi(bookingId),
+      fetchMediaListingApi(bookingId),
+    ]);
     setState(s);
+    // A failed listing must not zero a real count — leave it as it was.
+    if (listing) {
+      setExistingFinals(listing.media.filter((m) => m.kind === 'deliverable' && !m.deleted).length);
+    }
     setLoading(false);
   }, [bookingId]);
 
@@ -90,7 +107,7 @@ export function SocialPipeline({
   // Final edits sitting on the booking with no delivery behind them. Proofs
   // are deliberately excluded: they are published by their own act and the
   // client already sees them.
-  const undelivered = !delivered && finalBatch.doneCount > 0;
+  const undelivered = !delivered && finalBatch.doneCount + existingFinals > 0;
   React.useEffect(() => {
     onUndeliveredChange?.(undelivered);
   }, [undelivered, onUndeliveredChange]);
@@ -154,6 +171,7 @@ export function SocialPipeline({
         </View>
         <DeliverPanel
           batch={finalBatch}
+          alreadyUploaded={existingFinals}
           promisedCount={selected.length}
           promisedLabel={`${selected.length} locked pick${selected.length === 1 ? '' : 's'}`}
           pickTitle="Add the final edits"
