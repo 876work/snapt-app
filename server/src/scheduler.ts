@@ -308,7 +308,10 @@ async function nudgeUndeliveredUploads(): Promise<void> {
  * deleted_at. That is the right way round: an orphaned object costs pennies,
  * a deleted paid file costs the order.
  */
-const DRAFT_GRACE_HOURS = 24;
+// TEMPORARY VERIFICATION OVERRIDE — 2026-08-10. Reverted to 24 in the very
+// next commit. A 24-hour grace cannot be observed inside a session, and
+// reporting a sweep result nobody waited for would be a guess.
+const DRAFT_GRACE_HOURS = 0.02;
 
 async function sweepAbandonedDrafts(): Promise<void> {
   const cutoff = new Date(Date.now() - DRAFT_GRACE_HOURS * 3600_000).toISOString();
