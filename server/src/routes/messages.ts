@@ -58,7 +58,7 @@ async function loadThreads(userId: string): Promise<ThreadRow[]> {
   ];
 
   const [{ data: profiles }, { data: creatorRows }, { data: messages }, { data: reads }] = await Promise.all([
-    supabaseAdmin.from('profiles').select('id, full_name, avatar_url').in('id', otherIds),
+    supabaseAdmin.from('profiles').select('id, full_name').in('id', otherIds),
     supabaseAdmin
       .from('creator_profiles')
       .select('user_id, headshot_path, headshot_status')
@@ -74,7 +74,8 @@ async function loadThreads(userId: string): Promise<ThreadRow[]> {
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
   const readAt = new Map((reads ?? []).map((r) => [r.booking_id, r.last_read_at as string]));
   // Counterparty creators show their APPROVED headshot; clients (no
-  // creator_profiles row / no approved headshot) fall back to avatar_url.
+  // creator_profiles row / no approved headshot) get null, and the thread
+  // renders their initial — profiles.avatar_url was never written and is gone.
   const { createDownloadUrl } = await import('../storage.js');
   const headshotById = new Map<string, string>();
   for (const c of creatorRows ?? []) {
@@ -108,7 +109,7 @@ async function loadThreads(userId: string): Promise<ThreadRow[]> {
       // `||`, not `??` — full_name can be an empty string, not just null,
       // on an account that never completed profile setup.
       other_name: other?.full_name || 'Snapt user',
-      other_avatar: headshotById.get(otherId) ?? other?.avatar_url ?? null,
+      other_avatar: headshotById.get(otherId) ?? null,
       type: b.type,
       occasion: b.occasion ?? null,
       scheduled_at: b.scheduled_at,

@@ -277,8 +277,8 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       .from('creator_profiles')
       .select(
         ((await headshotColumnsPresent())
-          ? 'user_id, specialties, verified, base_area, headshot_path, headshot_status, profiles!creator_profiles_user_id_fkey!inner(full_name, avatar_url)'
-          : 'user_id, specialties, verified, base_area, profiles!creator_profiles_user_id_fkey!inner(full_name, avatar_url)') as '*',
+          ? 'user_id, specialties, verified, base_area, headshot_path, headshot_status, profiles!creator_profiles_user_id_fkey!inner(full_name)'
+          : 'user_id, specialties, verified, base_area, profiles!creator_profiles_user_id_fkey!inner(full_name)') as '*',
       )
       .eq('vetting_status', 'approved')
       .limit(12);
@@ -323,11 +323,12 @@ export function registerCreatorRoutes(app: FastifyInstance) {
             verified: c.verified,
             base_area: c.base_area,
             // The APPROVED headshot, signed — pending/rejected never leaves
-            // the admin panel.
+            // the admin panel. No fallback: profiles.avatar_url was written
+            // by nothing and has been dropped, so it only ever meant null.
             avatar_url:
               c.headshot_status === 'approved' && c.headshot_path
                 ? await createDownloadUrl('portfolio', c.headshot_path).catch(() => null)
-                : c.profiles.avatar_url,
+                : null,
             /** Signed portfolio URLs, newest first. Never empty here. */
             work,
           };
@@ -643,7 +644,7 @@ export function registerCreatorRoutes(app: FastifyInstance) {
           avatar_url:
             c.headshot_status === 'approved' && c.headshot_path
               ? await createDownloadUrl('portfolio', c.headshot_path).catch(() => null)
-              : c.avatar_url,
+              : null,
           specialties: c.specialties,
           verified: c.verified,
           base_area: c.base_area,

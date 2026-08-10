@@ -63,7 +63,6 @@ export async function purgeDeletedAccounts(): Promise<PurgeResult> {
           full_name: 'Deleted user',
           email: null,
           phone: null,
-          avatar_url: null,
           purged_at: new Date().toISOString(),
         })
         .eq('id', uid);

@@ -27,7 +27,6 @@ interface AvailabilityWindow {
 export interface EligibleCreator {
   user_id: string;
   full_name: string;
-  avatar_url: string | null;
   headshot_path: string | null;
   headshot_status: string | null;
   specialties: string[];
@@ -64,8 +63,8 @@ export async function eligibleCreators(occasion: string, area?: string): Promise
     // optional headshot fields.
     .select(
       ((await headshotColumnsPresent())
-        ? 'user_id, specialties, verified, base_area, service_radius_km, availability, blocked_dates, headshot_path, headshot_status, profiles!creator_profiles_user_id_fkey!inner(full_name, avatar_url)'
-        : 'user_id, specialties, verified, base_area, service_radius_km, availability, blocked_dates, profiles!creator_profiles_user_id_fkey!inner(full_name, avatar_url)') as '*',
+        ? 'user_id, specialties, verified, base_area, service_radius_km, availability, blocked_dates, headshot_path, headshot_status, profiles!creator_profiles_user_id_fkey!inner(full_name)'
+        : 'user_id, specialties, verified, base_area, service_radius_km, availability, blocked_dates, profiles!creator_profiles_user_id_fkey!inner(full_name)') as '*',
     )
     .eq('vetting_status', 'approved')
     .eq('is_available', true)
@@ -73,11 +72,10 @@ export async function eligibleCreators(occasion: string, area?: string): Promise
   if (error) throw new Error(`eligibleCreators: ${error.message}`);
 
   let creators: EligibleCreator[] = (data ?? []).map((row) => {
-    const profile = row.profiles as unknown as { full_name: string; avatar_url: string | null };
+    const profile = row.profiles as unknown as { full_name: string };
     return {
       user_id: row.user_id as string,
       full_name: profile.full_name,
-      avatar_url: profile.avatar_url,
       headshot_path: ((row as Record<string, unknown>).headshot_path as string | undefined) ?? null,
       headshot_status: ((row as Record<string, unknown>).headshot_status as string | undefined) ?? null,
       specialties: row.specialties as string[],

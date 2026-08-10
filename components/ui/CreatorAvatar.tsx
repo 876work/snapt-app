@@ -4,8 +4,10 @@ import { Text } from '../../lib/text';
 
 /**
  * Fills its parent (which sets size/radius/tint background). Renders the
- * creator's photo — bundled asset or remote avatar_url — or an initial-letter
- * fallback for server creators without an uploaded avatar yet.
+ * person's APPROVED headshot from a signed URL, or an initial-letter
+ * fallback — for someone with no approved photo, and for a signed URL that
+ * fails to load. Those are the only two possibilities: bundled stock faces
+ * were deleted, and profiles.avatar_url is gone.
  */
 export function CreatorAvatar({
   name,

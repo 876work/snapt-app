@@ -433,7 +433,7 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
     const id = request.params.id;
     const { data: profile, error } = await supabaseAdmin
       .from('profiles')
-      .select('id, full_name, email, phone, mode, currency, avatar_url, created_at, suspended_at, status, disabled_at, disabled_reason, deleted_at, false_report_count')
+      .select('id, full_name, email, phone, mode, currency, created_at, suspended_at, status, disabled_at, disabled_reason, deleted_at, false_report_count')
       .eq('id', id)
       .maybeSingle();
     if (error) return reply.code(500).send({ error: error.message });
