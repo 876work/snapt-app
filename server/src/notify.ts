@@ -82,6 +82,12 @@ const TRIGGERS: Record<string, TriggerSpec> = {
   headshot_rejected: { category: 'account', push: true, email: false },
   selection_locked: { category: 'bookings', push: true, email: false },
   selection_autopicked: { category: 'bookings', push: true, email: false },
+  /**
+   * The 5-minute welcome. Push AND email deliberately: priming happens
+   * before Home, so anyone who tapped "Not now" has no push token — for them
+   * the inbox row and the email ARE the notification, not a fallback.
+   */
+  welcome: { category: 'account', push: true, email: true },
 };
 
 /**

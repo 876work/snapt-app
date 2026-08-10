@@ -136,6 +136,57 @@ async function staleApplications(): Promise<void> {
   }
 }
 
+/**
+ * WELCOME NOTIFICATION — 5 minutes after registration, once per user ever.
+ *
+ * Swept from the database, not queued in memory. The scheduler is in-process
+ * (setInterval, started at boot), so a setTimeout would be dropped by every
+ * restart and deploy — silently, with no record of who missed one. A
+ * due-state column survives restarts by construction: whatever was owed
+ * before a restart is still owed after it and goes out on the next tick.
+ *
+ * The tick is every 5 minutes, so delivery lands 5-10 minutes after signup.
+ * A precise 5:00 would need either a timer we cannot trust or a much busier
+ * sweep.
+ *
+ * Skipped deliberately: deleted accounts, and anyone who registered before
+ * this shipped (the migration stamps them). Disabled users need no check —
+ * notify() suppresses them above the insert, so no row, email or push is
+ * written at all.
+ */
+async function sendWelcomes(): Promise<void> {
+  const cutoff = new Date(Date.now() - 5 * 60_000).toISOString();
+  const { data: due, error } = await supabaseAdmin
+    .from('profiles')
+    .select('id, full_name')
+    .is('welcome_sent_at', null)
+    .is('deleted_at', null)
+    .lte('created_at', cutoff)
+    .limit(200);
+  // Until the migration runs this is a no-op rather than a tick that throws
+  // every 5 minutes.
+  if (error) return;
+
+  for (const p of due ?? []) {
+    const first = String(p.full_name ?? '').trim().split(/\s+/)[0];
+    // Never "Welcome !" — a missing name gets a greeting without one.
+    const title = first ? `Welcome ${first}! 🎉` : 'Welcome to Snapt! 🎉';
+    // Stamp FIRST: a crash mid-send costs one welcome, where a crash before
+    // the stamp would resend it on every tick forever.
+    await supabaseAdmin
+      .from('profiles')
+      .update({ welcome_sent_at: new Date().toISOString() })
+      .eq('id', p.id);
+    await notify(
+      p.id,
+      'welcome',
+      title,
+      'Book a vetted local creator for a shoot, or send us footage you have already taken and we will edit it for you. Have a look around whenever you are ready.',
+      {},
+    );
+  }
+}
+
 async function purgeAccounts(): Promise<void> {
   const { purgeDeletedAccounts } = await import('./account-purge.js');
   await purgeDeletedAccounts();
@@ -143,7 +194,7 @@ async function purgeAccounts(): Promise<void> {
 
 export function startScheduler(): void {
   const tick = () =>
-    Promise.all([releasePayouts(), remindEvidenceDeadlines(), retentionDaily(), staleApplications(), autoPickSelections(), purgeAccounts()]).catch((err) =>
+    Promise.all([releasePayouts(), remindEvidenceDeadlines(), retentionDaily(), staleApplications(), autoPickSelections(), purgeAccounts(), sendWelcomes()]).catch((err) =>
       console.error('scheduler tick failed', err),
     );
   void tick();

@@ -108,6 +108,10 @@ export function targetFor(trigger: string, data: TargetData = {}): string | null
     case 'revision_requested':
       return b ? order(b) : '/creator';
 
+    // ---- The welcome: straight to the thing it describes ------------------
+    case 'welcome':
+      return '/(app)/home';
+
     // ---- That thread -----------------------------------------------------
     case 'message_received':
       return data.thread_id ? thread(data.thread_id) : b ? thread(b) : '/(app)/messages';
