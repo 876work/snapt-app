@@ -142,6 +142,13 @@ export function BatchFileList({
  * `promisedCount` is what the order committed to (source-file count for
  * remote, the locked selection for Social). Short of it → a warning, not a
  * block: the creator may legitimately combine files.
+ *
+ * UPLOADED IS NOT DELIVERED. Registering a file and delivering it are two
+ * separate calls, and only the second one sets `delivered_at`, notifies the
+ * client and makes anything downloadable. A creator who uploads and walks
+ * away leaves a paying client with nothing — booking c8a63e3b, 2026-08-10 —
+ * so the moment any file is on the server this panel stops reading as a
+ * neutral "ready" state and says what is actually true.
  */
 export function DeliverPanel({
   batch,
@@ -151,6 +158,7 @@ export function DeliverPanel({
   pickTitle,
   pickSub,
   slideLabel,
+  notDeliveredNote = "These files are uploaded, but the client cannot see or download them yet. Nothing reaches them until you slide below.",
   onDeliver,
   error,
 }: {
@@ -162,6 +170,8 @@ export function DeliverPanel({
   pickTitle: string;
   pickSub: string;
   slideLabel: string;
+  /** What "uploaded but not sent" means on THIS screen (a revision says something different). */
+  notDeliveredNote?: string;
   onDeliver: () => Promise<boolean>;
   error?: string | null;
 }) {
@@ -200,9 +210,13 @@ export function DeliverPanel({
           )}
         </View>
       )}
-      {readyToSend && (
-        <View style={styles.reviewCard}>
-          <Text style={styles.reviewTitle}>Ready to send</Text>
+      {/* Shown from the FIRST landed file, not only once the batch is clean:
+          three uploaded and nine failed is still three files the client
+          cannot see. */}
+      {totalReady > 0 && (
+        <View style={styles.notSentCard}>
+          <Text style={styles.notSentTitle}>Uploaded — not delivered yet</Text>
+          <Text style={styles.notSentBody}>{notDeliveredNote}</Text>
           <Text style={styles.reviewLine}>
             {totalReady} file{totalReady === 1 ? '' : 's'} uploaded
             {alreadyUploaded > 0 ? ` (${alreadyUploaded} from earlier)` : ''}
@@ -212,6 +226,13 @@ export function DeliverPanel({
             <Text style={styles.reviewWarn}>
               You're sending {totalReady} of {promisedCount} — deliver anyway only if that's
               intentional. The client sees exactly what arrives.
+            </Text>
+          )}
+          {!readyToSend && (
+            <Text style={styles.reviewWarn}>
+              {batch.uploading
+                ? 'Finish the upload, then slide to deliver.'
+                : 'Retry the failed files above, then slide to deliver.'}
             </Text>
           )}
         </View>
@@ -254,16 +275,17 @@ const styles = StyleSheet.create({
   barFill: { height: '100%', borderRadius: 3, backgroundColor: colors.yellow },
   removeBtn: { width: 26, height: 26, borderRadius: 8, backgroundColor: '#F5F3EE', alignItems: 'center', justifyContent: 'center' },
   retryNote: { fontSize: 11.5, color: colors.grey, textAlign: 'center', marginTop: 8 },
-  reviewCard: {
-    backgroundColor: '#fff',
+  notSentCard: {
+    backgroundColor: colors.yellowSoft,
     borderRadius: 14,
     padding: 14,
     marginTop: 14,
-    borderWidth: 1,
-    borderColor: '#EFEDE7',
+    borderWidth: 1.5,
+    borderColor: colors.yellowSoftBorder,
     gap: 4,
   },
-  reviewTitle: { fontSize: 13.5, fontWeight: '800', color: colors.ink },
+  notSentTitle: { fontSize: 13.5, fontWeight: '800', color: '#8A6800' },
+  notSentBody: { fontSize: 12.5, color: '#8A6800', lineHeight: 18, fontWeight: '600' },
   reviewLine: { fontSize: 12.5, color: colors.grey },
   reviewWarn: { fontSize: 12, color: '#8A6800', fontWeight: '700', lineHeight: 17, marginTop: 4 },
   deliverError: { fontSize: 12.5, color: '#A32C2C', fontWeight: '600', marginTop: 12, textAlign: 'center' },

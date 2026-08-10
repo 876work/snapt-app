@@ -35,6 +35,11 @@ const TRIGGERS: Record<string, TriggerSpec> = {
   session_started: { category: 'bookings', push: true, email: true },
   session_ended: { category: 'bookings', push: false, email: false }, // §2: in-app only
   delivery_ready: { category: 'bookings', push: true, email: true }, // §3: "always push"
+  // Creator-side: finished files uploaded, deliver never called. Actionable
+  // and someone is waiting on it — push. No email: it is fixed in one slide
+  // inside the app, and the admin alert already covers the case where it
+  // isn't.
+  delivery_not_sent: { category: 'bookings', push: true, email: false },
   revision_requested: { category: 'bookings', push: true, email: false }, // §3: actionable
   revision_delivered: { category: 'bookings', push: true, email: true }, // §3
   payment_charged: { category: 'account', push: false, email: true }, // §4: receipt, no push

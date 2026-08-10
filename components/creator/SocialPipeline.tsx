@@ -19,9 +19,12 @@ import { colors } from '../../lib/theme';
 export function SocialPipeline({
   bookingId,
   included,
+  onUndeliveredChange,
 }: {
   bookingId: string;
   included: { photos: number; videos: number };
+  /** Final edits landed, delivery not sent — the parent screen guards the exit on it. */
+  onUndeliveredChange?: (undelivered: boolean) => void;
 }) {
   const [state, setState] = React.useState<SelectionState | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -83,6 +86,14 @@ export function SocialPipeline({
     finalBatch.reset();
     return true;
   };
+
+  // Final edits sitting on the booking with no delivery behind them. Proofs
+  // are deliberately excluded: they are published by their own act and the
+  // client already sees them.
+  const undelivered = !delivered && finalBatch.doneCount > 0;
+  React.useEffect(() => {
+    onUndeliveredChange?.(undelivered);
+  }, [undelivered, onUndeliveredChange]);
 
   if (loading) {
     return (

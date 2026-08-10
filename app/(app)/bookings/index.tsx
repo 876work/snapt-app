@@ -6,9 +6,62 @@ import { Card } from '../../../components/ui/Misc';
 import { OccasionIcon } from '../../../components/ui/Icons';
 import { creatorById, useAuth, useBookings } from '../../../lib/store';
 import { formatMoney } from '../../../lib/constants/business';
-import { BookingStatus } from '../../../lib/mock/data';
+import { Booking, BookingStatus } from '../../../lib/mock/data';
 import { colors, spacing, insetTop } from '../../../lib/theme';
 import { navShrinkOnScroll } from '../../../lib/navShrink';
+
+/**
+ * THREE TABS, because this list is not one kind of thing.
+ *
+ * Everyone's bookings land here — including a creator's own, since creators
+ * book as clients too — and a flat list mixes a shoot next Tuesday, an edit
+ * being worked on right now, and a job from March into one scroll.
+ *
+ * Cancelled is a STATE inside Completed, not a tab of its own: it is
+ * finished, it is rare, and giving it a tab would put an empty screen in
+ * front of most people most of the time. The status badge still says which.
+ */
+type Tab = 'upcoming' | 'in_progress' | 'completed';
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'upcoming', label: 'Upcoming' },
+  { key: 'in_progress', label: 'In progress' },
+  { key: 'completed', label: 'Completed' },
+];
+
+const EMPTY_COPY: Record<Tab, { title: string; body: string }> = {
+  upcoming: {
+    title: 'Nothing coming up',
+    body: 'Sessions you have booked but not had yet show here.',
+  },
+  in_progress: {
+    title: 'Nothing in progress',
+    body: 'A session underway, or an edit being worked on, shows here until it is delivered.',
+  },
+  completed: {
+    title: 'Nothing completed yet',
+    body: 'Delivered work lives here, along with anything cancelled.',
+  },
+};
+
+/**
+ * Which tab a booking belongs to.
+ *
+ * `deliveredAt` — not the status — is what makes something complete. A
+ * booking can read 'completed' the moment an in-person session ends while
+ * the edit is still owed; the client is still waiting, so it stays In
+ * progress until the files actually arrive.
+ */
+function tabFor(b: Booking, now: number): Tab {
+  if (b.status === 'cancelled' || b.status === 'no-show') return 'completed';
+  if (b.deliveredAt) return 'completed';
+  // A remote order has no session to wait for — it is work from the moment
+  // it is paid for, so it is never "upcoming".
+  if (b.type === 'remote') return 'in_progress';
+  const start = new Date(b.scheduledAt).getTime();
+  if (Number.isNaN(start)) return 'in_progress';
+  const end = start + (b.durationHours || 1) * 3600_000;
+  return now < end ? 'upcoming' : 'in_progress';
+}
 
 const STATUS_STYLE: Record<BookingStatus, { label: string; color: string; bg: string }> = {
   pending: { label: 'Pending', color: colors.goldText, bg: colors.yellowTint },
@@ -25,6 +78,7 @@ export default function Bookings() {
   const bookings = useBookings((s) => s.bookings);
   const loaded = useBookings((s) => s.bookingsLoaded);
   const [error, setError] = React.useState(false);
+  const [tab, setTab] = React.useState<Tab>('upcoming');
 
   /**
    * Pull the real list from the server. The store starts EMPTY now — it used
@@ -58,6 +112,22 @@ export default function Bookings() {
     }, [load]),
   );
 
+  // Recomputed per render rather than memoised on a clock: "upcoming" is a
+  // comparison against now, and a stale `now` would strand a session that
+  // started while the screen was open in the wrong tab.
+  const now = Date.now();
+  const counts: Record<Tab, number> = { upcoming: 0, in_progress: 0, completed: 0 };
+  for (const b of bookings) counts[tabFor(b, now)] += 1;
+  const shown = bookings
+    .filter((b) => tabFor(b, now) === tab)
+    // Upcoming reads forward (soonest first); the other two read backward
+    // (most recent first) — what you want next vs what just happened.
+    .sort((a, z) => {
+      const at = new Date(a.scheduledAt).getTime();
+      const zt = new Date(z.scheduledAt).getTime();
+      return tab === 'upcoming' ? at - zt : zt - at;
+    });
+
   return (
     <View style={styles.root}>
       <ScrollView
@@ -68,6 +138,25 @@ export default function Bookings() {
         refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.yellowDark} />}
       >
         <Text style={styles.title}>Bookings</Text>
+        {loaded && !error && bookings.length > 0 && (
+          <View style={styles.tabs}>
+            {TABS.map((t) => {
+              const active = t.key === tab;
+              return (
+                <Pressable
+                  key={t.key}
+                  onPress={() => setTab(t.key)}
+                  style={[styles.tab, active && styles.tabActive]}
+                >
+                  <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>
+                    {t.label}
+                    {counts[t.key] > 0 ? ` ${counts[t.key]}` : ''}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
         {!loaded && !error ? (
           <View style={styles.state}>
             <ActivityIndicator color={colors.yellowDark} />
@@ -84,8 +173,15 @@ export default function Bookings() {
               Once you book a session it'll show up here with its status and details.
             </Text>
           </View>
+        ) : shown.length === 0 ? (
+          // An empty TAB is not an empty account — say which, or the filter
+          // reads as lost data.
+          <View style={styles.state}>
+            <Text style={styles.stateTitle}>{EMPTY_COPY[tab].title}</Text>
+            <Text style={styles.stateBody}>{EMPTY_COPY[tab].body}</Text>
+          </View>
         ) : null}
-        {bookings.map((b) => {
+        {shown.map((b) => {
           const c = creatorById(b.creatorId);
           const d = new Date(b.scheduledAt);
           const st = STATUS_STYLE[b.status];
@@ -124,6 +220,25 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.offWhite },
   body: { paddingHorizontal: spacing.screenX, paddingTop: insetTop + 23 },
   title: { fontSize: 24, fontWeight: '800', letterSpacing: -0.6, color: colors.ink, marginBottom: 18 },
+  tabs: {
+    flexDirection: 'row',
+    gap: 6,
+    backgroundColor: '#F0EEE8',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 16,
+  },
+  tab: {
+    flex: 1,
+    height: 34,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  tabActive: { backgroundColor: '#fff' },
+  tabLabel: { fontSize: 12, fontWeight: '700', color: colors.grey },
+  tabLabelActive: { color: colors.ink, fontWeight: '800' },
   card: { flexDirection: 'row', alignItems: 'center', gap: 13 },
   cardTitle: { fontSize: 14.5, fontWeight: '800', color: colors.ink },
   cardMeta: { fontSize: 12, color: colors.grey, marginTop: 3 },

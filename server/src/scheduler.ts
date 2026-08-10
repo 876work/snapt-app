@@ -187,6 +187,97 @@ async function sendWelcomes(): Promise<void> {
   }
 }
 
+/**
+ * UPLOADED, NEVER DELIVERED.
+ *
+ * Registering a deliverable and delivering it are two different calls.
+ * `POST /media` puts the file on the booking; only `POST /deliver` sets
+ * `delivered_at`, notifies the client and makes anything downloadable. A
+ * creator who finishes the upload and closes the app therefore leaves a
+ * paying client with nothing — and leaves it SILENTLY: the booking still
+ * reads 'confirmed', no alert exists, and the first person to notice is the
+ * client asking where their photos are. That is booking c8a63e3b.
+ *
+ * The app now warns the creator on screen and confirms before they leave,
+ * but a warning only reaches a creator who is still looking at it. This is
+ * the part that does not depend on that. One unresolved alert per booking
+ * and one nudge to the creator, raised only once the NEWEST deliverable has
+ * sat undelivered past the grace — mid-batch uploads are not a fault.
+ */
+const DELIVER_GRACE_MINUTES = 30;
+
+async function nudgeUndeliveredUploads(): Promise<void> {
+  const cutoff = new Date(Date.now() - DELIVER_GRACE_MINUTES * 60_000).toISOString();
+  // Start from the SMALL side. Work in progress is a handful of rows at any
+  // moment; every deliverable ever registered is not, and this runs every
+  // five minutes forever. A delivered booking — including one re-delivered
+  // after a revision — never reaches the media query at all.
+  const { data: open } = await supabaseAdmin
+    .from('bookings')
+    .select('id, creator_id, occasion')
+    .in('status', ['confirmed', 'completed'])
+    .is('delivered_at', null);
+  if (!open || open.length === 0) return;
+
+  const { data: media } = await supabaseAdmin
+    .from('booking_media')
+    .select('booking_id, created_at')
+    .eq('kind', 'deliverable')
+    .is('deleted_at', null)
+    .in('booking_id', open.map((b) => b.id));
+
+  // Per booking: how many finals are sitting there, and when the last one
+  // landed.
+  const count = new Map<string, number>();
+  const newest = new Map<string, string>();
+  for (const m of media ?? []) {
+    const id = m.booking_id as string;
+    const at = m.created_at as string;
+    count.set(id, (count.get(id) ?? 0) + 1);
+    if (!newest.has(id) || at > newest.get(id)!) newest.set(id, at);
+  }
+
+  for (const b of open) {
+    const files = count.get(b.id) ?? 0;
+    if (files === 0) continue;
+    // Still uploading: the batch lands one file at a time, and a creator
+    // 20 minutes into a 40-file upload has done nothing wrong.
+    if (newest.get(b.id)! >= cutoff) continue;
+
+    const { data: existing } = await supabaseAdmin
+      .from('admin_alerts')
+      .select('id')
+      .eq('alert_type', 'uploaded_not_delivered')
+      .eq('booking_id', b.id)
+      .is('resolved_at', null)
+      .limit(1);
+    if (existing && existing.length > 0) continue;
+
+    await supabaseAdmin.from('admin_alerts').insert({
+      alert_type: 'uploaded_not_delivered',
+      booking_id: b.id,
+      detail: {
+        creator_id: b.creator_id,
+        deliverables: files,
+        last_upload_at: newest.get(b.id),
+      },
+    });
+    // The creator can still fix this themselves in one slide, so they hear
+    // about it too — the alert is for when they don't.
+    if (b.creator_id) {
+      await notify(
+        b.creator_id,
+        'delivery_not_sent',
+        'Your edit is uploaded but not delivered',
+        `You uploaded ${files} finished file${files === 1 ? '' : 's'}${
+          b.occasion ? ` for the ${b.occasion} job` : ''
+        }, but never delivered them — the client still can't see them and your payout hasn't started. Open the job and slide to deliver.`,
+        { booking_id: b.id },
+      );
+    }
+  }
+}
+
 async function purgeAccounts(): Promise<void> {
   const { purgeDeletedAccounts } = await import('./account-purge.js');
   await purgeDeletedAccounts();
@@ -194,7 +285,7 @@ async function purgeAccounts(): Promise<void> {
 
 export function startScheduler(): void {
   const tick = () =>
-    Promise.all([releasePayouts(), remindEvidenceDeadlines(), retentionDaily(), staleApplications(), autoPickSelections(), purgeAccounts(), sendWelcomes()]).catch((err) =>
+    Promise.all([releasePayouts(), remindEvidenceDeadlines(), retentionDaily(), staleApplications(), autoPickSelections(), purgeAccounts(), sendWelcomes(), nudgeUndeliveredUploads()]).catch((err) =>
       console.error('scheduler tick failed', err),
     );
   void tick();

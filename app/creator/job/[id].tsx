@@ -1,5 +1,6 @@
 import React from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { safeBack } from '../../../lib/nav';
 import { KeyboardScrollView } from '../../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -57,6 +58,9 @@ export default function CreatorJob() {
   const rawBatch = useUploadBatch(String(id), 'raw');
   const [existingFinals, setExistingFinals] = React.useState(0);
   const [deliveredNow, setDeliveredNow] = React.useState(false);
+  // Remote and Social run their own panels inside this screen, so they report
+  // their unsent state up rather than the guard below guessing at it.
+  const [childUndelivered, setChildUndelivered] = React.useState(false);
 
   // Open revision round (API mode): shown in the submitted stage. Declared
   // BEFORE the early returns below — hooks after a conditional return crash
@@ -104,6 +108,51 @@ export default function CreatorJob() {
       cancelled = true;
     };
   }, [job, setOffers]);
+
+  /**
+   * LEAVING WITH THE WORK UPLOADED BUT UNDELIVERED.
+   *
+   * That is the state booking c8a63e3b was found in: finished files on the
+   * server, `delivered_at` null, a paying client with nothing to download and
+   * no notification. Uploading and delivering are two separate calls and only
+   * the second one reaches the client, so walking away between them is silent
+   * by default.
+   *
+   * Three exits, three answers: the header back and the Android hardware back
+   * both confirm here, and the scheduler's `uploaded_not_delivered` sweep
+   * catches everything this cannot — a force-quit, a dead battery, a creator
+   * who taps "Leave anyway".
+   */
+  const undelivered =
+    job?.type === 'remote' || job?.social
+      ? childUndelivered
+      : openRevision
+        ? finalsBatch.doneCount > 0
+        : !job?.deliveredAt && !deliveredNow && finalsBatch.doneCount + existingFinals > 0;
+
+  const confirmLeave = React.useCallback(() => {
+    if (!undelivered) {
+      safeBack();
+      return;
+    }
+    Alert.alert(
+      'Not delivered yet',
+      "Your files are uploaded, but the client can't see them and hasn't been told. Nothing reaches them until you slide to deliver.",
+      [
+        { text: 'Stay and deliver', style: 'cancel' },
+        { text: 'Leave anyway', style: 'destructive', onPress: () => safeBack() },
+      ],
+    );
+  }, [undelivered]);
+
+  React.useEffect(() => {
+    if (!undelivered) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      confirmLeave();
+      return true; // handled — the pop is ours to allow
+    });
+    return () => sub.remove();
+  }, [undelivered, confirmLeave]);
 
   if (hydrating) {
     return (
@@ -269,11 +318,11 @@ export default function CreatorJob() {
   if (job.type === 'remote' && stage !== 'offer') {
     return (
       <View style={styles.root}>
-        <ScreenHeader title="Remote edit order" />
+        <ScreenHeader title="Remote edit order" onBack={confirmLeave} />
         <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
           {summaryCard}
           {rushNotice}
-          <RemoteJob job={job} />
+          <RemoteJob job={job} onUndeliveredChange={setChildUndelivered} />
           <View style={{ height: 24 }} />
         </KeyboardScrollView>
       </View>
@@ -282,7 +331,7 @@ export default function CreatorJob() {
 
   return (
     <View style={styles.root}>
-      <ScreenHeader title={STAGE_TITLES[stage]} />
+      <ScreenHeader title={STAGE_TITLES[stage]} onBack={confirmLeave} />
       <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {summaryCard}
 
@@ -410,7 +459,11 @@ export default function CreatorJob() {
             edit the chosen set. Server state decides the phase, so this
             renders for both local stages a social job can be in. */}
         {job.social && (stage === 'upload' || stage === 'submitted') && !openRevision && (
-          <SocialPipeline bookingId={job.id} included={job.social} />
+          <SocialPipeline
+            bookingId={job.id}
+            included={job.social}
+            onUndeliveredChange={setChildUndelivered}
+          />
         )}
 
         {!job.social && stage === 'upload' && (
@@ -443,6 +496,7 @@ export default function CreatorJob() {
               pickTitle="Add the updated files"
               pickSub="Full-resolution, unwatermarked — this replaces the delivery"
               slideLabel="Slide to deliver revision"
+              notDeliveredNote="The client still has the previous version. Your updated files do not replace it until you slide below."
               onDeliver={deliverRevision}
               error={actionError}
             />
@@ -474,6 +528,7 @@ export default function CreatorJob() {
               pickTitle="Add your finished edits"
               pickSub="Full-resolution, unwatermarked — this is what the client receives"
               slideLabel="Slide to submit finished edit"
+              notDeliveredNote="These files are uploaded, but the client cannot see or download them yet. This job stays open, and unpaid, until you slide below."
               onDeliver={deliverFinals}
               error={actionError}
             />

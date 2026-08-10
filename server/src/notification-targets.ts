@@ -108,6 +108,11 @@ export function targetFor(trigger: string, data: TargetData = {}): string | null
     case 'revision_requested':
       return b ? order(b) : '/creator';
 
+    // The job screen, because the fix IS on it: the deliver slider sits
+    // under the files they already uploaded.
+    case 'delivery_not_sent':
+      return b ? jobOffer(b) : '/creator';
+
     // ---- The welcome: straight to the thing it describes ------------------
     case 'welcome':
       return '/(app)/home';

@@ -318,7 +318,12 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
       const limit = Math.min(Math.max(Number(request.query.limit) || 40, 1), 100);
       let query = supabaseAdmin
         .from('bookings')
-        .select('id, status, occasion, type, area, scheduled_at, duration_hours, price_usd, client_id, creator_id, legal_hold, created_at')
+        // delivered_at is projected because 'completed' does NOT mean the
+        // client has the files: the creator can upload finals and never call
+        // deliver. Without this column a delivered booking and an undelivered
+        // one are indistinguishable here, which on 2026-08-10 read as data
+        // loss on a booking whose files were fine.
+        .select('id, status, occasion, type, area, scheduled_at, duration_hours, price_usd, client_id, creator_id, legal_hold, created_at, delivered_at')
         .order('created_at', { ascending: false })
         .limit(limit);
       if (request.query.unassigned === 'true') {

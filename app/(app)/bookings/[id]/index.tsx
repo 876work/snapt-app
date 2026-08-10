@@ -115,6 +115,12 @@ export default function BookingDetail() {
   // 'pending' now means the assigned creator hasn't accepted yet (15-min
   // offer window) — the booking is only confirmed once they say yes.
   const awaitingAccept = booking.status === 'pending';
+  // REMOTE HAS NO MATCHING STEP. An in-person booking is offered to a creator
+  // who accepts or declines on a 15-minute clock; a remote edit is assigned by
+  // a person in the admin portal, with no offer, no window and no automatic
+  // reassignment. The pending-state copy below is written for the in-person
+  // mechanism, so remote gets its own — what actually happens, in order.
+  const remote = booking.type === 'remote';
   const sessionWindow = hrs <= 0 && hrs > -booking.durationHours && active;
   const graceElapsed = hrs * 60 <= -NO_SHOW_GRACE_MINUTES;
 
@@ -140,9 +146,11 @@ export default function BookingDetail() {
               <Text style={styles.paidLine}>{booking.meetingPoint ?? booking.area}</Text>
             ) : null}
             <Text style={styles.paidNext}>
-              {awaitingAccept
-                ? "We're matching you with a creator now — you'll get a notification the moment they accept."
-                : "Your creator is confirmed. We'll remind you before the session, and you can message them any time."}
+              {remote
+                ? "Your footage goes up with this order. We assign your editor from there — nobody has to accept it — and you'll be notified the moment your edit is ready."
+                : awaitingAccept
+                  ? "We're matching you with a creator now — you'll get a notification the moment they accept."
+                  : "Your creator is confirmed. We'll remind you before the session, and you can message them any time."}
             </Text>
           </View>
         )}
@@ -196,7 +204,13 @@ export default function BookingDetail() {
         {awaitingAccept && (
           <>
             <View style={{ marginTop: 14 }}>
-              <InfoBanner text="Waiting for your creator to accept — most offers are answered within 15 minutes. If they can't make it, we'll match you with the next available creator automatically." />
+              <InfoBanner
+                text={
+                  remote
+                    ? "Nothing is waiting on a creator here — a remote order is assigned to an editor by our team, not accepted by one. They work from the footage you uploaded, and you'll be notified the moment your edit is ready."
+                    : "Waiting for your creator to accept — most offers are answered within 15 minutes. If they can't make it, we'll match you with the next available creator automatically."
+                }
+              />
             </View>
             <View style={{ gap: 10, marginTop: 18 }}>
               <Button

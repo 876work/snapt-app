@@ -25,7 +25,14 @@ interface SourceFile {
   isImage: boolean;
 }
 
-export function RemoteJob({ job }: { job: JobOffer }) {
+export function RemoteJob({
+  job,
+  onUndeliveredChange,
+}: {
+  job: JobOffer;
+  /** Files landed, delivery not sent — the parent screen guards the exit on it. */
+  onUndeliveredChange?: (undelivered: boolean) => void;
+}) {
   const router = useRouter();
   const batch = useUploadBatch(job.id, 'deliverable');
 
@@ -82,6 +89,17 @@ export function RemoteJob({ job }: { job: JobOffer }) {
       cancelled = true;
     };
   }, [job.id, reloadKey, delivered]);
+
+  // On a revision round the previous delivery is already with the client, so
+  // only THIS batch is unsent; on a first delivery the finals registered by an
+  // earlier, abandoned attempt count too — they are exactly what the client
+  // is missing.
+  const undelivered = openRevision
+    ? batch.doneCount > 0
+    : !delivered && batch.doneCount + existingFinals > 0;
+  React.useEffect(() => {
+    onUndeliveredChange?.(undelivered);
+  }, [undelivered, onUndeliveredChange]);
 
   const saveSource = async (f: SourceFile) => {
     setSaveNote(null);
@@ -273,6 +291,11 @@ export function RemoteJob({ job }: { job: JobOffer }) {
             pickTitle={openRevision ? 'Add the updated files' : 'Add your finished edits'}
             pickSub="Full-resolution, unwatermarked — this is what the client receives"
             slideLabel={openRevision ? 'Slide to deliver revision' : 'Slide to submit finished edit'}
+            notDeliveredNote={
+              openRevision
+                ? 'The client still has the previous version. Your updated files do not replace it until you slide below.'
+                : "These files are uploaded, but the client cannot see or download them yet. This order stays open, and unpaid, until you slide below."
+            }
             onDeliver={deliverFinal}
             error={deliverError}
           />
