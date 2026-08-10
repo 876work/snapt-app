@@ -92,6 +92,13 @@ export function registerPaymentRoutes(app: FastifyInstance) {
       metadata: {
         purpose: 'booking_checkout',
         client_id: user.id,
+        // Footage the client uploaded while choosing a package, waiting to
+        // be claimed onto whatever booking this intent creates. Carried on
+        // the intent so the CLAIM can happen server-side in the webhook,
+        // which Stripe retries — see checkout.ts.
+        ...(typeof (request.body as { upload_draft_id?: unknown })?.upload_draft_id === 'string'
+          ? { upload_draft_id: (request.body as { upload_draft_id: string }).upload_draft_id }
+          : {}),
         ...packBookingParams(request.body ?? {}),
       },
       automatic_payment_methods: { enabled: true },

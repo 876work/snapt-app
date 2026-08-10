@@ -8,7 +8,7 @@ export interface UploadFile {
   thumb: number | { uri: string } | null; // asset, picked-file preview, or tint-only
   tint: string;
   oversize?: boolean;
-  /** Real picked file — uploaded as raw once the order is paid for. */
+  /** Real picked file — uploaded to the draft the moment it is selected. */
   uri?: string;
   name?: string;
   mimeType?: string;
@@ -16,6 +16,8 @@ export interface UploadFile {
   status?: 'queued' | 'uploading' | 'done' | 'failed';
   progress?: number;
   error?: string;
+  /** booking_media row id once registered — needed to delete it server-side. */
+  mediaId?: string;
 }
 
 export interface EditStyle {
@@ -93,6 +95,12 @@ export function suggestedPhotoTier(fileCount: number): string {
 
 interface UploadState {
   files: UploadFile[];
+  /**
+   * The draft these files are uploading into. Minted on the first pick and
+   * carried through checkout, where the webhook claims the draft's media
+   * onto the booking it creates. Null until something is picked.
+   */
+  draftId: string | null;
   note: string;
   mediaKind: MediaKind;
   styleId: string;
@@ -104,6 +112,9 @@ interface UploadState {
   ) => RejectedFile[];
   removeFile: (id: string) => void;
   setFileStatus: (id: string, patch: Partial<UploadFile>) => void;
+  setDraftId: (id: string | null) => void;
+  /** Files restored from a draft the client left earlier — already uploaded. */
+  adoptDraftFiles: (files: { mediaId: string; name: string; contentType: string | null }[]) => void;
   setNote: (n: string) => void;
   setMediaKind: (k: MediaKind) => void;
   setStyleId: (id: string) => void;
@@ -121,6 +132,7 @@ interface UploadState {
 
 export const useUpload = create<UploadState>((set, get) => ({
   files: [],
+  draftId: null,
   note: '',
   mediaKind: 'photo',
   styleId: 'warm',
@@ -171,6 +183,25 @@ export const useUpload = create<UploadState>((set, get) => ({
   removeFile: (id) => set((s) => ({ files: s.files.filter((f) => f.id !== id) })),
   setFileStatus: (id, patch) =>
     set((s) => ({ files: s.files.map((f) => (f.id === id ? { ...f, ...patch } : f)) })),
+  setDraftId: (draftId) => set({ draftId }),
+  adoptDraftFiles: (restored) =>
+    set({
+      // Already on the server, so they start `done`. No local uri: the bytes
+      // are in the bucket, not on this device any more — which is exactly
+      // why these must never be re-uploaded.
+      files: restored.map((r) => ({
+        id: `d${r.mediaId}`,
+        type: ((r.contentType ?? '').startsWith('video') ? 'MP4' : 'JPG') as UploadFile['type'],
+        sizeMb: 0,
+        thumb: null,
+        tint: '#F2C14E',
+        name: r.name,
+        mimeType: r.contentType ?? undefined,
+        status: 'done' as const,
+        progress: 1,
+        mediaId: r.mediaId,
+      })),
+    }),
   setNote: (note) => set({ note }),
   setMediaKind: (mediaKind) =>
     set((s) => ({
@@ -187,6 +218,7 @@ export const useUpload = create<UploadState>((set, get) => ({
   reset: () =>
     set({
       files: [],
+      draftId: null,
       note: '',
       mediaKind: 'photo',
       styleId: 'warm',

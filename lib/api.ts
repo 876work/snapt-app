@@ -1256,3 +1256,71 @@ export async function createBookingApi(
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// UPLOAD DRAFTS — source footage that exists before the order does.
+//
+// Remote clients upload on selection, which is before the booking exists (it
+// is created by the Stripe webhook). These four calls own the draft the bytes
+// land in; checkout claims it onto the booking. See server/src/routes/
+// upload-drafts.ts and the claim in server/src/checkout.ts.
+// ---------------------------------------------------------------------------
+
+export interface DraftListing {
+  draft_id: string | null;
+  files: { id: string; name: string; content_type: string | null; created_at: string }[];
+}
+
+/** The draft this client left in flight, if it is still inside the grace. */
+export async function fetchCurrentDraft(): Promise<DraftListing | null> {
+  if (!apiUrl) return null;
+  try {
+    const res = await fetch(`${apiUrl}/v1/upload-drafts/current`, { headers: await authHeaders() });
+    if (!res.ok) return null;
+    return (await res.json()) as DraftListing;
+  } catch {
+    return null;
+  }
+}
+
+export async function createUploadDraft(): Promise<string | null> {
+  if (!apiUrl) return null;
+  try {
+    const res = await fetch(`${apiUrl}/v1/upload-drafts`, {
+      method: 'POST',
+      headers: await authHeaders(),
+    });
+    if (!res.ok) return null;
+    return ((await res.json()) as { draft_id?: string }).draft_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remove one uploaded file. Deletes the object as well as the row. */
+export async function deleteDraftFile(draftId: string, mediaId: string): Promise<boolean> {
+  if (!apiUrl) return false;
+  try {
+    const res = await fetch(`${apiUrl}/v1/upload-drafts/${draftId}/media/${mediaId}`, {
+      method: 'DELETE',
+      headers: await authHeaders(),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** "Start over" — discard every file on a draft the client came back to. */
+export async function discardUploadDraft(draftId: string): Promise<boolean> {
+  if (!apiUrl) return false;
+  try {
+    const res = await fetch(`${apiUrl}/v1/upload-drafts/${draftId}`, {
+      method: 'DELETE',
+      headers: await authHeaders(),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

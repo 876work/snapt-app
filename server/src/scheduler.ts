@@ -278,6 +278,81 @@ async function nudgeUndeliveredUploads(): Promise<void> {
   }
 }
 
+/**
+ * ABANDONED UPLOAD DRAFTS.
+ *
+ * Uploading on selection means footage lands in R2 for orders that are never
+ * paid for — someone picks twelve videos, sees the price, and closes the app.
+ * Without this that storage accumulates forever.
+ *
+ * THE SAFETY RULE, and why it holds: this deletes only rows where
+ * `booking_id is null`. The migration's check constraint makes booking_id
+ * and draft_id mutually exclusive, so "booking_id is null" is exactly "not
+ * attached to any order". checkout.ts sets booking_id inside the Stripe
+ * webhook handler, before it returns 2xx, and Stripe retries until it does.
+ * So a paid order's files stop matching this query the moment the claim
+ * commits — the guarantee is the predicate, not a race against the clock.
+ * The 24 hours is headroom for webhook retries, not the thing keeping paid
+ * footage alive.
+ *
+ * Deleting the OBJECT first would reopen the hole it just closed: a webhook
+ * could claim the row in the moment between the select and the S3 call, and
+ * the paid order would end up owning a file that no longer exists. So each
+ * row is first CLAIMED FOR DELETION by a single guarded update, which is the
+ * same predicate checkout's claim uses. Exactly one of the two can win a
+ * given row. Only after winning it do we touch storage.
+ *
+ * The residual failure is a crash between the mark and the object delete,
+ * which leaves a soft-deleted row and a live object — visible, and retried
+ * on the next tick, because the select deliberately does not filter on
+ * deleted_at. That is the right way round: an orphaned object costs pennies,
+ * a deleted paid file costs the order.
+ */
+const DRAFT_GRACE_HOURS = 24;
+
+async function sweepAbandonedDrafts(): Promise<void> {
+  const cutoff = new Date(Date.now() - DRAFT_GRACE_HOURS * 3600_000).toISOString();
+  const { data: stale } = await supabaseAdmin
+    .from('booking_media')
+    .select('id, storage_path')
+    .is('booking_id', null)
+    .not('draft_id', 'is', null)
+    .lt('created_at', cutoff)
+    .limit(200);
+  if (!stale || stale.length === 0) return;
+
+  const { deleteObject } = await import('./storage.js');
+  let deleted = 0;
+  let claimedAway = 0;
+  for (const row of stale) {
+    // ATOMIC. If a webhook claimed this row first it now has a booking_id,
+    // this update matches nothing, and we never go near the object.
+    const { data: taken } = await supabaseAdmin
+      .from('booking_media')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', row.id)
+      .is('booking_id', null)
+      .select('id')
+      .maybeSingle();
+    if (!taken) {
+      claimedAway += 1;
+      continue;
+    }
+    try {
+      await deleteObject('raw-footage', row.storage_path as string);
+    } catch (err) {
+      console.error(`[drafts] storage delete failed for ${row.id}`, err);
+      continue; // marked, object still there — retried next tick
+    }
+    await supabaseAdmin.from('booking_media').delete().eq('id', row.id).is('booking_id', null);
+    deleted += 1;
+  }
+  console.log(
+    `[drafts] swept ${deleted}/${stale.length} abandoned draft files` +
+      (claimedAway > 0 ? ` (${claimedAway} claimed by a payment mid-sweep, left alone)` : ''),
+  );
+}
+
 async function purgeAccounts(): Promise<void> {
   const { purgeDeletedAccounts } = await import('./account-purge.js');
   await purgeDeletedAccounts();
@@ -285,7 +360,7 @@ async function purgeAccounts(): Promise<void> {
 
 export function startScheduler(): void {
   const tick = () =>
-    Promise.all([releasePayouts(), remindEvidenceDeadlines(), retentionDaily(), staleApplications(), autoPickSelections(), purgeAccounts(), sendWelcomes(), nudgeUndeliveredUploads()]).catch((err) =>
+    Promise.all([releasePayouts(), remindEvidenceDeadlines(), retentionDaily(), staleApplications(), autoPickSelections(), purgeAccounts(), sendWelcomes(), nudgeUndeliveredUploads(), sweepAbandonedDrafts()]).catch((err) =>
       console.error('scheduler tick failed', err),
     );
   void tick();

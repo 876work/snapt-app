@@ -29,7 +29,7 @@ const ADDONS = [
 export default function RemoteOrderSummary() {
   const router = useRouter();
   const currency = useAuth((s) => s.currency);
-  const { files, mediaKind, styleId, tier, reset } = useUpload();
+  const { files, mediaKind, styleId, tier, draftId, reset } = useUpload();
   const { setDraft, resetDraft, confirmDraft, addServerBooking } = useBookings();
   const [orderError, setOrderError] = React.useState<string | null>(null);
 
@@ -62,60 +62,25 @@ export default function RemoteOrderSummary() {
   const total = pkg.priceUsd + addonsTotal + serviceFee;
 
 
-  // Paid order whose files did not all land — retry targets this id rather
-  // than starting a second checkout.
-  const [paidBookingId, setPaidBookingId] = React.useState<string | null>(null);
-  const [uploading, setUploading] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [stage, setStage] = React.useState('');
 
-  /** Upload every queued file, one at a time, with live per-file progress. */
-  const uploadAll = async (bookingId: string): Promise<number> => {
-    const { uploadRawFile } = await import('../../lib/rawUpload');
-    const { setFileStatus } = useUpload.getState();
-    setUploading(true);
-    let failures = 0;
-    for (const f of useUpload.getState().files) {
-      if (!f.uri || f.status === 'done') continue;
-      setFileStatus(f.id, { status: 'uploading', progress: 0, error: undefined });
-      const r = await uploadRawFile(
-        bookingId,
-        {
-          uri: f.uri,
-          name: f.name ?? 'upload.jpg',
-          mimeType: f.mimeType,
-          sizeBytes: Math.round(f.sizeMb * 1048576),
-        },
-        (fraction) => setFileStatus(f.id, { progress: fraction }),
-      );
-      if (r.ok) {
-        setFileStatus(f.id, { status: 'done', progress: 1 });
-      } else {
-        failures += 1;
-        setFileStatus(f.id, { status: 'failed', error: r.error });
-      }
-    }
-    setUploading(false);
-    return failures;
-  };
-
-  const retryUploads = async () => {
-    if (!paidBookingId) return;
-    setOrderError(null);
-    const failures = await uploadAll(paidBookingId);
-    if (failures > 0) {
-      setOrderError(
-        `${failures} ${failures === 1 ? 'file is' : 'files are'} still failing. Check your connection — your order is paid and safe.`,
-      );
-      return;
-    }
-    reset();
-    router.dismissAll();
-    router.replace(`/bookings/${paidBookingId}`);
-  };
+  /**
+   * PAYMENT WAITS FOR THE FOOTAGE, not the other way round.
+   *
+   * Files upload from the moment they are picked, so by the time anyone
+   * reaches this screen they are usually done. When they are not, the client
+   * still gets here, still reads the price, still picks add-ons — they are
+   * only stopped at the last step, because a paid order the editor cannot
+   * work from is worse than a wait.
+   */
+  const pending = files.filter((f) => f.status === 'uploading' || f.status === 'queued').length;
+  const failedCount = files.filter((f) => f.status === 'failed').length;
+  const blocked = pending > 0 || failedCount > 0;
 
   const placeOrder = async () => {
     if (busy) return false; // re-entry guard
+    if (blocked) return false;
     setBusy(true);
     setOrderError(null);
     try {
@@ -135,6 +100,11 @@ export default function RemoteOrderSummary() {
         type: 'remote',
         media_kind: mediaKind,
         remote_tier: pkg.tier,
+        // The footage is already in the bucket under this draft. The webhook
+        // claims it onto the booking it creates — server-side, because
+        // Stripe retries that handler and the app might not survive the trip
+        // back from the payment sheet.
+        upload_draft_id: draftId,
         // The look the client chose. It was collected on the previous screen
         // and then dropped on the floor — the editor received an order with
         // no indication of how it should be graded.
@@ -146,20 +116,9 @@ export default function RemoteOrderSummary() {
       });
 
       if (outcome.ok) {
-        // Source footage attaches to the order the webhook created.
-        if (outcome.bookingId) {
-          const failures = await uploadAll(outcome.bookingId);
-          if (failures > 0) {
-            // PAID, but the editor has nothing to work from. Never navigate
-            // away quietly — the client keeps the screen, the files, and a
-            // retry, and admin is told so it cannot rot unnoticed.
-            setOrderError(
-              `Payment went through, but ${failures} ${failures === 1 ? 'file' : 'files'} didn't upload. Tap Retry — your order is safe and nothing is lost.`,
-            );
-            setPaidBookingId(outcome.bookingId);
-            return false;
-          }
-        }
+        // No upload here any more. The files landed while the client was
+        // choosing, and checkout.ts claimed the draft onto the booking
+        // inside the webhook — so there is nothing left to do but leave.
         reset();
         /**
          * Same landing as the in-person checkout — the remote-edit path
@@ -301,35 +260,35 @@ export default function RemoteOrderSummary() {
       </KeyboardScrollView>
 
       <View style={styles.footer}>
-        {/* Per-file upload state, pinned above the button. A silent failed
-            upload on a PAID order is a dispute waiting to happen. */}
-        {(uploading || paidBookingId) && (
+        {/* What is still in flight, pinned above the button — the client is
+            waiting on THESE, and needs to see it is finite. */}
+        {blocked && (
           <View style={styles.uploadPanel}>
-            {files.filter((f) => f.uri).map((f) => (
-              <View key={f.id} style={styles.uploadRow}>
-                <Text style={styles.uploadName} numberOfLines={1}>
-                  {f.name ?? 'file'}
-                </Text>
-                {f.status === 'done' ? (
-                  <Text style={styles.uploadDone}>uploaded</Text>
-                ) : f.status === 'failed' ? (
-                  <Text style={styles.uploadFailed}>{f.error ?? 'failed'}</Text>
-                ) : f.status === 'uploading' ? (
-                  <Text style={styles.uploadPct}>{Math.round((f.progress ?? 0) * 100)}%</Text>
-                ) : (
-                  <Text style={styles.uploadPct}>waiting</Text>
-                )}
-              </View>
-            ))}
+            {files
+              .filter((f) => f.status !== 'done')
+              .map((f) => (
+                <View key={f.id} style={styles.uploadRow}>
+                  <Text style={styles.uploadName} numberOfLines={1}>
+                    {f.name ?? 'file'}
+                  </Text>
+                  {f.status === 'failed' ? (
+                    <Text style={styles.uploadFailed}>{f.error ?? 'failed'}</Text>
+                  ) : f.status === 'uploading' ? (
+                    <Text style={styles.uploadPct}>{Math.round((f.progress ?? 0) * 100)}%</Text>
+                  ) : (
+                    <Text style={styles.uploadPct}>waiting</Text>
+                  )}
+                </View>
+              ))}
+            <Text style={styles.uploadHint}>
+              {failedCount > 0
+                ? `${failedCount} ${failedCount === 1 ? 'file' : 'files'} didn't upload. Go back and retry ${failedCount === 1 ? 'it' : 'them'} — we won't take payment for an order your editor can't work from.`
+                : `Still sending ${pending} ${pending === 1 ? 'file' : 'files'}. Payment opens the moment they're in.`}
+            </Text>
           </View>
         )}
         {orderError ? <Text style={styles.footerError}>{orderError}</Text> : null}
         {busy && !!stage && <Text style={styles.footerStage}>{stage}</Text>}
-        {paidBookingId && !uploading && (
-          <Pressable onPress={retryUploads} style={styles.retryBtn}>
-            <Text style={styles.retryLabel}>Retry upload</Text>
-          </Pressable>
-        )}
         <View style={styles.payBar}>
           <Text style={styles.payBarLabel}>You're paying (USD)</Text>
           <Text style={styles.payBarValue}>{formatMoney(total, 'USD')}</Text>
@@ -337,9 +296,18 @@ export default function RemoteOrderSummary() {
         {/* Same contract as the in-person checkout: this opens the sheet,
             Stripe's Pay button confirms. */}
         <Button
-          title={busy ? 'Working…' : 'Continue to payment'}
-          arrow
+          title={
+            busy
+              ? 'Working…'
+              : pending > 0
+                ? `Waiting for ${pending} ${pending === 1 ? 'file' : 'files'}…`
+                : failedCount > 0
+                  ? `${failedCount} ${failedCount === 1 ? 'file needs' : 'files need'} a retry`
+                  : 'Continue to payment'
+          }
+          arrow={!blocked}
           loading={busy}
+          disabled={blocked}
           onPress={placeOrder}
         />
       </View>
@@ -429,18 +397,8 @@ const styles = StyleSheet.create({
   uploadRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   uploadName: { flex: 1, fontSize: 11.5, color: colors.grey },
   uploadPct: { fontSize: 11.5, fontWeight: '800', color: colors.ink },
-  uploadDone: { fontSize: 11.5, fontWeight: '800', color: '#1E7A45' },
+  uploadHint: { fontSize: 11.5, color: colors.grey, lineHeight: 16.5, marginTop: 6 },
   uploadFailed: { fontSize: 11, fontWeight: '800', color: '#A32C2C', maxWidth: 160, textAlign: 'right' },
-  retryBtn: {
-    height: 46,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: colors.yellow,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  retryLabel: { fontSize: 14, fontWeight: '800', color: colors.ink },
   payBar: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -15,14 +15,107 @@ import {
 } from '../../lib/store/upload';
 import { colors, insetBottom } from '../../lib/theme';
 
+/**
+ * How many files move at once. Serial wastes a connection that can carry
+ * more; unbounded makes fifteen progress bars all crawl and starves the
+ * checkout requests the client is about to make. Three is the compromise.
+ */
+const UPLOAD_CONCURRENCY = 3;
+
 export default function UploadFootage() {
   const router = useRouter();
-  const { files, note, setNote, addPicked, removeFile } = useUpload();
+  const { files, note, draftId, setNote, addPicked, removeFile, setFileStatus, setDraftId, adoptDraftFiles } =
+    useUpload();
   const [rejected, setRejected] = React.useState<RejectedFile[]>([]);
+  // Files restored from an earlier visit, until the client says keep or
+  // start over. Never silently folded into what looks like a fresh order.
+  const [restored, setRestored] = React.useState<number>(0);
+  const [discarding, setDiscarding] = React.useState(false);
+
+  // One abort handle per file, so removing a thumbnail stops that transfer
+  // and only that one. Held in a ref: aborting is not a render concern.
+  const aborts = React.useRef<Map<string, AbortController>>(new Map());
+
+  /**
+   * COME BACK AND YOUR FILES ARE STILL THERE.
+   *
+   * Uploading on selection means an abandoned checkout leaves real footage
+   * on the server. Making the client send it a second time would waste the
+   * exact thing this change was built to save. So the draft is restored —
+   * but announced, because silently attaching last night's files to what
+   * the client thinks is a new order is the worse failure.
+   */
+  React.useEffect(() => {
+    if (files.length > 0) return; // mid-flow; nothing to restore over
+    let cancelled = false;
+    (async () => {
+      const { apiConfigured, fetchCurrentDraft } = await import('../../lib/api');
+      if (!apiConfigured) return;
+      const draft = await fetchCurrentDraft();
+      if (cancelled || !draft?.draft_id || draft.files.length === 0) return;
+      setDraftId(draft.draft_id);
+      adoptDraftFiles(
+        draft.files.map((f) => ({ mediaId: f.id, name: f.name, contentType: f.content_type })),
+      );
+      setRestored(draft.files.length);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Mount only: re-running after a pick would fight the live batch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Upload one file, start to finish, reporting into the store as it goes. */
+  const uploadOne = React.useCallback(
+    async (file: { id: string; uri?: string; name?: string; mimeType?: string; sizeMb: number }, draft: string) => {
+      if (!file.uri) return;
+      const controller = new AbortController();
+      aborts.current.set(file.id, controller);
+      setFileStatus(file.id, { status: 'uploading', progress: 0, error: undefined });
+      const { uploadDraftFile } = await import('../../lib/rawUpload');
+      const r = await uploadDraftFile(
+        draft,
+        {
+          uri: file.uri,
+          name: file.name ?? 'upload.jpg',
+          mimeType: file.mimeType,
+          sizeBytes: Math.round(file.sizeMb * 1048576),
+        },
+        (fraction) => setFileStatus(file.id, { progress: fraction }),
+        controller.signal,
+      );
+      aborts.current.delete(file.id);
+      // A cancel is the client's own doing — the row is already gone from
+      // the store, and showing it as "failed" would invite a retry of a
+      // file they just deleted.
+      if (r.aborted) return;
+      if (r.ok) setFileStatus(file.id, { status: 'done', progress: 1, mediaId: r.mediaId });
+      else setFileStatus(file.id, { status: 'failed', error: r.error });
+    },
+    [setFileStatus],
+  );
+
+  /** Run a queue with a small pool rather than all at once. */
+  const runQueue = React.useCallback(
+    async (queued: typeof files, draft: string) => {
+      let next = 0;
+      const worker = async () => {
+        while (next < queued.length) {
+          const f = queued[next++];
+          await uploadOne(f, draft);
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(UPLOAD_CONCURRENCY, queued.length) }, worker),
+      );
+    },
+    [uploadOne],
+  );
 
   // The picker is real in every mode — it reads files off the device and
-  // does not need a server. Only the UPLOAD needs one, and that happens
-  // after payment.
+  // does not need a server. UPLOADING needs one, and now starts here rather
+  // than after payment, so the transfer overlaps package and style.
   const pick = async () => {
     setRejected([]);
     const ImagePicker = await import('expo-image-picker');
@@ -33,6 +126,7 @@ export default function UploadFootage() {
       quality: 1,
     });
     if (result.canceled) return;
+    const before = useUpload.getState().files.map((f) => f.id);
     const bad = addPicked(
       result.assets.map((a, i) => ({
         uri: a.uri,
@@ -42,7 +136,75 @@ export default function UploadFootage() {
       })),
     );
     setRejected(bad);
+
+    const { apiConfigured, createUploadDraft } = await import('../../lib/api');
+    if (!apiConfigured) return;
+    // Whatever addPicked actually accepted — never the raw picker result,
+    // which still contains the files the caps rejected.
+    const accepted = useUpload.getState().files.filter((f) => !before.includes(f.id) && f.uri);
+    if (accepted.length === 0) return;
+    let draft = useUpload.getState().draftId;
+    if (!draft) {
+      draft = await createUploadDraft();
+      if (!draft) {
+        for (const f of accepted) {
+          setFileStatus(f.id, { status: 'failed', error: "Couldn't start the upload." });
+        }
+        return;
+      }
+      setDraftId(draft);
+    }
+    void runQueue(accepted, draft);
   };
+
+  /**
+   * Removing a file cancels its transfer and cleans up whatever landed. The
+   * abort stops the PUT, but an aborted PUT can still have completed on the
+   * far side, so the server delete runs either way — it is a no-op when
+   * there is nothing there.
+   */
+  const remove = async (id: string) => {
+    const file = files.find((f) => f.id === id);
+    aborts.current.get(id)?.abort();
+    aborts.current.delete(id);
+    removeFile(id);
+    if (!file) return;
+    const draft = useUpload.getState().draftId;
+    if (!draft) return;
+    const { apiConfigured, deleteDraftFile } = await import('../../lib/api');
+    if (!apiConfigured) return;
+    if (file.mediaId) {
+      await deleteDraftFile(draft, file.mediaId);
+      return;
+    }
+    // Cancelled mid-flight: no row id, because registration never ran. The
+    // object (if the PUT finished) has no row pointing at it, so the
+    // abandoned-draft sweep is what collects it.
+  };
+
+  /** Retry one failed file. Files already done are never touched. */
+  const retry = async (id: string) => {
+    const file = files.find((f) => f.id === id);
+    const draft = useUpload.getState().draftId;
+    if (!file || !draft) return;
+    await uploadOne(file, draft);
+  };
+
+  /** "Start over" on a restored draft — discard the lot, server included. */
+  const startOver = async () => {
+    const draft = useUpload.getState().draftId;
+    setDiscarding(true);
+    if (draft) {
+      const { apiConfigured, discardUploadDraft } = await import('../../lib/api');
+      if (apiConfigured) await discardUploadDraft(draft);
+    }
+    useUpload.getState().reset();
+    setRestored(0);
+    setDiscarding(false);
+  };
+
+  const uploading = files.filter((f) => f.status === 'uploading' || f.status === 'queued').length;
+  const failed = files.filter((f) => f.status === 'failed').length;
 
   const rejectLine = (r: RejectedFile) =>
     r.reason === 'count'
@@ -64,6 +226,28 @@ export default function UploadFootage() {
           Send us your raw photos or video and we'll make them shine. Up to {MAX_FILES} files per
           order.
         </Text>
+
+        {restored > 0 && (
+          <View style={styles.restoredCard}>
+            <Text style={styles.restoredTitle}>
+              {restored} {restored === 1 ? 'file' : 'files'} from earlier are still here
+            </Text>
+            <Text style={styles.restoredBody}>
+              You added these before and they finished uploading, so there's no need to send them
+              again. Carry on, or clear them and start fresh.
+            </Text>
+            <View style={styles.restoredRow}>
+              <Pressable onPress={() => setRestored(0)} style={styles.restoredKeep}>
+                <Text style={styles.restoredKeepLabel}>Keep them</Text>
+              </Pressable>
+              <Pressable onPress={startOver} disabled={discarding} style={styles.restoredClear}>
+                <Text style={styles.restoredClearLabel}>
+                  {discarding ? 'Clearing…' : 'Start over'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
 
         {!atLimit ? (
           <Pressable onPress={pick} style={styles.dropzone}>
@@ -121,8 +305,9 @@ export default function UploadFootage() {
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>No files yet</Text>
             <Text style={styles.emptyBody}>
-              Add the photos or video you want edited. They upload once your order is paid, and only
-              your assigned editor can see them.
+              Add the photos or video you want edited. They start uploading straight away, so
+              they're ready by the time you've picked a package — and only your assigned editor can
+              see them.
             </Text>
           </View>
         ) : (
@@ -132,7 +317,34 @@ export default function UploadFootage() {
               {f.thumb && (
                 <Image source={f.thumb} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
               )}
-              <Pressable onPress={() => removeFile(f.id)} style={styles.removeBtn} hitSlop={6}>
+
+              {/* Per-file state, over its own thumbnail — one file failing
+                  says nothing about the other fourteen. */}
+              {f.status === 'uploading' && (
+                <View style={styles.thumbOverlay}>
+                  <View style={styles.thumbBarTrack}>
+                    <View style={[styles.thumbBarFill, { width: `${Math.round((f.progress ?? 0) * 100)}%` }]} />
+                  </View>
+                  <Text style={styles.thumbPct}>{Math.round((f.progress ?? 0) * 100)}%</Text>
+                </View>
+              )}
+              {f.status === 'failed' && (
+                <Pressable onPress={() => retry(f.id)} style={styles.thumbFailed}>
+                  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                    <Path d="M4 12a8 8 0 018-8c2.8 0 5.2 1.4 6.6 3.6M20 12a8 8 0 01-8 8c-2.8 0-5.2-1.4-6.6-3.6M18 4.5v3.2h-3.2M6 19.5v-3.2h3.2" stroke="#fff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                  </Svg>
+                  <Text style={styles.thumbFailedLabel}>Tap to retry</Text>
+                </Pressable>
+              )}
+              {f.status === 'done' && (
+                <View style={styles.thumbDone}>
+                  <Svg width={11} height={11} viewBox="0 0 24 24" fill="none">
+                    <Path d="M5 12.5l4.5 4.5L19 7" stroke="#fff" strokeWidth={3.4} strokeLinecap="round" strokeLinejoin="round" />
+                  </Svg>
+                </View>
+              )}
+
+              <Pressable onPress={() => remove(f.id)} style={styles.removeBtn} hitSlop={6}>
                 <Svg width={11} height={11} viewBox="0 0 24 24" fill="none">
                   <Path d="M6 6l12 12M18 6L6 18" stroke="#fff" strokeWidth={3} strokeLinecap="round" />
                 </Svg>
@@ -140,14 +352,22 @@ export default function UploadFootage() {
               <View style={styles.typeBadge}>
                 <Text style={styles.typeBadgeLabel}>{f.type}</Text>
               </View>
-              <View style={styles.sizeBadge}>
-                <Text style={styles.sizeBadgeLabel}>
-                  {f.sizeMb >= 1000 ? `${(f.sizeMb / 1000).toFixed(1)}GB` : `${f.sizeMb}MB`}
-                </Text>
-              </View>
+              {f.sizeMb > 0 && (
+                <View style={styles.sizeBadge}>
+                  <Text style={styles.sizeBadgeLabel}>
+                    {f.sizeMb >= 1000 ? `${(f.sizeMb / 1000).toFixed(1)}GB` : `${f.sizeMb}MB`}
+                  </Text>
+                </View>
+              )}
             </View>
           ))}
         </View>
+        )}
+        {failed > 0 && (
+          <Text style={styles.failedNote}>
+            {failed} {failed === 1 ? 'file' : 'files'} didn't upload — tap a marked thumbnail to
+            retry it. The ones that finished are kept.
+          </Text>
         )}
 
         <Text style={styles.noteTitle}>Anything we should know?</Text>
@@ -162,8 +382,16 @@ export default function UploadFootage() {
         <View style={{ height: 24 }} />
       </KeyboardScrollView>
       <View style={styles.footer}>
+        {/* Continue is never gated on the upload — the whole point is that
+            choosing a package happens WHILE the transfer runs. Payment is
+            where an incomplete file actually matters, and pricing.tsx holds
+            that line. */}
         <Text style={styles.footerCount}>
-          {files.length} {files.length === 1 ? 'file' : 'files'}{'\n'}ready
+          {uploading > 0
+            ? `${uploading} of ${files.length}${'\n'}uploading`
+            : failed > 0
+              ? `${failed} ${failed === 1 ? 'file' : 'files'}${'\n'}need a retry`
+              : `${files.length} ${files.length === 1 ? 'file' : 'files'}${'\n'}ready`}
         </Text>
         <Pressable
           onPress={() => files.length > 0 && router.push('/upload/packages')}
@@ -256,6 +484,88 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   sizeBadgeLabel: { fontSize: 8.5, fontWeight: '700', color: '#fff' },
+  thumbOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(26,26,26,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+  },
+  thumbBarTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.35)',
+    alignSelf: 'stretch',
+    overflow: 'hidden',
+  },
+  thumbBarFill: { height: '100%', borderRadius: 2, backgroundColor: colors.yellow },
+  thumbPct: { fontSize: 11, fontWeight: '800', color: '#fff' },
+  thumbFailed: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(163,44,44,0.82)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  thumbFailedLabel: { fontSize: 10, fontWeight: '800', color: '#fff' },
+  thumbDone: {
+    position: 'absolute',
+    bottom: 6,
+    left: 6,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#159A57',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  failedNote: {
+    fontSize: 12,
+    color: '#8C3A2E',
+    fontWeight: '600',
+    lineHeight: 17,
+    marginTop: 10,
+  },
+  restoredCard: {
+    borderWidth: 1.5,
+    borderColor: colors.yellowSoftBorder,
+    backgroundColor: colors.yellowSoft,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+    gap: 5,
+  },
+  restoredTitle: { fontSize: 13.5, fontWeight: '800', color: '#8A6800' },
+  restoredBody: { fontSize: 12.5, color: '#8A6800', lineHeight: 18 },
+  restoredRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  restoredKeep: {
+    flex: 1,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: colors.yellow,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  restoredKeepLabel: { fontSize: 12.5, fontWeight: '800', color: colors.ink },
+  restoredClear: {
+    flex: 1,
+    height: 38,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#E2C97A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  restoredClearLabel: { fontSize: 12.5, fontWeight: '800', color: '#8A6800' },
   rejectCard: {
     borderWidth: 1,
     borderColor: '#F1DADA',

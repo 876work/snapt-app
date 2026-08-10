@@ -130,6 +130,56 @@ export async function createBookingFromPaidIntent(intent: {
       .eq('id', claim.id);
   }
 
+  /**
+   * CLAIM THE FOOTAGE UPLOADED BEFORE PAYMENT.
+   *
+   * Remote clients upload on selection now, so their source files are
+   * already in the bucket, stamped with a draft id instead of a booking id.
+   * This is where they become the order's.
+   *
+   * It runs HERE, inside the webhook handler, and not in the app after
+   * payment: Stripe retries this handler until it returns 2xx, so a client
+   * whose phone dies between paying and returning to the app still gets
+   * their footage attached. The abandoned-draft sweep only deletes rows
+   * where booking_id is null, so the instant this update lands the files are
+   * out of its reach — the guarantee is the predicate, not the timing.
+   *
+   * Scoped to the paying client: a draft id is a uuid, but it arrives as
+   * Stripe metadata, and metadata is not a capability.
+   */
+  if (md.upload_draft_id) {
+    // `deleted_at is null` is half of a two-sided guard: the abandoned-draft
+    // sweep marks deleted_at with the mirror-image guarded update, so a row
+    // can be claimed by a payment or taken by the sweep, never both.
+    const { data: claimed, error: claimErr2 } = await supabaseAdmin
+      .from('booking_media')
+      .update({ booking_id: booking.id, draft_id: null })
+      .eq('draft_id', md.upload_draft_id)
+      .eq('uploaded_by', clientId)
+      .is('booking_id', null)
+      .is('deleted_at', null)
+      .select('id');
+    // The money is real and the booking exists. Footage that did not attach
+    // is recoverable by hand from the draft id — but only if someone is
+    // told, so both failures raise an alert rather than a log line.
+    if (claimErr2) {
+      await supabaseAdmin.from('admin_alerts').insert({
+        alert_type: 'upload_draft_claim_failed',
+        booking_id: booking.id,
+        detail: { draft_id: md.upload_draft_id, client_id: clientId, error: claimErr2.message },
+      });
+    } else if ((claimed ?? []).length === 0) {
+      // A paid order that named a draft and got nothing from it. Should be
+      // unreachable — the app only sends a draft id it just uploaded to —
+      // so it means the draft aged past the sweep's grace before payment.
+      await supabaseAdmin.from('admin_alerts').insert({
+        alert_type: 'upload_draft_claim_empty',
+        booking_id: booking.id,
+        detail: { draft_id: md.upload_draft_id, client_id: clientId },
+      });
+    }
+  }
+
   // ---- Only NOW does a creator hear about it -----------------------------
   if (q.assignedCreatorId) {
     // The 15-minute clock starts from PAYMENT CONFIRMATION, not from the
