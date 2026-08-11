@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { SavedViews } from '../components/SavedViews';
-import { EmptyState, Pill, SectionSkeleton, formatWhen } from '../components/ui';
+import { Freshness, ListState, Pill, fetchState, formatWhen } from '../components/ui';
 import { AccountSwitch } from '../components/AccountSwitch';
 
 interface UserRow {
@@ -38,11 +38,13 @@ export function Users() {
     return () => clearTimeout(t);
   }, [term]);
 
-  const { data, isLoading, isError, error } = useQuery({
+  const q = useQuery({
     queryKey: ['users', debounced],
     queryFn: () => api<{ users: UserRow[] }>(`/v1/admin/users?q=${encodeURIComponent(debounced)}&limit=50`),
     placeholderData: keepPreviousData,
   });
+  const { data, error, refetch, dataUpdatedAt } = q;
+  const { state, stale } = fetchState(q);
 
   const create = useMutation({
     mutationFn: () => api<{ user_id: string }>('/v1/admin/users', { method: 'POST', body: JSON.stringify(form) }),
@@ -62,20 +64,21 @@ export function Users() {
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <h1 className="page-title" style={{ marginBottom: 0 }}>Users</h1>
+      <div className="page-head">
+        <h1 className="page-title">Users</h1>
         {identity?.role === 'admin' && (
           <button className="btn" onClick={() => setCreating((v) => !v)}>
             {creating ? 'Close' : 'New user'}
           </button>
         )}
+        <Freshness status={state} isStale={stale} updatedAt={dataUpdatedAt} />
       </div>
       <p className="page-sub">
         Every account — clients and creators. Search covers name, email, and phone.
       </p>
 
       {creating && (
-        <div className="card" style={{ padding: 16, marginBottom: 16, display: 'grid', gap: 12, maxWidth: 460 }}>
+        <div className="t-card" style={{ marginTop: 16, display: 'grid', gap: 12, maxWidth: 460 }}>
           <div style={{ fontWeight: 700 }}>Create an account for someone</div>
           <div className="sub" style={{ color: 'var(--muted)', fontSize: 12.5 }}>
             For phone sign-ups. They get a set-password email — you never handle their password.
@@ -109,7 +112,7 @@ export function Users() {
         </div>
       )}
 
-      <div className="toolbar">
+      <div className="list-toolbar">
         <input
           className="input"
           placeholder="Search name, email, phone…"
@@ -139,33 +142,69 @@ export function Users() {
         />
       </div>
 
-      {isLoading ? (
-        <SectionSkeleton rows={6} />
-      ) : isError ? (
-        <EmptyState glyph="⚠">{(error as Error).message}</EmptyState>
-      ) : rows.length === 0 ? (
-        <EmptyState glyph="—">
-          {debounced ? `No users match “${debounced}”.` : 'No users yet.'}
-        </EmptyState>
-      ) : (
-        <div className="card row-list">
-          {rows.map((u) => (
-            <div key={u.id} className="row row-link" onClick={() => navigate(`/users/${u.id}`)}>
-              <div className="who grow">
-                <div className="name">{u.full_name || '(no name)'}</div>
-                <div className="sub">
-                  {u.email ?? '—'} · {u.phone ?? 'no phone'} · joined {formatWhen(u.created_at)}
-                </div>
-              </div>
-              {u.false_report_count > 0 && <Pill tone="warn">{u.false_report_count} false report{u.false_report_count === 1 ? '' : 's'}</Pill>}
-              {u.creator && <Pill status={u.creator.vetting_status} />}
-              {u.status === 'disabled' && <Pill tone="warn">Disabled</Pill>}
-              {u.suspended_at ? <Pill status="suspended" /> : <Pill tone="neutral">{u.mode}</Pill>}
-              <AccountSwitch userId={u.id} status={u.status ?? 'active'} compact />
-            </div>
-          ))}
+      <ListState
+        status={state}
+        isEmpty={rows.length === 0}
+        error={(error as Error | null)?.message}
+        onRetry={() => refetch()}
+        rows={6}
+        empty={
+          debounced
+            ? `No users match “${debounced}”.`
+            : filter === 'suspended'
+              ? 'Nobody is suspended — every account is in good standing.'
+              : filter === 'creators'
+                ? 'No creator accounts yet.'
+                : 'No users yet.'
+        }
+      >
+        <div className="t-table-card">
+          <div className="t-table-scroll">
+            <table className="t-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Contact</th>
+                  <th>Joined</th>
+                  <th className="right">Status</th>
+                  <th className="right">Access</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((u) => (
+                  <tr key={u.id} className="clickable" onClick={() => navigate(`/users/${u.id}`)}>
+                    <td>
+                      <div className="cell-title">{u.full_name || '(no name)'}</div>
+                    </td>
+                    <td>
+                      <div>{u.email ?? '—'}</div>
+                      <div className="cell-sub num">{u.phone ?? 'no phone'}</div>
+                    </td>
+                    <td className="nowrap num">{formatWhen(u.created_at)}</td>
+                    <td className="right">
+                      <div className="cell-pills">
+                        {u.false_report_count > 0 && (
+                          <Pill tone="warn">
+                            {u.false_report_count} false report{u.false_report_count === 1 ? '' : 's'}
+                          </Pill>
+                        )}
+                        {u.creator && <Pill status={u.creator.vetting_status} />}
+                        {u.status === 'disabled' && <Pill tone="warn">Disabled</Pill>}
+                        {u.suspended_at ? <Pill status="suspended" /> : <Pill tone="neutral">{u.mode}</Pill>}
+                      </div>
+                    </td>
+                    <td className="right">
+                      <div className="cell-actions">
+                        <AccountSwitch userId={u.id} status={u.status ?? 'active'} compact />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      )}
+      </ListState>
     </>
   );
 }

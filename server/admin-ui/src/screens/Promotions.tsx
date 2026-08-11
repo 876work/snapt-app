@@ -58,7 +58,7 @@ export function Promotions() {
       </p>
 
       {sent && (
-        <div className="card" style={{ padding: 14, borderLeft: '4px solid var(--ok)', marginBottom: 14 }}>
+        <div className="card" style={{ padding: 14, borderLeft: '4px solid var(--ok)', margin: '16px 0' }}>
           <strong>Sent.</strong> {sent.recipients} inbox records written, {sent.pushed} devices reached.
           The difference is people without a registered device — they'll see it in the app.
         </div>
@@ -66,57 +66,92 @@ export function Promotions() {
 
       <div className="section">
         <h2>Audience</h2>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {AUDIENCES.map((a) => (
-            <button
-              key={a.key}
-              className={`btn ${audience === a.key ? 'primary' : ''}`}
-              onClick={() => setAudience(a.key)}
-              title={a.hint}
-            >
-              {a.label}
-            </button>
-          ))}
+        <div className="t-card">
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {AUDIENCES.map((a) => (
+              <button
+                key={a.key}
+                /* `primary` has no rule behind it, so all three rendered as
+                   the same solid yellow and the chosen audience was invisible.
+                   Selected stays solid; the rest go ghost. */
+                className={`btn ${audience === a.key ? '' : 'ghost'}`}
+                onClick={() => setAudience(a.key)}
+                title={a.hint}
+              >
+                {a.label}
+              </button>
+            ))}
+          </div>
+          {/* The count decides who this reaches, so a failed count must not
+              read like a quiet aside in the same grey as a successful one. */}
+          <div style={{ marginTop: 14 }}>
+            {/* Order matters: between retry attempts react-query reports
+                neither loading nor error while `data` is still undefined, so
+                testing `isLoading` first dropped through to the success branch
+                and threw on `data.total`. Error first, then data, else
+                loading — the only order with no undefined window. */}
+            {preview.isError ? (
+              <div className="lst-inline failed" role="alert">
+                <span>⚠</span>
+                <span>
+                  Couldn't count the audience — {(preview.error as Error).message}. The number of
+                  people this would reach is unknown, not zero.{' '}
+                  <button
+                    className="btn danger"
+                    style={{ marginLeft: 6, padding: '4px 10px' }}
+                    onClick={() => preview.refetch()}
+                  >
+                    Try again
+                  </button>
+                </span>
+              </div>
+            ) : preview.data ? (
+              <p className="page-sub" style={{ margin: 0 }}>
+                <Pill tone="neutral">{preview.data.total} recipients</Pill>{' '}
+                <Pill tone="neutral">{preview.data.with_push} with a device</Pill> — opt-outs,
+                suspended and deleted accounts already excluded.
+              </p>
+            ) : (
+              <div className="lst-inline empty">
+                <span>◍</span>
+                <span>Counting the audience…</span>
+              </div>
+            )}
+          </div>
         </div>
-        <p className="page-sub" style={{ marginTop: 10 }}>
-          {preview.isLoading ? (
-            'Counting…'
-          ) : preview.data ? (
-            <>
-              <Pill tone="neutral">{preview.data.total} recipients</Pill>{' '}
-              <Pill tone="neutral">{preview.data.with_push} with a device</Pill> — opt-outs, suspended
-              and deleted accounts already excluded.
-            </>
-          ) : (
-            'Could not count the audience.'
-          )}
-        </p>
       </div>
 
       <div className="section">
         <h2>Message</h2>
-        <label className="k" htmlFor="promo-title">Title</label>
+        <div className="t-card">
+        {/* These three carried `.k`, which is only styled inside a `.kv` grid,
+            and no `.input` — so they rendered as raw browser controls in the
+            middle of the card treatment. */}
+        <label className="field-label" htmlFor="promo-title">Title</label>
         <input
           id="promo-title"
+          className="input"
           value={title}
           maxLength={80}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Golden hour weekends"
-          style={{ width: '100%', marginBottom: 10 }}
+          style={{ width: '100%', marginBottom: 12 }}
         />
-        <label className="k" htmlFor="promo-body">Body</label>
+        <label className="field-label" htmlFor="promo-body">Body</label>
         <textarea
           id="promo-body"
+          className="input"
           value={body}
           rows={3}
           maxLength={240}
           onChange={(e) => setBody(e.target.value)}
           placeholder="10% off sunset sessions this month."
-          style={{ width: '100%', marginBottom: 10 }}
+          style={{ width: '100%', marginBottom: 12, resize: 'vertical' }}
         />
-        <label className="k" htmlFor="promo-link">Deep link (optional)</label>
+        <label className="field-label" htmlFor="promo-link">Deep link (optional)</label>
         <input
           id="promo-link"
+          className="input"
           value={deepLink}
           onChange={(e) => setDeepLink(e.target.value)}
           placeholder="/(app)/booking/occasion"
@@ -125,6 +160,7 @@ export function Promotions() {
         <p className="page-sub" style={{ marginTop: 6 }}>
           Where tapping the notification lands. Leave blank and it just opens the inbox.
         </p>
+        </div>
       </div>
 
       {!confirming ? (

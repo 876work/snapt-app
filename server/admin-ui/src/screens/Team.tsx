@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { EmptyState, Pill, SectionSkeleton, formatWhen } from '../components/ui';
+import { Freshness, ListState, Pill, fetchState, formatWhen } from '../components/ui';
 
 interface Member {
   user_id: string;
@@ -21,10 +21,12 @@ export function Team() {
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', role: 'support' });
 
-  const { data, isLoading, isError, error } = useQuery({
+  const q = useQuery({
     queryKey: ['team'],
     queryFn: () => api<{ members: Member[] }>('/v1/admin/team'),
   });
+  const { data, error, refetch, dataUpdatedAt } = q;
+  const { state, stale } = fetchState(q);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['team'] });
   const onErr = (e: unknown) => setActionError((e as Error).message);
@@ -59,14 +61,18 @@ export function Team() {
   });
 
   const isSelf = (m: Member) => identity?.admin_id === m.user_id;
+  // Was `data!.members` — which throws outright in the window where the query
+  // is neither loading nor errored but has no data yet.
+  const members = data?.members ?? [];
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <h1 className="page-title" style={{ marginBottom: 0 }}>Team</h1>
+      <div className="page-head">
+        <h1 className="page-title">Team</h1>
         <button className="btn" onClick={() => setCreating((v) => !v)}>
           {creating ? 'Close' : 'Add member'}
         </button>
+        <Freshness status={state} isStale={stale} updatedAt={dataUpdatedAt} />
       </div>
       <p className="page-sub">
         Portal accounts and their roles. New members set their own password from an emailed link
@@ -74,13 +80,13 @@ export function Team() {
         request.
       </p>
       {actionError && (
-        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--danger)', marginBottom: 12 }}>
+        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--danger)', margin: '14px 0' }}>
           {actionError}
         </div>
       )}
 
       {creating && (
-        <div className="card" style={{ padding: 16, marginBottom: 16, display: 'grid', gap: 12, maxWidth: 460 }}>
+        <div className="t-card" style={{ marginTop: 16, display: 'grid', gap: 12, maxWidth: 460 }}>
           <label style={{ fontSize: 12.5, fontWeight: 700 }}>
             Name
             <input
@@ -123,71 +129,111 @@ export function Team() {
         </div>
       )}
 
-      {isLoading ? (
-        <SectionSkeleton rows={4} />
-      ) : isError ? (
-        <EmptyState glyph="⚠">{(error as Error).message}</EmptyState>
-      ) : (
-        <div className="card row-list">
-          {data!.members.map((m) => (
-            <div key={m.user_id} className="row" style={{ opacity: m.active ? 1 : 0.55 }}>
-              <div className="who grow">
-                <div className="name">
-                  {m.name || '(no name)'}
-                  {isSelf(m) ? ' · you' : ''}
-                </div>
-                <div className="sub">
-                  {m.email ?? '—'} · added {formatWhen(m.created_at)} ·{' '}
-                  {m.last_sign_in_at ? `last sign-in ${formatWhen(m.last_sign_in_at)}` : 'never signed in'}
-                </div>
-              </div>
-              {!m.active && <Pill tone="neutral">deactivated</Pill>}
-              {isSelf(m) ? (
-                <Pill status={m.role} />
-              ) : (
-                <>
-                  <select
-                    className="input"
-                    style={{ minWidth: 120, padding: '6px 10px' }}
-                    value={m.role}
-                    disabled={changeRole.isPending || !m.active}
-                    onChange={(e) => {
-                      const role = e.target.value;
-                      if (window.confirm(`Change ${m.name || m.email} to ${role}?`))
-                        changeRole.mutate({ userId: m.user_id, role });
-                      else refresh();
-                    }}
-                  >
-                    <option value="admin">admin</option>
-                    <option value="support">support</option>
-                    <option value="moderator">moderator</option>
-                  </select>
-                  {m.active ? (
-                    <button
-                      className="btn ghost"
-                      disabled={deactivate.isPending}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            `Deactivate ${m.name || m.email}? Their session ends on their next request. This is reversible.`,
-                          )
-                        )
-                          deactivate.mutate(m.user_id);
-                      }}
-                    >
-                      Deactivate
-                    </button>
-                  ) : (
-                    <button className="btn ghost" disabled={reactivate.isPending} onClick={() => reactivate.mutate(m.user_id)}>
-                      Reactivate
-                    </button>
-                  )}
-                </>
-              )}
+      <div style={{ marginTop: 16 }}>
+        <ListState
+          status={state}
+          isEmpty={members.length === 0}
+          error={(error as Error | null)?.message}
+          onRetry={() => refetch()}
+          rows={3}
+          empty="No portal accounts on record. Add the first one with “Add member” above."
+        >
+          <div className="t-table-card">
+            <div className="t-table-scroll">
+              <table className="t-table">
+                <thead>
+                  <tr>
+                    <th>Member</th>
+                    <th>Email</th>
+                    <th>Added</th>
+                    <th>Last sign-in</th>
+                    <th>Role</th>
+                    <th className="right">Access</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {members.map((m) => (
+                    <tr key={m.user_id} className={m.active ? '' : 'dimmed'}>
+                      <td>
+                        <div className="cell-title">
+                          {m.name || '(no name)'}
+                          {isSelf(m) ? ' · you' : ''}
+                        </div>
+                        {!m.active && (
+                          <div style={{ marginTop: 4 }}>
+                            <Pill tone="neutral">deactivated</Pill>
+                          </div>
+                        )}
+                      </td>
+                      <td>{m.email ?? '—'}</td>
+                      <td className="nowrap num">{formatWhen(m.created_at)}</td>
+                      <td className="nowrap num">
+                        {m.last_sign_in_at ? (
+                          formatWhen(m.last_sign_in_at)
+                        ) : (
+                          <span style={{ color: 'var(--muted)' }}>never</span>
+                        )}
+                      </td>
+                      <td>
+                        {isSelf(m) ? (
+                          <Pill status={m.role} />
+                        ) : (
+                          <select
+                            className="input"
+                            style={{ minWidth: 118, padding: '6px 10px' }}
+                            value={m.role}
+                            disabled={changeRole.isPending || !m.active}
+                            onChange={(e) => {
+                              const role = e.target.value;
+                              if (window.confirm(`Change ${m.name || m.email} to ${role}?`))
+                                changeRole.mutate({ userId: m.user_id, role });
+                              else refresh();
+                            }}
+                          >
+                            <option value="admin">admin</option>
+                            <option value="support">support</option>
+                            <option value="moderator">moderator</option>
+                          </select>
+                        )}
+                      </td>
+                      <td className="right">
+                        {!isSelf(m) && (
+                          <div className="cell-actions">
+                            {m.active ? (
+                              <button
+                                className="btn ghost"
+                                disabled={deactivate.isPending}
+                                onClick={() => {
+                                  if (
+                                    window.confirm(
+                                      `Deactivate ${m.name || m.email}? Their session ends on their next request. This is reversible.`,
+                                    )
+                                  )
+                                    deactivate.mutate(m.user_id);
+                                }}
+                              >
+                                Deactivate
+                              </button>
+                            ) : (
+                              <button
+                                className="btn ghost"
+                                disabled={reactivate.isPending}
+                                onClick={() => reactivate.mutate(m.user_id)}
+                              >
+                                Reactivate
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        </ListState>
+      </div>
     </>
   );
 }

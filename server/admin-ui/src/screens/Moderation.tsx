@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { EmptyState, Pill, SectionSkeleton, formatWhen } from '../components/ui';
+import { Freshness, ListState, Pill, fetchState, formatWhen } from '../components/ui';
 
 interface Report {
   id: string;
@@ -48,12 +48,21 @@ export function Moderation() {
     apply(next);
   };
 
-  const { data, isLoading, isError, error } = useQuery({
+  const q = useQuery({
     queryKey: ['moderation'],
     queryFn: () =>
       api<{ reports: Report[]; portfolio_pending: PortfolioItem[] }>('/v1/admin/moderation'),
     refetchInterval: 60_000,
   });
+  const { data, error, refetch, dataUpdatedAt } = q;
+  // Both queues come from ONE request, so they share one state. That is
+  // exactly why the portfolio queue must not draw its own conclusion from
+  // `length === 0`: when this request fails there is no portfolio queue to
+  // be empty, and a green tick there while Reports shows an error was the
+  // portal telling two different stories about the same failure.
+  const { state, stale } = fetchState(q);
+  const errorText = (error as Error | null)?.message;
+  const counted = (n: number | undefined) => (state === 'success' && n !== undefined ? n : '');
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['moderation'] });
   const review = useMutation({
@@ -99,7 +108,10 @@ export function Moderation() {
 
   return (
     <>
-      <h1 className="page-title">Moderation</h1>
+      <div className="page-head">
+        <h1 className="page-title">Moderation</h1>
+        <Freshness status={state} isStale={stale} updatedAt={dataUpdatedAt} />
+      </div>
       <p className="page-sub">
         Reports sort by severity — critical and high arrive here already auto-actioned (content
         held, account suspended) and need human review; reversing a bad one is done from the user's
@@ -113,7 +125,7 @@ export function Moderation() {
 
       <div className="section">
         <h2>
-          Reports <span className="count num">{data?.reports.length || ''}</span>
+          Reports <span className="count num">{counted(data?.reports.length)}</span>
         </h2>
         {(data?.reports.length ?? 0) > 1 && (
           <div className="toolbar" style={{ marginBottom: 10 }}>
@@ -153,16 +165,17 @@ export function Moderation() {
             )}
           </div>
         )}
-        {isLoading ? (
-          <SectionSkeleton rows={4} />
-        ) : isError ? (
-          <EmptyState glyph="⚠">{(error as Error).message}</EmptyState>
-        ) : (data?.reports ?? []).length === 0 ? (
-          <EmptyState glyph="✓">No open reports.</EmptyState>
-        ) : (
-          <div style={{ display: 'grid', gap: 10 }}>
-            {data!.reports.map((r) => (
-              <div key={r.id} className="card" style={{ padding: 14, display: 'grid', gap: 8 }}>
+        <ListState
+          status={state}
+          isEmpty={(data?.reports ?? []).length === 0}
+          error={errorText}
+          onRetry={() => refetch()}
+          rows={3}
+          empty="No open reports — nothing is waiting on a moderation decision."
+        >
+          <div style={{ display: 'grid', gap: 'var(--gap-grid)' }}>
+            {(data?.reports ?? []).map((r) => (
+              <div key={r.id} className="t-card" style={{ display: 'grid', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <input
                     type="checkbox"
@@ -228,12 +241,12 @@ export function Moderation() {
               </div>
             ))}
           </div>
-        )}
+        </ListState>
       </div>
 
       <div className="section">
         <h2>
-          Portfolio queue <span className="count num">{data?.portfolio_pending.length || ''}</span>
+          Portfolio queue <span className="count num">{counted(data?.portfolio_pending.length)}</span>
         </h2>
         {(data?.portfolio_pending.length ?? 0) > 1 && (
           <div className="toolbar" style={{ marginBottom: 10 }}>
@@ -275,13 +288,19 @@ export function Moderation() {
             )}
           </div>
         )}
-        {isLoading ? (
-          <SectionSkeleton rows={2} />
-        ) : (data?.portfolio_pending ?? []).length === 0 ? (
-          <EmptyState glyph="✓">Nothing waiting for portfolio review.</EmptyState>
-        ) : (
-          <div className="card row-list">
-            {data!.portfolio_pending.map((p) => (
+        {/* This branch used to be loading → empty, with no failure case at
+            all: a failed fetch rendered "✓ Nothing waiting for portfolio
+            review" while Reports, from the SAME request, showed an error. */}
+        <ListState
+          status={state}
+          isEmpty={(data?.portfolio_pending ?? []).length === 0}
+          error={errorText}
+          onRetry={() => refetch()}
+          rows={2}
+          empty="Nothing waiting for portfolio review — every submitted item has been decided."
+        >
+          <div className="t-table-card row-list">
+            {(data?.portfolio_pending ?? []).map((p) => (
               <div key={p.id} className="row">
                 <input
                   type="checkbox"
@@ -312,7 +331,7 @@ export function Moderation() {
               </div>
             ))}
           </div>
-        )}
+        </ListState>
       </div>
     </>
   );

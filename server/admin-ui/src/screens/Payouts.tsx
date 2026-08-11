@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api, downloadFile } from '../api';
 import { useAuth } from '../auth';
-import { EmptyState, SectionSkeleton, formatMoney, formatWhen } from '../components/ui';
+import { Freshness, ListState, fetchState, formatMoney } from '../components/ui';
 import { PayoutMethodSwitches } from '../components/PayoutMethodSwitches';
 
 interface PayoutRequest {
@@ -30,11 +30,13 @@ export function Payouts() {
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const { data, isLoading, isError, error, dataUpdatedAt } = useQuery({
+  const q = useQuery({
     queryKey: ['payouts'],
     queryFn: () => api<{ requests: PayoutRequest[] }>('/v1/admin/payout-requests'),
     refetchInterval: 60_000,
   });
+  const { data, error, refetch, dataUpdatedAt } = q;
+  const { state, stale } = fetchState(q);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['payouts'] });
   const note = useMutation({
@@ -67,7 +69,7 @@ export function Payouts() {
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+      <div className="page-head">
         <h1 className="page-title">Payouts</h1>
         <button
           className="btn ghost"
@@ -79,14 +81,13 @@ export function Payouts() {
         >
           Export CSV
         </button>
-        {data && (
-          <span className="page-sub num">
-            {data.requests.length
-              ? `${formatMoney(total)} across ${data.requests.length} creator${data.requests.length === 1 ? '' : 's'}`
-              : ''}{' '}
-            · updated {formatWhen(new Date(dataUpdatedAt).toISOString())}
+        {data && data.requests.length > 0 && (
+          <span className="page-sub num" style={{ margin: 0 }}>
+            {formatMoney(total)} across {data.requests.length} creator
+            {data.requests.length === 1 ? '' : 's'}
           </span>
         )}
+        <Freshness status={state} isStale={stale} updatedAt={dataUpdatedAt} />
       </div>
       <p className="page-sub">
         Manual fulfilment: send the money externally (bank transfer, or arrange cash pickup by phone),
@@ -108,16 +109,18 @@ export function Payouts() {
           turning it off is the first thing you come here to do. */}
       <PayoutMethodSwitches canEdit={isAdmin} />
 
-      {isLoading ? (
-        <SectionSkeleton rows={4} />
-      ) : isError ? (
-        <EmptyState glyph="⚠">{(error as Error).message}</EmptyState>
-      ) : (data?.requests ?? []).length === 0 ? (
-        <EmptyState glyph="✓">No payout requests waiting. Requests appear here the moment a creator cashes out.</EmptyState>
-      ) : (
-        <div style={{ display: 'grid', gap: 12 }}>
-          {data!.requests.map((r) => (
-            <div key={r.creator_id} className="card" style={{ padding: 16, display: 'grid', gap: 10 }}>
+      <div style={{ marginTop: 16 }}>
+      <ListState
+        status={state}
+        isEmpty={(data?.requests ?? []).length === 0}
+        error={(error as Error | null)?.message}
+        onRetry={() => refetch()}
+        rows={3}
+        empty="Nobody is waiting to be paid. Requests appear here the moment a creator cashes out."
+      >
+        <div style={{ display: 'grid', gap: 'var(--gap-grid)' }}>
+          {(data?.requests ?? []).map((r) => (
+            <div key={r.creator_id} className="t-card" style={{ display: 'grid', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <div className="grow" style={{ flex: 1, minWidth: 200 }}>
                   <div style={{ fontWeight: 700 }}>
@@ -212,7 +215,8 @@ export function Payouts() {
             </div>
           ))}
         </div>
-      )}
+      </ListState>
+      </div>
     </>
   );
 }

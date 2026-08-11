@@ -3,7 +3,14 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, downloadFile } from '../api';
 import { SavedViews } from '../components/SavedViews';
-import { EmptyState, Pill, SectionSkeleton, formatMoney, formatWhen } from '../components/ui';
+import {
+  Freshness,
+  ListState,
+  Pill,
+  fetchState,
+  formatMoney,
+  formatWhen,
+} from '../components/ui';
 
 interface BookingRow {
   id: string;
@@ -40,23 +47,29 @@ export function Bookings() {
   };
 
   const qs = filter === 'unassigned' ? '?unassigned=true' : filter ? `?status=${filter}` : '';
-  const { data, isLoading, isError, error } = useQuery({
+  const q = useQuery({
     queryKey: ['bookings', filter],
     queryFn: () => api<{ bookings: BookingRow[] }>(`/v1/admin/bookings${qs}`),
     placeholderData: keepPreviousData,
     refetchInterval: filter === 'unassigned' ? 30_000 : false,
   });
+  const { data, error, refetch, dataUpdatedAt } = q;
+  const { state, stale } = fetchState(q);
 
   const rows = data?.bookings ?? [];
+  const label = FILTERS.find((f) => f.key === filter)?.label ?? filter;
 
   return (
     <>
-      <h1 className="page-title">Bookings</h1>
+      <div className="page-head">
+        <h1 className="page-title">Bookings</h1>
+        <Freshness status={state} isStale={stale} updatedAt={dataUpdatedAt} />
+      </div>
       <p className="page-sub">
         The full ledger. Unassigned is the manual-dispatch queue — open one to assign a creator.
       </p>
 
-      <div className="toolbar">
+      <div className="list-toolbar">
         <div className="chip-row">
           {FILTERS.map((f) => (
             <button key={f.key} className={`chip${filter === f.key ? ' active' : ''}`} onClick={() => setFilter(f.key)}>
@@ -77,36 +90,72 @@ export function Bookings() {
         </button>
       </div>
 
-      {isLoading ? (
-        <SectionSkeleton rows={6} />
-      ) : isError ? (
-        <EmptyState glyph="⚠">{(error as Error).message}</EmptyState>
-      ) : rows.length === 0 ? (
-        <EmptyState glyph={filter === 'unassigned' ? '✓' : '—'}>
-          {filter === 'unassigned' ? 'Nothing waiting for dispatch.' : 'No bookings here.'}
-        </EmptyState>
-      ) : (
-        <div className="card row-list">
-          {rows.map((b) => (
-            <div key={b.id} className="row row-link" onClick={() => navigate(`/bookings/${b.id}`)}>
-              <div className="who grow">
-                <div className="name">
-                  {b.occasion ?? b.type} · {b.client_name ?? 'client'}
-                  {b.creator_name ? ` → ${b.creator_name}` : ''}
-                </div>
-                <div className="sub">
-                  {b.id.slice(0, 8)} · {b.area ?? (b.type === 'remote' ? 'remote' : '—')}
-                  {b.scheduled_at ? ` · ${formatWhen(b.scheduled_at)}` : ' · not scheduled'} ·{' '}
-                  {formatMoney(Number(b.price_usd))}
-                </div>
-              </div>
-              {b.legal_hold && <Pill tone="danger">legal hold</Pill>}
-              {!b.creator_name && b.status === 'pending' && <Pill tone="warn">needs dispatch</Pill>}
-              <Pill status={b.status} />
-            </div>
-          ))}
+      <ListState
+        status={state}
+        isEmpty={rows.length === 0}
+        error={(error as Error | null)?.message}
+        onRetry={() => refetch()}
+        rows={6}
+        empty={
+          filter === 'unassigned' ? (
+            'Nothing waiting for dispatch — every booking has a creator on it.'
+          ) : filter ? (
+            <>
+              No {label.toLowerCase()} bookings right now.{' '}
+              <button className="btn ghost" style={{ marginLeft: 4 }} onClick={() => setFilter('')}>
+                Show all bookings
+              </button>
+            </>
+          ) : (
+            'No bookings yet. Every booking ever made shows here, whatever its state.'
+          )
+        }
+      >
+        <div className="t-table-card">
+          <div className="t-table-scroll">
+            <table className="t-table">
+              <thead>
+                <tr>
+                  <th>Booking</th>
+                  <th>Where</th>
+                  <th>Scheduled</th>
+                  <th className="right">Price</th>
+                  <th className="right">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((b) => (
+                  <tr key={b.id} className="clickable" onClick={() => navigate(`/bookings/${b.id}`)}>
+                    <td>
+                      <div className="cell-title">
+                        {b.occasion ?? b.type} · {b.client_name ?? 'client'}
+                        {b.creator_name ? ` → ${b.creator_name}` : ''}
+                      </div>
+                      <div className="cell-sub num">{b.id.slice(0, 8)}</div>
+                    </td>
+                    <td>{b.area ?? (b.type === 'remote' ? 'remote' : '—')}</td>
+                    <td className="nowrap num">
+                      {b.scheduled_at ? (
+                        formatWhen(b.scheduled_at)
+                      ) : (
+                        <span style={{ color: 'var(--muted)' }}>not scheduled</span>
+                      )}
+                    </td>
+                    <td className="right nowrap num">{formatMoney(Number(b.price_usd))}</td>
+                    <td className="right">
+                      <div className="cell-pills">
+                        {b.legal_hold && <Pill tone="danger">legal hold</Pill>}
+                        {!b.creator_name && b.status === 'pending' && <Pill tone="warn">needs dispatch</Pill>}
+                        <Pill status={b.status} />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      )}
+      </ListState>
     </>
   );
 }

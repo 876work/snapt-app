@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { EmptyState, Pill, SectionSkeleton, formatWhen } from '../components/ui';
+import { Freshness, ListState, Pill, fetchState, formatWhen } from '../components/ui';
 
 /**
  * Waiting age, escalating. A row 4 working days old must not read the same as
@@ -15,10 +15,10 @@ function WaitingAge({ days, parked }: { days: number; parked?: boolean }) {
   return (
     <>
       <Pill tone={tone}>
-        {days >= 4 ? '\u26A0 ' : ''}
+        {days >= 4 ? '⚠ ' : ''}
         waiting {label}
       </Pill>
-      {parked && <Pill tone="warn">parked \u2014 name review</Pill>}
+      {parked && <Pill tone="warn">parked — name review</Pill>}
     </>
   );
 }
@@ -52,23 +52,28 @@ export function Creators() {
   const navigate = useNavigate();
   const [status, setStatus] = useState('');
 
-  const { data, isLoading, isError, error } = useQuery({
+  const q = useQuery({
     queryKey: ['creators', status],
     queryFn: () => api<{ creators: CreatorRow[] }>(`/v1/admin/creators${status ? `?status=${status}` : ''}`),
     placeholderData: keepPreviousData,
   });
+  const { data, error, refetch, dataUpdatedAt } = q;
+  const { state, stale } = fetchState(q);
 
   const rows = data?.creators ?? [];
   const inReview = rows.filter((c) => c.vetting_status === 'in_review').length;
 
   return (
     <>
-      <h1 className="page-title">Creators</h1>
+      <div className="page-head">
+        <h1 className="page-title">Creators</h1>
+        <Freshness status={state} isStale={stale} updatedAt={dataUpdatedAt} />
+      </div>
       <p className="page-sub">
         Applications queue first{inReview ? ` — ${inReview} waiting for review` : ''}, then the roster.
       </p>
 
-      <div className="toolbar">
+      <div className="list-toolbar">
         <div className="chip-row">
           {FILTERS.map((f) => (
             <button
@@ -82,37 +87,74 @@ export function Creators() {
         </div>
       </div>
 
-      {isLoading ? (
-        <SectionSkeleton rows={6} />
-      ) : isError ? (
-        <EmptyState glyph="⚠">{(error as Error).message}</EmptyState>
-      ) : rows.length === 0 ? (
-        <EmptyState glyph="—">
-          {status ? `No ${status.replace(/_/g, ' ')} creators.` : 'No creator applications yet.'}
-        </EmptyState>
-      ) : (
-        <div className="card row-list">
-          {rows.map((c) => (
-            <div key={c.user_id} className="row row-link" onClick={() => navigate(`/creators/${c.user_id}`)}>
-              <div className="who grow">
-                <div className="name">
-                  {c.name || '(no name)'}
-                  {c.verified ? ' ✓' : ''}
-                </div>
-                <div className="sub">
-                  {c.specialties.join(', ')} · {c.service_type} · {c.base_area ?? 'no base area'}
-                  {c.applied_at ? ` · applied ${formatWhen(c.applied_at)}` : ''}
-                </div>
-              </div>
-              {!c.is_available && c.vetting_status === 'approved' && <Pill tone="neutral">paused</Pill>}
-              <Pill status={c.vetting_status} />
-              {c.vetting_status === 'in_review' && (
-                <WaitingAge days={c.waiting_working_days ?? 0} parked={c.parked_for_name_review} />
-              )}
-            </div>
-          ))}
+      <ListState
+        status={state}
+        isEmpty={rows.length === 0}
+        error={(error as Error | null)?.message}
+        onRetry={() => refetch()}
+        rows={6}
+        empty={
+          status === 'in_review' ? (
+            'No applications waiting — every creator who applied has had a decision.'
+          ) : status === 'suspended' ? (
+            'No suspended creators — the whole roster is in good standing.'
+          ) : status ? (
+            <>
+              No {status.replace(/_/g, ' ')} creators.{' '}
+              <button className="btn ghost" style={{ marginLeft: 4 }} onClick={() => setStatus('')}>
+                Show all creators
+              </button>
+            </>
+          ) : (
+            'No creator applications yet.'
+          )
+        }
+      >
+        <div className="t-table-card">
+          <div className="t-table-scroll">
+            <table className="t-table">
+              <thead>
+                <tr>
+                  <th>Creator</th>
+                  <th>Works</th>
+                  <th>Base area</th>
+                  <th>Applied</th>
+                  <th className="right">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((c) => (
+                  <tr key={c.user_id} className="clickable" onClick={() => navigate(`/creators/${c.user_id}`)}>
+                    <td>
+                      <div className="cell-title">
+                        {c.name || '(no name)'}
+                        {c.verified ? ' ✓' : ''}
+                      </div>
+                    </td>
+                    <td>
+                      <div>{c.specialties.length ? c.specialties.join(', ') : '—'}</div>
+                      <div className="cell-sub">{c.service_type}</div>
+                    </td>
+                    <td>{c.base_area ?? <span style={{ color: 'var(--muted)' }}>no base area</span>}</td>
+                    <td className="nowrap num">
+                      {c.applied_at ? formatWhen(c.applied_at) : <span style={{ color: 'var(--muted)' }}>—</span>}
+                    </td>
+                    <td className="right">
+                      <div className="cell-pills">
+                        {!c.is_available && c.vetting_status === 'approved' && <Pill tone="neutral">paused</Pill>}
+                        <Pill status={c.vetting_status} />
+                        {c.vetting_status === 'in_review' && (
+                          <WaitingAge days={c.waiting_working_days ?? 0} parked={c.parked_for_name_review} />
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      )}
+      </ListState>
     </>
   );
 }

@@ -3,7 +3,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { EmptyState, Pill, SectionSkeleton, formatMoney, formatWhen, useNow, formatDuration } from '../components/ui';
+import {
+  Freshness,
+  ListState,
+  Pill,
+  fetchState,
+  formatDuration,
+  formatMoney,
+  formatWhen,
+  useNow,
+} from '../components/ui';
 
 interface Dispute {
   id: string;
@@ -35,11 +44,13 @@ export function Disputes() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
 
-  const { data, isLoading, isError, error } = useQuery({
+  const q = useQuery({
     queryKey: ['disputes'],
     queryFn: () => api<{ disputes: Dispute[] }>('/v1/admin/disputes'),
     refetchInterval: 60_000,
   });
+  const { data, error, refetch, dataUpdatedAt } = q;
+  const { state, stale } = fetchState(q);
 
   const resolve = useMutation({
     mutationFn: (vars: { id: string; resolution: string; release_payout: boolean }) =>
@@ -57,31 +68,36 @@ export function Disputes() {
 
   return (
     <>
-      <h1 className="page-title">Disputes</h1>
+      <div className="page-head">
+        <h1 className="page-title">Disputes</h1>
+        <Freshness status={state} isStale={stale} updatedAt={dataUpdatedAt} />
+      </div>
       <p className="page-sub">
         Open cases, oldest first. Resolving decides the frozen payout: release it to the creator, or
         withhold it. Both parties are notified.
       </p>
       {actionError && (
-        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--danger)', marginBottom: 12 }}>
+        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--danger)', margin: '14px 0' }}>
           {actionError}
         </div>
       )}
 
-      {isLoading ? (
-        <SectionSkeleton rows={4} />
-      ) : isError ? (
-        <EmptyState glyph="⚠">{(error as Error).message}</EmptyState>
-      ) : rows.length === 0 ? (
-        <EmptyState glyph="✓">No open disputes.</EmptyState>
-      ) : (
-        <div style={{ display: 'grid', gap: 12 }}>
+      <div style={{ marginTop: 16 }}>
+        <ListState
+          status={state}
+          isEmpty={rows.length === 0}
+          error={(error as Error | null)?.message}
+          onRetry={() => refetch()}
+          rows={3}
+          empty="No open disputes — nothing is contested, and no payout is frozen waiting on a decision."
+        >
+        <div style={{ display: 'grid', gap: 'var(--gap-grid)' }}>
           {rows.map((d) => {
             const deadline = d.evidence_deadline_at ? Date.parse(d.evidence_deadline_at) : null;
             const windowOpen = deadline != null && deadline > now;
             const expanded = open === d.id;
             return (
-              <div key={d.id} className="card" style={{ padding: 16, display: 'grid', gap: 10 }}>
+              <div key={d.id} className="t-card" style={{ display: 'grid', gap: 10 }}>
                 <div
                   style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', cursor: 'pointer' }}
                   onClick={() => setOpen(expanded ? null : d.id)}
@@ -166,7 +182,8 @@ export function Disputes() {
             );
           })}
         </div>
-      )}
+        </ListState>
+      </div>
     </>
   );
 }

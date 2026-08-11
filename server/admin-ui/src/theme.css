@@ -1371,3 +1371,356 @@ button {
 
 .bar-track { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .bar-fill { height: 100%; border-radius: 3px; background: var(--brand); }
+
+/* ===========================================================================
+   LIST SCREENS — Today's card treatment, applied to the nine.
+
+   Same radius, shadow, padding scale and card surface as Today, so moving
+   between the dashboard and a list is not a change of material. Two things
+   are new here because Today has no long lists: a table with real column
+   headers, and the three fetch states at list scale.
+
+   Headers appear ONLY where columns genuinely repeat — Bookings, Users,
+   Creators, Audit, Team. Disputes, Payouts, Moderation and Promotions are
+   action surfaces (rows expand in place, carry buttons, checkboxes and
+   warning blocks), so they take the card treatment without a header grid:
+   forcing them into a table would hide the actions or break the expand.
+   =========================================================================== */
+
+.page-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 2px;
+}
+.page-head .page-title { margin-bottom: 0; }
+
+/* Freshness / staleness, matching Today's header line. */
+.freshness { font-size: 12px; color: var(--muted); }
+.freshness.stale { color: var(--danger-ink); font-weight: 600; }
+
+/* ---- table ---- */
+
+.t-table-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+/* Wide tables scroll inside the card rather than pushing the page sideways. */
+.t-table-scroll { overflow-x: auto; }
+
+.t-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.t-table thead th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+  background: var(--bg);
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.t-table tbody td {
+  padding: 13px 18px;
+  border-top: 1px solid var(--line);
+  vertical-align: middle;
+}
+.t-table tbody tr:first-child td { border-top: 0; }
+
+.t-table tbody tr.clickable { cursor: pointer; }
+.t-table tbody tr.clickable:hover { background: var(--bg); }
+.t-table tbody tr.dimmed { opacity: 0.55; }
+
+.t-table .cell-title {
+  font-weight: 650;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+}
+.t-table .cell-sub {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.t-table td.right { text-align: right; }
+.t-table td.nowrap { white-space: nowrap; }
+.t-table .cell-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.t-table td.right .cell-pills { justify-content: flex-end; }
+.t-table .cell-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* Audit detail: key/value chips that wrap. Most entries carry no detail at
+   all, so the rhythm holds; the few that do are genuinely taller because
+   they genuinely say more — nothing is truncated away. */
+.kvchips { display: flex; gap: 5px; flex-wrap: wrap; }
+.kvchip {
+  display: inline-flex;
+  gap: 4px;
+  align-items: baseline;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 2px 7px;
+  font-size: 11.5px;
+  max-width: 100%;
+}
+.kvchip b { color: var(--muted); font-weight: 600; }
+.kvchip span { color: var(--ink-2); overflow-wrap: anywhere; }
+
+/* ---- the three fetch states, at list scale ---- */
+
+.lst-loading {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.lst-loading-row { padding: 15px 18px; }
+.lst-loading-row + .lst-loading-row { border-top: 1px solid var(--line); }
+
+.lst-state {
+  border-radius: var(--radius);
+  padding: 30px 24px;
+  text-align: center;
+}
+.lst-state .g { display: block; font-size: 21px; line-height: 1; margin-bottom: 9px; }
+.lst-state .msg { font-size: 13.5px; }
+
+/* Empty — quiet, and says what emptiness means here. */
+.lst-state.empty {
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  color: var(--muted);
+}
+.lst-state.empty .g { color: var(--ok-ink); opacity: 0.75; }
+
+/* Failed — an event, not a state of the data. Nothing about this should be
+   mistakable for a quiet, healthy, empty queue. */
+.lst-state.failed {
+  background: var(--danger-soft);
+  border: 1px solid #f4cccc;
+  color: var(--danger-ink);
+  box-shadow: none;
+}
+.lst-state.failed .g { color: var(--danger); }
+.lst-state.failed .msg { font-weight: 700; font-size: 14px; }
+.lst-state.failed .why {
+  font-size: 12.5px;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+.lst-state.failed .hint {
+  font-size: 12px;
+  margin-top: 8px;
+  color: var(--danger-ink);
+  opacity: 0.75;
+  max-width: 46ch;
+  margin-inline: auto;
+}
+.lst-retry { margin-top: 14px; }
+
+/* Inline variant, for a failed section INSIDE a card (Moderation's two
+   queues, Promotions' audience count) where a full panel would be too loud. */
+.lst-inline {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 12.5px;
+  text-align: left;
+}
+.lst-inline.failed {
+  background: var(--danger-soft);
+  color: var(--danger-ink);
+  font-weight: 600;
+}
+.lst-inline.empty { background: var(--bg); color: var(--muted); }
+
+/* ---- toolbar sits on the card treatment, not floating above it ---- */
+
+.list-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 16px 0 14px;
+}
+.list-toolbar .spacer { flex: 1; }
+
+/* ---------------------------------------------------------------------------
+   DETAIL SCREENS — CreatorDetail, BookingDetail, UserDetail.
+
+   Same card, radius, shadow and heading as Today and the list screens. The
+   fact grid is a new class rather than a change to `.kv`, because `.kv` is
+   shared with Config, Legal and VerificationPanel, which are out of scope.
+--------------------------------------------------------------------------- */
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.detail-head .page-title { margin-bottom: 0; }
+/* Actions sit to the right of the identity, not interleaved with the pills. */
+.detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 16px 22px;
+}
+.facts .k {
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.facts .v {
+  font-weight: 600;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+.facts .v.quiet,
+.facts .quiet { color: var(--muted); font-weight: 500; }
+
+/* Stat tiles on a detail page — Today's figure treatment, compact. */
+.d-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 12px;
+}
+.d-tile {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 15px 16px;
+}
+.d-tile .n {
+  font-size: 25px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--ink);
+}
+.d-tile .lab { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+/* The applicant's face — its own block, not a flex item in the title row. */
+.headshot-card {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.headshot-card img {
+  width: 96px;
+  height: 96px;
+  border-radius: 14px;
+  object-fit: cover;
+  flex: none;
+  background: var(--bg);
+}
+.headshot-card .body { flex: 1; min-width: 200px; }
+.headshot-card .note { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+
+.review-stars { color: var(--brand-ink); letter-spacing: 0.06em; }
+
+/* Form label inside a card. Deliberately NOT `.k` — that one is only styled
+   within a `.kv` grid and is shared with screens outside this batch. */
+.field-label {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+
+@media (max-width: 900px) {
+  .t-table thead th,
+  .t-table tbody td { padding-left: 13px; padding-right: 13px; }
+}
+
+/* ---------------------------------------------------------------------------
+   ANALYTICS — figure-and-pill, for the categories a bar chart cannot carry.
+
+   Same reasoning as Today's rejected department chart: a horizontal bar per
+   creator, where one creator has four jobs and thirteen have none, draws
+   thirteen zero-length bars and reads as a rendering fault rather than a
+   quiet month. Where the shape of the data is a ranking or a single figure,
+   this states it as a ranking or a single figure. The charts that survive
+   are the ones with something to plot.
+--------------------------------------------------------------------------- */
+
+.fig-lead {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.fig-lead .n {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--ink);
+}
+.fig-lead .cap { font-size: 12.5px; color: var(--muted); }
+
+.fig-list { display: grid; }
+.fig-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+.fig-row:first-child { border-top: 0; }
+.fig-row .lab { flex: 1; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.fig-row .val {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.fig-note {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
