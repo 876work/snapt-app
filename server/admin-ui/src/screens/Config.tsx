@@ -630,6 +630,27 @@ export function Config() {
 
   const editingSpec = editing ? CONFIG_SCHEMA[editing.key] : undefined;
 
+  /**
+   * SETTINGS THE SERVER READS THAT THE TABLE DOES NOT HAVE.
+   *
+   * The list only ever showed rows that exist, so a key the code reads and
+   * app_config lacks was invisible here — the server quietly used a hardcoded
+   * fallback and nobody could see it, let alone change it. min_lead_minutes_*
+   * were exactly that. Absence is a state worth showing, not a reason to show
+   * nothing.
+   *
+   * Only keys with a serverDefault can be created in one click, because that
+   * default is the number the platform is already behaving with. Creating it
+   * changes nothing about behaviour — it just makes the value visible and
+   * editable, which is the whole point.
+   */
+  const missing = useMemo(() => {
+    const present = new Set(rows.map((r) => r.key));
+    return Object.entries(CONFIG_SCHEMA)
+      .filter(([key, spec]) => !present.has(key) && spec.control.kind !== 'elsewhere')
+      .map(([key, spec]) => ({ key, spec }));
+  }, [rows]);
+
   return (
     <>
       <h1 className="page-title">Config</h1>
@@ -658,6 +679,62 @@ export function Config() {
           aria-label="Filter config keys"
         />
       </div>
+
+      {missing.length > 0 && (
+        <div
+          className="card"
+          style={{ padding: 14, borderLeft: '4px solid var(--warn)', marginBottom: 16 }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>
+            {missing.length} {missing.length === 1 ? 'setting the server reads is' : 'settings the server reads are'} missing
+          </div>
+          <p className="sub" style={{ marginTop: 0 }}>
+            The code reads {missing.length === 1 ? 'this key' : 'these keys'} but there is no row for
+            {missing.length === 1 ? ' it' : ' them'}, so the server is using a value built into the
+            build and nobody can change it here. Creating a setting at its default writes down the
+            number already in use — nothing about the platform changes.
+          </p>
+          <div className="row-list" style={{ marginTop: 8 }}>
+            {missing.map(({ key, spec }) => (
+              <div key={key} className="row">
+                <div className="who grow">
+                  <div className="name">{spec.title}</div>
+                  <div className="sub num" style={{ opacity: 0.65 }}>{key}</div>
+                  <div className="sub">
+                    {spec.serverDefault !== undefined
+                      ? `Server is currently using ${displayValue(spec, spec.serverDefault)}.`
+                      : 'No built-in default — this one needs a value chosen deliberately.'}
+                  </div>
+                </div>
+                {spec.serverDefault !== undefined ? (
+                  <button
+                    className="btn ghost"
+                    disabled={update.isPending}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Create ${key} at ${displayValue(spec, spec.serverDefault)}?\n\n` +
+                            'This is the value the server already uses, so nothing changes today — ' +
+                            'it just becomes visible and editable here.',
+                        )
+                      ) {
+                        setSaved(null);
+                        update.mutate({ key, value: spec.serverDefault });
+                      }
+                    }}
+                  >
+                    Create at default
+                  </button>
+                ) : (
+                  <span className="sub" style={{ maxWidth: 220, textAlign: 'right' }}>
+                    Add it by SQL — there is no safe default to offer.
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <SectionSkeleton rows={8} />

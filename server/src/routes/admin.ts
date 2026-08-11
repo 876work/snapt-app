@@ -402,8 +402,33 @@ export function registerAdminRoutes(app: FastifyInstance) {
         // A key created from the screen says so, rather than arriving blank.
         description: existing?.description ?? 'Created from the admin Config screen.',
       };
+      /**
+       * A WRITE THAT FAILED VERIFICATION IS STILL SOMETHING THAT HAPPENED.
+       *
+       * Auditing only successes leaves the same hole as the original bug, one
+       * layer down: the statement may well have landed and the log would say
+       * nothing. That is not hypothetical — while the read-back compared
+       * JSON strings, three real pricing changes wrote correctly, returned
+       * 500, and left no trace. The log has to carry what was ATTEMPTED, with
+       * the reason it could not be confirmed, so the row can be reconciled by
+       * hand afterwards.
+       */
+      const auditFailure = async (reason: string) => {
+        await audit(adminId, 'config_update_unverified', key, {
+          reason,
+          attempted: hasValue ? request.body!.value : undefined,
+          attempted_confirmed: hasConfirmed ? request.body!.confirmed : undefined,
+          previous: existing?.value ?? null,
+          existed_before: !!existing,
+          note: 'The write may or may not have landed — check the row before retrying.',
+        });
+      };
+
       const { error } = await supabaseAdmin.from('app_config').upsert(row, { onConflict: 'key' });
-      if (error) return reply.code(500).send({ error: `Config write failed: ${error.message}` });
+      if (error) {
+        await auditFailure(`upsert failed: ${error.message}`);
+        return reply.code(500).send({ error: `Config write failed: ${error.message}` });
+      }
 
       const { data: check } = await supabaseAdmin
         .from('app_config')
@@ -411,14 +436,17 @@ export function registerAdminRoutes(app: FastifyInstance) {
         .eq('key', key)
         .maybeSingle();
       if (!check) {
+        await auditFailure('read-back found no row for the key');
         return reply.code(500).send({ error: 'Config write did not stick — the key is still missing.' });
       }
       if (hasValue && canonical(check.value) !== canonical(request.body!.value)) {
+        await auditFailure('stored value does not match what was sent');
         return reply.code(500).send({
-          error: 'Config write did not stick — the stored value does not match what was sent. Nothing was changed.',
+          error: 'Config write did not stick — the stored value does not match what was sent. Check the current value before retrying.',
         });
       }
       if (hasConfirmed && check.confirmed !== request.body!.confirmed) {
+        await auditFailure('confirmed flag did not change');
         return reply.code(500).send({ error: 'Config write did not stick — confirmed flag unchanged.' });
       }
       bustConfigCache();

@@ -149,6 +149,19 @@ export interface KeySpec {
   warning?: string;
   /** Explains a coupling the row itself cannot show. */
   coupledWith?: string;
+  /**
+   * THE VALUE THE SERVER IS ALREADY USING when this row does not exist.
+   *
+   * Only set where the code genuinely falls back to a literal — every entry
+   * below is lifted from a `configNumber(key, N)` call, not invented. That
+   * is what makes "create at default" honest: it writes down the number the
+   * platform is behaving with right now, so the row starts by matching
+   * reality rather than changing it.
+   *
+   * Keys without one are still reported as missing; they just cannot be
+   * created in one click, because nobody knows what they should say.
+   */
+  serverDefault?: unknown;
 }
 
 const DAYS = (min: number, max: number): NumberSpec => ({ kind: 'number', unit: 'days', min, max, integer: true, step: 1 });
@@ -272,22 +285,20 @@ export const CONFIG_SCHEMA: Record<string, KeySpec> = {
   },
 
   // ---- Timing & windows ---------------------------------------------------
-  advance_booking_window_days: { group: 'timing', title: 'How far ahead a session can be booked', control: DAYS(1, 365) },
+  advance_booking_window_days: { group: 'timing', title: 'How far ahead a session can be booked', control: DAYS(1, 365), serverDefault: 14 },
   free_revisions_per_order: { group: 'timing', title: 'Free revision rounds per order', control: COUNT('rounds', 0, 10) },
   reschedule_free_count: { group: 'timing', title: 'Free reschedules per booking', control: COUNT('reschedules', 0, 10) },
   reschedule_disabled_under_hours: { group: 'timing', title: 'Reschedule disabled under', control: HOURS(0, 168) },
-  no_show_grace_minutes: { group: 'timing', title: 'No-show grace period', control: MINUTES(0, 120) },
+  no_show_grace_minutes: { group: 'timing', title: 'No-show grace period', control: MINUTES(0, 120), serverDefault: 15 },
   offer_window_minutes: { group: 'timing', title: 'Creator accept/decline window', control: MINUTES(1, 120) },
   min_lead_minutes_in_person: {
     group: 'timing',
     title: 'Minimum notice — in-person',
-    control: MINUTES(0, 10080),
-  },
+    control: MINUTES(0, 10080), serverDefault: 120 },
   min_lead_minutes_remote: {
     group: 'timing',
     title: 'Minimum notice — remote edit',
-    control: MINUTES(0, 10080),
-  },
+    control: MINUTES(0, 10080), serverDefault: 30 },
   dispute_filing_window_days: {
     group: 'timing',
     title: 'Dispute filing window',
@@ -304,7 +315,7 @@ export const CONFIG_SCHEMA: Record<string, KeySpec> = {
   },
   dispute_evidence_window_hours: { group: 'timing', title: 'Dispute evidence window', control: HOURS(1, 336) },
   dispute_appeal_window_days: { group: 'timing', title: 'Dispute appeal window', control: DAYS(1, 90) },
-  social_selection_window_hours: { group: 'timing', title: 'Client proof-selection window', control: HOURS(1, 336) },
+  social_selection_window_hours: { group: 'timing', title: 'Client proof-selection window', control: HOURS(1, 336), serverDefault: 72 },
   delivery_windows: {
     group: 'timing',
     title: 'Delivery commitments',
@@ -333,18 +344,17 @@ export const CONFIG_SCHEMA: Record<string, KeySpec> = {
     warning:
       'While this is on, the retention job has never deleted a single file. Turning it off arms permanent deletion of client deliverables and creator footage across the whole platform, on the next scheduled run. There is no undo and no recycle bin.',
   },
-  retention_raw_days: { group: 'retention', title: 'Delete raw footage after delivery', control: DAYS(1, 3650), danger: 'high' },
+  retention_raw_days: { group: 'retention', title: 'Delete raw footage after delivery', control: DAYS(1, 3650), danger: 'high', serverDefault: 30 },
   retention_deliverable_days: {
     group: 'retention',
     title: 'Delete paid deliverables after delivery',
     control: DAYS(1, 3650),
     danger: 'high',
-    warning: "This is the client's finished work. Lowering it deletes what they paid for, sooner.",
-  },
-  retention_cancelled_days: { group: 'retention', title: 'Delete files after cancellation', control: DAYS(1, 3650), danger: 'high' },
-  retention_abandoned_days: { group: 'retention', title: 'Delete files on abandoned orders', control: DAYS(1, 3650), danger: 'high' },
-  retention_account_deleted_days: { group: 'retention', title: 'Delete files after account deletion', control: DAYS(1, 3650), danger: 'high' },
-  retention_hold_release_days: { group: 'retention', title: 'Files eligible after a legal hold lifts', control: DAYS(1, 3650), danger: 'high' },
+    warning: "This is the client's finished work. Lowering it deletes what they paid for, sooner.", serverDefault: 365 },
+  retention_cancelled_days: { group: 'retention', title: 'Delete files after cancellation', control: DAYS(1, 3650), danger: 'high', serverDefault: 30 },
+  retention_abandoned_days: { group: 'retention', title: 'Delete files on abandoned orders', control: DAYS(1, 3650), danger: 'high', serverDefault: 7 },
+  retention_account_deleted_days: { group: 'retention', title: 'Delete files after account deletion', control: DAYS(1, 3650), danger: 'high', serverDefault: 30 },
+  retention_hold_release_days: { group: 'retention', title: 'Files eligible after a legal hold lifts', control: DAYS(1, 3650), danger: 'high', serverDefault: 90 },
   raw_footage_retention_days: {
     group: 'retention',
     title: 'Raw footage retention (legacy key)',
@@ -381,7 +391,7 @@ export const CONFIG_SCHEMA: Record<string, KeySpec> = {
   late_cancel_strike_weight: { group: 'safety', title: 'Strikes for a late cancellation', control: COUNT('strikes', 1, 5) },
   strike_deprioritize_days: { group: 'safety', title: 'Deprioritisation length', control: DAYS(1, 365) },
   strike_suspension_days: { group: 'safety', title: 'Suspension length', control: DAYS(1, 365) },
-  portfolio_preapproval_count: { group: 'safety', title: 'Portfolio items needing approval', control: COUNT('submissions', 0, 20) },
+  portfolio_preapproval_count: { group: 'safety', title: 'Portfolio items needing approval', control: COUNT('submissions', 0, 20), serverDefault: 3 },
   background_check_recheck_months: { group: 'safety', title: 'Background re-check interval', control: MONTHS(1, 120) },
   creator_non_circumvention_months: { group: 'safety', title: 'Non-circumvention period', control: MONTHS(1, 120) },
 
