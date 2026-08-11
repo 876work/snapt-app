@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { NotesThread } from '../components/NotesThread';
-import { EmptyState, Pill, SectionSkeleton, formatMoney, formatWhen } from '../components/ui';
+import { ListState, Pill, fetchState, formatMoney, formatWhen } from '../components/ui';
 import { AccountSwitch } from '../components/AccountSwitch';
 
 interface UserDetailData {
@@ -72,16 +72,21 @@ interface UserDetailData {
   }[];
 }
 
+const txTone = (status: string) => (status === 'succeeded' ? 'ok' : status === 'failed' ? 'danger' : 'warn');
+
 export function UserDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { identity } = useAuth();
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const { data, isLoading, isError, error } = useQuery({
+  const q = useQuery({
     queryKey: ['user', id],
     queryFn: () => api<UserDetailData>(`/v1/admin/users/${id}`),
   });
+  const { data, error, refetch } = q;
+  const { state } = fetchState(q);
 
   const suspend = useMutation({
     mutationFn: (reason: string) =>
@@ -115,19 +120,29 @@ export function UserDetail() {
     onError: (e) => setActionError((e as Error).message),
   });
 
-  if (isLoading) {
+  const askReason = (verb: string): string | null => {
+    const reason = window.prompt(`Reason for ${verb} (required — the user is notified and it is audited):`);
+    return reason?.trim() || null;
+  };
+
+  // The whole page is one request, so a failure is a page-level failure —
+  // and it must not read as "this user has nothing on record".
+  if (state !== 'success' || !data) {
     return (
       <>
         <h1 className="page-title">Customer lookup</h1>
-        <SectionSkeleton rows={5} />
-      </>
-    );
-  }
-  if (isError || !data) {
-    return (
-      <>
-        <h1 className="page-title">Customer lookup</h1>
-        <EmptyState glyph="⚠">{(error as Error | undefined)?.message ?? 'Not found'}</EmptyState>
+        <div style={{ marginTop: 16 }}>
+          <ListState
+            status={state}
+            error={(error as Error | null)?.message}
+            errorHint="This account's record could not be read. Nothing is known about it from this screen — no bookings, no spend, no history. It is not an empty account."
+            onRetry={() => refetch()}
+            rows={5}
+            empty=""
+          >
+            <></>
+          </ListState>
+        </div>
       </>
     );
   }
@@ -135,116 +150,115 @@ export function UserDetail() {
   const { profile, creator, stats } = data;
   const suspended = Boolean(profile.suspended_at);
 
-  const askReason = (verb: string): string | null => {
-    const reason = window.prompt(`Reason for ${verb} (required — the user is notified and it is audited):`);
-    return reason?.trim() || null;
-  };
-
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <h1 className="page-title" style={{ marginBottom: 0 }}>
-          {profile.full_name || '(no name)'}
-        </h1>
+      <div className="detail-head">
+        <h1 className="page-title">{profile.full_name || '(no name)'}</h1>
         {suspended && <Pill status="suspended" />}
         {profile.deleted_at && <Pill tone="neutral">deleted account</Pill>}
         {profile.status === 'disabled' && <Pill tone="warn">Disabled</Pill>}
         {creator && <Pill status={creator.vetting_status} />}
-        {/* The hard off switch, distinct from Suspend beside it: no login, no
-            app, no notifications. Admin-only. */}
-        {identity?.role === 'admin' && (
-          <AccountSwitch userId={profile.id} status={profile.status ?? 'active'} />
-        )}
-        {identity?.role === 'admin' &&
-          (suspended ? (
-            <button
-              className="btn ghost"
-              disabled={unsuspend.isPending}
-              onClick={() => {
-                const reason = askReason('unsuspending');
-                if (reason) unsuspend.mutate(reason);
-              }}
-            >
-              Unsuspend
-            </button>
-          ) : (
-            <button
-              className="btn danger"
-              disabled={suspend.isPending}
-              onClick={() => {
-                const reason = askReason('suspending this account');
-                if (reason) suspend.mutate(reason);
-              }}
-            >
-              Suspend
-            </button>
-          ))}
-        <button
-          className="btn ghost"
-          disabled={passwordLink.isPending}
-          onClick={() => {
-            if (window.confirm(`Email ${profile.email ?? 'this user'} a set-password link? It expires in 72 hours.`))
-              passwordLink.mutate();
-          }}
-        >
-          Send password link
-        </button>
-        {!creator && (
+
+        <div className="detail-actions">
+          {/* The hard off switch, distinct from Suspend beside it: no login,
+              no app, no notifications. Admin-only. */}
+          {identity?.role === 'admin' && (
+            <AccountSwitch userId={profile.id} status={profile.status ?? 'active'} />
+          )}
+          {identity?.role === 'admin' &&
+            (suspended ? (
+              <button
+                className="btn ghost"
+                disabled={unsuspend.isPending}
+                onClick={() => {
+                  const reason = askReason('unsuspending');
+                  if (reason) unsuspend.mutate(reason);
+                }}
+              >
+                Unsuspend
+              </button>
+            ) : (
+              <button
+                className="btn danger"
+                disabled={suspend.isPending}
+                onClick={() => {
+                  const reason = askReason('suspending this account');
+                  if (reason) suspend.mutate(reason);
+                }}
+              >
+                Suspend
+              </button>
+            ))}
           <button
             className="btn ghost"
-            disabled={nudgeApply.isPending}
+            disabled={passwordLink.isPending}
             onClick={() => {
-              if (window.confirm('Send the “Become a creator” email pointing them at the in-app application?'))
-                nudgeApply.mutate();
+              if (window.confirm(`Email ${profile.email ?? 'this user'} a set-password link? It expires in 72 hours.`))
+                passwordLink.mutate();
             }}
           >
-            Invite to apply
+            Send password link
           </button>
-        )}
+          {!creator && (
+            <button
+              className="btn ghost"
+              disabled={nudgeApply.isPending}
+              onClick={() => {
+                if (window.confirm('Send the “Become a creator” email pointing them at the in-app application?'))
+                  nudgeApply.mutate();
+              }}
+            >
+              Invite to apply
+            </button>
+          )}
+        </div>
       </div>
       <p className="page-sub">
         {profile.email ?? 'no email'} · {profile.phone ?? 'no phone'} · joined {formatWhen(profile.created_at)} ·
         prefers {profile.currency}
       </p>
       {sentFlash && (
-        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--ok)', marginBottom: 12 }}>
+        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--ok)', margin: '14px 0' }}>
           {sentFlash}
         </div>
       )}
       {actionError && (
-        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--danger)', marginBottom: 12 }}>
+        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--danger)', margin: '14px 0' }}>
           {actionError}
         </div>
       )}
 
-      {/* Notes lead: support reads context before acting on the account. */}
-      <NotesThread subjectType="user" subjectId={profile.id} />
+      <div style={{ marginTop: 16 }}>
+        {/* Notes lead: support reads context before acting on the account. */}
+        <NotesThread subjectType="user" subjectId={profile.id} />
+      </div>
 
-      <div className="section">
-        <div className="tiles">
-          <div className="card tile">
-            <div className="value num">{stats.bookings_total}</div>
-            <div className="label">bookings ({stats.bookings_completed} completed)</div>
-          </div>
-          <div className="card tile">
-            <div className="value num">{formatMoney(stats.lifetime_spend_usd)}</div>
-            <div className="label">lifetime spend (net of refunds)</div>
-          </div>
-          <div className="card tile">
-            <div className="value num">{stats.disputes_opened}</div>
-            <div className="label">disputes opened</div>
-          </div>
-          <div className="card tile">
-            <div className="value num">{profile.false_report_count}</div>
-            <div className="label">false reports counted</div>
-          </div>
+      <div className="d-tiles" style={{ marginTop: 'var(--gap-grid)' }}>
+        <div className="d-tile">
+          <div className="n num">{stats.bookings_total}</div>
+          <div className="lab">bookings ({stats.bookings_completed} completed)</div>
+        </div>
+        <div className="d-tile">
+          <div className="n num">{formatMoney(stats.lifetime_spend_usd)}</div>
+          <div className="lab">lifetime spend (net of refunds)</div>
+        </div>
+        <div className="d-tile">
+          <div className="n num">{stats.disputes_opened}</div>
+          <div className="lab">disputes opened</div>
+        </div>
+        <div className="d-tile">
+          <div className="n num">{profile.false_report_count}</div>
+          <div className="lab">false reports counted</div>
         </div>
       </div>
 
       {creator && (
-        <div className="section">
-          <h2>Creator</h2>
-          <div className="card kv">
+        <div className="t-card" style={{ marginTop: 'var(--gap-grid)' }}>
+          <div className="t-card-head">
+            <h2>Creator</h2>
+            <Link className="meta" to={`/creators/${profile.id}`}>Open in Creators →</Link>
+          </div>
+          <div className="facts">
             <div>
               <div className="k">Status</div>
               <div className="v">
@@ -261,101 +275,158 @@ export function UserDetail() {
             </div>
             <div>
               <div className="k">Specialties</div>
-              <div className="v">{creator.specialties.join(', ')}</div>
+              <div className="v">{creator.specialties.length ? creator.specialties.join(', ') : '—'}</div>
             </div>
             <div>
-              <div className="k">Full record</div>
-              <div className="v">
-                <Link to={`/creators/${profile.id}`}>Open in Creators →</Link>
+              <div className="k">Applied</div>
+              <div className="v num">
+                {creator.applied_at ? formatWhen(creator.applied_at) : <span className="v quiet">—</span>}
               </div>
             </div>
           </div>
         </div>
       )}
 
-      <div className="section">
-        <h2>
-          Bookings <span className="count num">{data.bookings.length || ''}</span>
-        </h2>
+      <div className="t-card" style={{ marginTop: 'var(--gap-grid)' }}>
+        <div className="t-card-head">
+          <h2>Bookings</h2>
+          <span className="meta num">{data.bookings.length}</span>
+        </div>
         {data.bookings.length === 0 ? (
-          <EmptyState glyph="—">No bookings yet.</EmptyState>
+          <div className="lst-inline empty">
+            <span>—</span>
+            <span>No bookings yet — this account has never booked a session.</span>
+          </div>
         ) : (
-          <div className="card row-list">
-            {data.bookings.map((b) => (
-              <Link key={b.id} to={`/bookings/${b.id}`} className="row row-link" style={{ textDecoration: 'none', color: 'inherit' }}>
-                <div className="who grow">
-                  <div className="name">
-                    {b.occasion ?? b.type}
-                    {b.creator_name ? ` → ${b.creator_name}` : ''}
-                  </div>
-                  <div className="sub">
-                    {b.area ?? (b.type === 'remote' ? 'remote' : '—')}
-                    {b.scheduled_at ? ` · ${formatWhen(b.scheduled_at)}` : ''} · {formatMoney(Number(b.price_usd))}
-                  </div>
-                </div>
-                <Pill status={b.status} />
-              </Link>
-            ))}
+          <div className="t-table-scroll">
+            <table className="t-table">
+              <thead>
+                <tr>
+                  <th>Booking</th>
+                  <th>Where</th>
+                  <th>Scheduled</th>
+                  <th className="right">Price</th>
+                  <th className="right">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.bookings.map((b) => (
+                  <tr key={b.id} className="clickable" onClick={() => navigate(`/bookings/${b.id}`)}>
+                    <td>
+                      <div className="cell-title">
+                        {b.occasion ?? b.type}
+                        {b.creator_name ? ` → ${b.creator_name}` : ''}
+                      </div>
+                    </td>
+                    <td>{b.area ?? (b.type === 'remote' ? 'remote' : '—')}</td>
+                    <td className="nowrap num">
+                      {b.scheduled_at ? formatWhen(b.scheduled_at) : <span style={{ color: 'var(--muted)' }}>not scheduled</span>}
+                    </td>
+                    <td className="right nowrap num">{formatMoney(Number(b.price_usd))}</td>
+                    <td className="right">
+                      <div className="cell-pills"><Pill status={b.status} /></div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
 
-      <div className="section">
-        <h2>
-          Payments <span className="count num">{data.transactions.length || ''}</span>
-        </h2>
+      <div className="t-card" style={{ marginTop: 'var(--gap-grid)' }}>
+        <div className="t-card-head">
+          <h2>Payments</h2>
+          <span className="meta num">{data.transactions.length}</span>
+        </div>
         {data.transactions.length === 0 ? (
-          <EmptyState glyph="—">No transactions yet.</EmptyState>
+          <div className="lst-inline empty">
+            <span>—</span>
+            <span>No transactions yet — no money has moved on this account.</span>
+          </div>
         ) : (
-          <div className="card row-list">
-            {data.transactions.map((t) => (
-              <div key={t.id} className="row">
-                <div className="who grow">
-                  <div className="name">
-                    {t.type} · {formatMoney(Number(t.amount_usd))}
-                  </div>
-                  <div className="sub">
-                    {formatWhen(t.created_at)} · booking {t.booking_id.slice(0, 8)}
-                  </div>
-                </div>
-                <Pill
-                  tone={t.status === 'succeeded' ? 'ok' : t.status === 'failed' ? 'danger' : 'warn'}
-                >
-                  {t.status}
-                </Pill>
-              </div>
-            ))}
+          <div className="t-table-scroll">
+            <table className="t-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th className="right">Amount</th>
+                  <th>When</th>
+                  <th>Booking</th>
+                  <th className="right">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.transactions.map((t) => (
+                  <tr key={t.id}>
+                    <td><span className="cell-title">{t.type}</span></td>
+                    <td className="right nowrap num">{formatMoney(Number(t.amount_usd))}</td>
+                    <td className="nowrap num">{formatWhen(t.created_at)}</td>
+                    <td className="num" style={{ color: 'var(--muted)' }}>
+                      <Link to={`/bookings/${t.booking_id}`}>{t.booking_id.slice(0, 8)}</Link>
+                    </td>
+                    <td className="right">
+                      <div className="cell-pills"><Pill tone={txTone(t.status)}>{t.status}</Pill></div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
 
       {data.disputes.length > 0 && (
-        <div className="section">
-          <h2>
-            Disputes opened <span className="count num">{data.disputes.length}</span>
-          </h2>
-          <div className="card row-list">
-            {data.disputes.map((d) => (
-              <div key={d.id} className="row">
-                <div className="who grow">
-                  <div className="name">{d.category.replace(/_/g, ' ')}</div>
-                  <div className="sub">
-                    {formatWhen(d.created_at)} · booking {d.booking_id.slice(0, 8)}
-                  </div>
-                </div>
-                <Pill status={d.status} />
-              </div>
-            ))}
+        <div className="t-card" style={{ marginTop: 'var(--gap-grid)' }}>
+          <div className="t-card-head">
+            <h2>Disputes opened</h2>
+            <span className="meta num">{data.disputes.length}</span>
+          </div>
+          <div className="t-table-scroll">
+            <table className="t-table">
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th>Opened</th>
+                  <th>Resolved</th>
+                  <th>Booking</th>
+                  <th className="right">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.disputes.map((d) => (
+                  <tr key={d.id}>
+                    <td><span className="cell-title">{d.category.replace(/_/g, ' ')}</span></td>
+                    <td className="nowrap num">{formatWhen(d.created_at)}</td>
+                    <td className="nowrap num">
+                      {d.resolved_at ? formatWhen(d.resolved_at) : <span style={{ color: 'var(--muted)' }}>—</span>}
+                    </td>
+                    <td className="num" style={{ color: 'var(--muted)' }}>
+                      <Link to={`/bookings/${d.booking_id}`}>{d.booking_id.slice(0, 8)}</Link>
+                    </td>
+                    <td className="right">
+                      <div className="cell-pills"><Pill status={d.status} /></div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
-      <div className="section">
-        <h2>Policy consents</h2>
+      <div className="t-card" style={{ marginTop: 'var(--gap-grid)' }}>
+        <div className="t-card-head">
+          <h2>Policy consents</h2>
+          <span className="meta num">{data.consents.length}</span>
+        </div>
         {data.consents.length === 0 ? (
-          <EmptyState glyph="—">No consent records.</EmptyState>
+          <div className="lst-inline empty">
+            <span>—</span>
+            <span>No consent records for this account.</span>
+          </div>
         ) : (
-          <div className="card kv">
+          <div className="facts">
             {data.consents.map((c) => (
               <div key={c.doc_type}>
                 <div className="k">{c.doc_type.replace(/-/g, ' ')}</div>
@@ -368,27 +439,53 @@ export function UserDetail() {
         )}
       </div>
 
-      <div className="section">
-        <h2>Admin history</h2>
+      <div className="t-card" style={{ marginTop: 'var(--gap-grid)' }}>
+        <div className="t-card-head">
+          <h2>Admin history</h2>
+          <span className="meta num">{data.admin_history.length}</span>
+        </div>
         {data.admin_history.length === 0 ? (
-          <EmptyState glyph="—">No admin actions touch this account.</EmptyState>
+          <div className="lst-inline empty">
+            <span>✓</span>
+            <span>No admin action has ever touched this account.</span>
+          </div>
         ) : (
-          <div className="card row-list">
-            {data.admin_history.map((a) => (
-              <div key={a.id} className="row">
-                <div className="who grow">
-                  <div className="name">{a.action.replace(/_/g, ' ')}</div>
-                  <div className="sub">
-                    {a.admin_name ?? 'admin'} · {formatWhen(a.created_at)}
-                    {a.detail && Object.keys(a.detail).length > 0
-                      ? ` · ${Object.entries(a.detail)
-                          .map(([k, v]) => `${k}: ${String(v)}`)
-                          .join(' · ')}`
-                      : ''}
-                  </div>
-                </div>
-              </div>
-            ))}
+          <div className="t-table-scroll">
+            <table className="t-table">
+              <thead>
+                <tr>
+                  <th>Action</th>
+                  <th>Admin</th>
+                  <th>When</th>
+                  <th>Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.admin_history.map((a) => (
+                  <tr key={a.id}>
+                    <td className="nowrap"><span className="cell-title">{a.action.replace(/_/g, ' ')}</span></td>
+                    <td className="nowrap">{a.admin_name ?? 'admin'}</td>
+                    <td className="nowrap num">{formatWhen(a.created_at)}</td>
+                    {/* Chips rather than one stringified line, same as the
+                        audit log — a config write here used to wrap to four. */}
+                    <td>
+                      {Object.keys(a.detail ?? {}).length === 0 ? (
+                        <span style={{ color: 'var(--faint)' }}>—</span>
+                      ) : (
+                        <div className="kvchips">
+                          {Object.entries(a.detail).map(([k, v]) => (
+                            <span className="kvchip" key={k}>
+                              <b>{k.replace(/_/g, ' ')}</b>
+                              <span>{typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

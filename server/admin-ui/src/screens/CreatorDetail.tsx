@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { NotesThread } from '../components/NotesThread';
 import { VerificationPanel } from '../components/VerificationPanel';
-import { EmptyState, Pill, SectionSkeleton, formatMoney, formatWhen } from '../components/ui';
+import { ListState, Pill, fetchState, formatMoney, formatWhen } from '../components/ui';
 
 interface CreatorDetailData {
   profile: {
@@ -64,16 +64,22 @@ interface CreatorDetailData {
   }[];
 }
 
+const portfolioTone = (status: string) =>
+  status === 'published' || status === 'auto' ? 'ok' : status === 'pending' ? 'warn' : 'neutral';
+
 export function CreatorDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { identity } = useAuth();
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const { data, isLoading, isError, error } = useQuery({
+  const q = useQuery({
     queryKey: ['creator', id],
     queryFn: () => api<CreatorDetailData>(`/v1/admin/creators/${id}`),
   });
+  const { data, error, refetch } = q;
+  const { state } = fetchState(q);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['creator', id] });
   const approve = useMutation({
@@ -103,19 +109,24 @@ export function CreatorDetail() {
     onSettled: refresh,
   });
 
-  if (isLoading) {
+  // One request for the whole page: a failure is page-level, and must not
+  // read as a creator with an empty record.
+  if (state !== 'success' || !data) {
     return (
       <>
         <h1 className="page-title">Creator</h1>
-        <SectionSkeleton rows={5} />
-      </>
-    );
-  }
-  if (isError || !data) {
-    return (
-      <>
-        <h1 className="page-title">Creator</h1>
-        <EmptyState glyph="⚠">{(error as Error | undefined)?.message ?? 'Not found'}</EmptyState>
+        <div style={{ marginTop: 16 }}>
+          <ListState
+            status={state}
+            error={(error as Error | null)?.message}
+            errorHint="This creator's record could not be read. Nothing is known about them from this screen — it is not an empty or missing account."
+            onRetry={() => refetch()}
+            rows={5}
+            empty=""
+          >
+            <></>
+          </ListState>
+        </div>
       </>
     );
   }
@@ -126,76 +137,14 @@ export function CreatorDetail() {
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <h1 className="page-title" style={{ marginBottom: 0 }}>
-          {profile?.full_name || '(no name)'}
-        </h1>
+      <div className="detail-head">
+        <h1 className="page-title">{profile?.full_name || '(no name)'}</h1>
         <Pill status={creator.vetting_status} />
         {creator.verified && <Pill tone="brand">verified</Pill>}
-      {/* The applicant's face, front and centre of review — spec'd from the
-          start, previously never displayed. */}
-      {creator.headshot_url ? (
-        <div className="card" style={{ padding: 12, marginBottom: 12, display: 'flex', gap: 14, alignItems: 'center' }}>
-          <img
-            src={creator.headshot_url}
-            alt="Creator headshot"
-            style={{ width: 96, height: 96, borderRadius: 12, objectFit: 'cover' }}
-          />
-          <div style={{ flex: 1 }}>
-            <div className="k">Headshot</div>
-            <Pill
-              tone={creator.headshot_status === 'approved' ? 'brand' : creator.headshot_status === 'rejected' ? 'danger' : 'neutral'}
-            >
-              {creator.headshot_status ?? 'none'}
-            </Pill>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-              {creator.headshot_status === 'pending'
-                ? inReview
-                  ? 'Approving the application approves this photo with it.'
-                  : 'Uploaded after approval — needs a separate review before clients see it.'
-                : creator.headshot_status === 'approved'
-                  ? 'Live on client surfaces.'
-                  : 'Not shown to clients.'}
-            </div>
-          </div>
-          {creator.headshot_status === 'pending' && !inReview && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn" disabled={headshotReview.isPending} onClick={() => headshotReview.mutate(true)}>
-                Approve photo
-              </button>
-              <button
-                className="btn btn-danger"
-                disabled={headshotReview.isPending}
-                onClick={() => window.confirm('Reject this headshot? The creator is asked to upload a new one.') && headshotReview.mutate(false)}
-              >
-                Reject
-              </button>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="card" style={{ padding: 12, marginBottom: 12 }}>
-          <div className="k">Headshot</div>
-          <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-            None uploaded — this creator renders as an initial-letter tile in the app.
-          </div>
-        </div>
-      )}
-      {creator.portfolio_link && (
-        <div className="card" style={{ padding: 12, marginBottom: 12, borderLeft: '4px solid var(--gold, #C9A227)' }}>
-          <div className="k">Portfolio</div>
-          <a href={creator.portfolio_link} target="_blank" rel="noreferrer noopener" style={{ fontSize: 15, fontWeight: 700 }}>
-            {creator.portfolio_link}
-          </a>
-          <div style={{ fontSize: 12.5, color: 'var(--text-dim)', marginTop: 3 }}>
-            Their own work — the best evidence for this decision. Opens in a new tab.
-          </div>
-        </div>
-      )}
-
         {creator.vetting_status === 'approved' && !creator.is_available && <Pill tone="neutral">paused</Pill>}
+
         {isAdmin && inReview && (
-          <>
+          <div className="detail-actions">
             <button
               className="btn"
               disabled={approve.isPending}
@@ -218,7 +167,7 @@ export function CreatorDetail() {
             >
               Reject
             </button>
-          </>
+          </div>
         )}
       </div>
       <p className="page-sub">
@@ -227,27 +176,110 @@ export function CreatorDetail() {
         <Link to={`/users/${creator.user_id}`}>customer record →</Link>
       </p>
       {actionError && (
-        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--danger)', marginBottom: 12 }}>
+        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--danger)', margin: '14px 0' }}>
           {actionError}
         </div>
       )}
       {creator.vetting_status === 'rejected' && creator.rejection_reason && (
-        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--warn)', marginBottom: 12 }}>
+        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--warn)', margin: '14px 0' }}>
           Rejected: {creator.rejection_reason}
         </div>
       )}
 
-      {/* Notes lead: what the team knows before the application facts. */}
-      <VerificationPanel creatorId={creator.user_id} />
+      {/* The applicant's face and their own work — the two things a reviewer
+          actually looks at. These used to be rendered INSIDE the title row's
+          flex container, so a 96px photo card sat between the status pills
+          and the Approve button. They are their own blocks now. */}
+      <div className="t-card" style={{ marginTop: 16 }}>
+        <div className="t-card-head">
+          <h2>Headshot</h2>
+          {creator.headshot_url && (
+            <Pill
+              tone={
+                creator.headshot_status === 'approved'
+                  ? 'ok'
+                  : creator.headshot_status === 'rejected'
+                    ? 'danger'
+                    : 'warn'
+              }
+            >
+              {creator.headshot_status ?? 'none'}
+            </Pill>
+          )}
+        </div>
+        {creator.headshot_url ? (
+          <div className="headshot-card">
+            <img src={creator.headshot_url} alt="Creator headshot" />
+            <div className="body">
+              <div className="note" style={{ marginTop: 0 }}>
+                {creator.headshot_status === 'pending'
+                  ? inReview
+                    ? 'Approving the application approves this photo with it.'
+                    : 'Uploaded after approval — needs a separate review before clients see it.'
+                  : creator.headshot_status === 'approved'
+                    ? 'Live on client surfaces.'
+                    : 'Not shown to clients.'}
+              </div>
+            </div>
+            {creator.headshot_status === 'pending' && !inReview && (
+              <div className="cell-actions">
+                <button className="btn" disabled={headshotReview.isPending} onClick={() => headshotReview.mutate(true)}>
+                  Approve photo
+                </button>
+                <button
+                  /* was `btn btn-danger`, which has no rule behind it — it
+                     rendered as the ordinary yellow primary button */
+                  className="btn danger"
+                  disabled={headshotReview.isPending}
+                  onClick={() =>
+                    window.confirm('Reject this headshot? The creator is asked to upload a new one.') &&
+                    headshotReview.mutate(false)
+                  }
+                >
+                  Reject
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="lst-inline empty">
+            <span>—</span>
+            <span>None uploaded — this creator renders as an initial-letter tile in the app.</span>
+          </div>
+        )}
+      </div>
 
-      <NotesThread subjectType="creator" subjectId={creator.user_id} />
+      {creator.portfolio_link && (
+        <div className="t-card" style={{ marginTop: 'var(--gap-grid)' }}>
+          <div className="t-card-head">
+            <h2>Portfolio link</h2>
+            <span className="meta">their own work — the best evidence for this decision</span>
+          </div>
+          <a
+            href={creator.portfolio_link}
+            target="_blank"
+            rel="noreferrer noopener"
+            style={{ fontSize: 15, fontWeight: 700, overflowWrap: 'anywhere' }}
+          >
+            {creator.portfolio_link}
+          </a>
+          <div className="meta" style={{ marginTop: 4 }}>Opens in a new tab.</div>
+        </div>
+      )}
 
-      <div className="section">
-        <h2>Application</h2>
-        <div className="card kv">
+      <div style={{ marginTop: 'var(--gap-grid)' }}>
+        <VerificationPanel creatorId={creator.user_id} />
+        <NotesThread subjectType="creator" subjectId={creator.user_id} />
+      </div>
+
+      <div className="t-card" style={{ marginTop: 'var(--gap-grid)' }}>
+        <div className="t-card-head">
+          <h2>Application</h2>
+        </div>
+        <div className="facts">
           <div>
             <div className="k">Specialties</div>
-            <div className="v">{creator.specialties.join(', ')}</div>
+            <div className="v">{creator.specialties.length ? creator.specialties.join(', ') : '—'}</div>
           </div>
           <div>
             <div className="k">Service type</div>
@@ -255,7 +287,7 @@ export function CreatorDetail() {
           </div>
           <div>
             <div className="k">Base area</div>
-            <div className="v">{creator.base_area ?? '—'}</div>
+            <div className="v">{creator.base_area ?? <span className="quiet">—</span>}</div>
           </div>
           <div>
             <div className="k">Radius</div>
@@ -285,119 +317,178 @@ export function CreatorDetail() {
           )}
         </div>
         {creator.bio && (
-          <div className="card" style={{ padding: 14, marginTop: 10, color: 'var(--ink-2)' }}>{creator.bio}</div>
+          <div
+            style={{
+              marginTop: 18,
+              paddingTop: 16,
+              borderTop: '1px solid var(--line)',
+              color: 'var(--ink-2)',
+              fontSize: 13.5,
+            }}
+          >
+            {creator.bio}
+          </div>
         )}
       </div>
 
-      <div className="section">
-        <h2>Money &amp; standing</h2>
-        <div className="tiles">
-          <div className="card tile">
-            <div className="value num">{formatMoney(data.earnings.available)}</div>
-            <div className="label">available / requested</div>
+      <div className="t-card" style={{ marginTop: 'var(--gap-grid)' }}>
+        <div className="t-card-head">
+          {/* The tier already appears on the strike-weight tile; saying it
+              twice on one card just reads as a stutter. */}
+          <h2>Money &amp; standing</h2>
+        </div>
+        <div className="d-tiles">
+          <div className="d-tile">
+            <div className="n num">{formatMoney(data.earnings.available)}</div>
+            <div className="lab">available / requested</div>
           </div>
-          <div className="card tile">
-            <div className="value num">{formatMoney(data.earnings.pending)}</div>
-            <div className="label">pending (in hold)</div>
+          <div className="d-tile">
+            <div className="n num">{formatMoney(data.earnings.pending)}</div>
+            <div className="lab">pending (in hold)</div>
           </div>
-          <div className="card tile">
-            <div className="value num">{formatMoney(data.earnings.paid_out)}</div>
-            <div className="label">paid out lifetime</div>
+          <div className="d-tile">
+            <div className="n num">{formatMoney(data.earnings.paid_out)}</div>
+            <div className="lab">paid out lifetime</div>
           </div>
-          <div className="card tile">
-            <div className="value num">
-              {data.rating.average != null ? data.rating.average.toFixed(2) : '—'}
+          <div className="d-tile">
+            <div className="n num">{data.rating.average != null ? data.rating.average.toFixed(2) : '—'}</div>
+            <div className="lab">
+              rating · {data.rating.count} review{data.rating.count === 1 ? '' : 's'}
             </div>
-            <div className="label">rating · {data.rating.count} review{data.rating.count === 1 ? '' : 's'}</div>
           </div>
-          <div className="card tile">
-            <div className="value num">{standing.activeWeight}</div>
-            <div className="label">active strike weight ({standing.tierLabel})</div>
+          <div className="d-tile">
+            <div className="n num">{standing.activeWeight}</div>
+            <div className="lab">active strike weight ({standing.tierLabel})</div>
           </div>
         </div>
       </div>
 
       {data.strikes.length > 0 && (
-        <div className="section">
-          <h2>
-            Strikes <span className="count num">{data.strikes.length}</span>
-          </h2>
-          <div className="card row-list">
-            {data.strikes.map((s) => {
-              const expired = Date.parse(s.expires_at) < Date.now();
-              return (
-                <div key={s.id} className="row">
-                  <div className="who grow">
-                    <div className="name">
-                      {s.type.replace(/_/g, ' ')} · weight {s.weight}
-                    </div>
-                    <div className="sub">
-                      {formatWhen(s.occurred_at)} · {expired ? 'expired' : `active until ${formatWhen(s.expires_at)}`}
-                      {s.contested ? ' · contested' : ''}
-                    </div>
-                  </div>
-                  {s.overturned ? (
-                    <Pill tone="neutral">overturned</Pill>
-                  ) : (
-                    isAdmin && (
-                      <button
-                        className="btn ghost"
-                        disabled={overturn.isPending}
-                        onClick={() => {
-                          if (window.confirm('Overturn this strike? It stops counting toward standing immediately.'))
-                            overturn.mutate(s.id);
-                        }}
-                      >
-                        Overturn
-                      </button>
-                    )
-                  )}
-                </div>
-              );
-            })}
+        <div className="t-card" style={{ marginTop: 'var(--gap-grid)' }}>
+          <div className="t-card-head">
+            <h2>Strikes</h2>
+            <span className="meta num">{data.strikes.length}</span>
+          </div>
+          <div className="t-table-scroll">
+            <table className="t-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th className="right">Weight</th>
+                  <th>Occurred</th>
+                  <th>Standing</th>
+                  <th className="right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.strikes.map((s) => {
+                  const expired = Date.parse(s.expires_at) < Date.now();
+                  return (
+                    <tr key={s.id}>
+                      <td>
+                        <div className="cell-title">{s.type.replace(/_/g, ' ')}</div>
+                        {s.contested && <div className="cell-sub">contested</div>}
+                      </td>
+                      <td className="right num">{s.weight}</td>
+                      <td className="nowrap num">{formatWhen(s.occurred_at)}</td>
+                      <td className="nowrap num">
+                        {expired ? (
+                          <span style={{ color: 'var(--muted)' }}>expired</span>
+                        ) : (
+                          `active until ${formatWhen(s.expires_at)}`
+                        )}
+                      </td>
+                      <td className="right">
+                        <div className="cell-actions">
+                          {s.overturned ? (
+                            <Pill tone="neutral">overturned</Pill>
+                          ) : (
+                            isAdmin && (
+                              <button
+                                className="btn ghost"
+                                disabled={overturn.isPending}
+                                onClick={() => {
+                                  if (window.confirm('Overturn this strike? It stops counting toward standing immediately.'))
+                                    overturn.mutate(s.id);
+                                }}
+                              >
+                                Overturn
+                              </button>
+                            )
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
-      <div className="section">
-        <h2>
-          Recent bookings <span className="count num">{data.bookings.length || ''}</span>
-        </h2>
+      <div className="t-card" style={{ marginTop: 'var(--gap-grid)' }}>
+        <div className="t-card-head">
+          <h2>Recent bookings</h2>
+          <span className="meta num">{data.bookings.length}</span>
+        </div>
         {data.bookings.length === 0 ? (
-          <EmptyState glyph="—">No bookings as creator yet.</EmptyState>
+          <div className="lst-inline empty">
+            <span>—</span>
+            <span>No bookings as creator yet.</span>
+          </div>
         ) : (
-          <div className="card row-list">
-            {data.bookings.map((b) => (
-              <Link key={b.id} to={`/bookings/${b.id}`} className="row row-link" style={{ textDecoration: 'none', color: 'inherit' }}>
-                <div className="who grow">
-                  <div className="name">
-                    {b.occasion ?? b.type} · {b.client_name ?? 'client'}
-                  </div>
-                  <div className="sub">
-                    {b.area ?? (b.type === 'remote' ? 'remote' : '—')}
-                    {b.scheduled_at ? ` · ${formatWhen(b.scheduled_at)}` : ''} · {formatMoney(Number(b.price_usd))}
-                  </div>
-                </div>
-                <Pill status={b.status} />
-              </Link>
-            ))}
+          <div className="t-table-scroll">
+            <table className="t-table">
+              <thead>
+                <tr>
+                  <th>Booking</th>
+                  <th>Where</th>
+                  <th>Scheduled</th>
+                  <th className="right">Price</th>
+                  <th className="right">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.bookings.map((b) => (
+                  <tr key={b.id} className="clickable" onClick={() => navigate(`/bookings/${b.id}`)}>
+                    <td>
+                      <div className="cell-title">
+                        {b.occasion ?? b.type} · {b.client_name ?? 'client'}
+                      </div>
+                    </td>
+                    <td>{b.area ?? (b.type === 'remote' ? 'remote' : '—')}</td>
+                    <td className="nowrap num">
+                      {b.scheduled_at ? formatWhen(b.scheduled_at) : <span style={{ color: 'var(--muted)' }}>not scheduled</span>}
+                    </td>
+                    <td className="right nowrap num">{formatMoney(Number(b.price_usd))}</td>
+                    <td className="right">
+                      <div className="cell-pills"><Pill status={b.status} /></div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
 
       {data.reviews.length > 0 && (
-        <div className="section">
-          <h2>Latest reviews</h2>
-          <div className="card row-list">
+        <div className="t-card" style={{ marginTop: 'var(--gap-grid)' }}>
+          <div className="t-card-head">
+            <h2>Latest reviews</h2>
+            <span className="meta num">{data.reviews.length}</span>
+          </div>
+          <div style={{ display: 'grid', gap: 12 }}>
             {data.reviews.map((r) => (
-              <div key={r.id} className="row">
-                <div className="who grow">
-                  <div className="name num">
-                    {'★'.repeat(Math.round(Number(r.rating)))} {Number(r.rating).toFixed(1)} · {r.client_name ?? 'client'}
-                  </div>
-                  {r.comment && <div className="sub">{r.comment}</div>}
+              <div key={r.id} className="tl-card">
+                <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  <span className="review-stars num">{'★'.repeat(Math.round(Number(r.rating)))}</span>
+                  <span className="tl-title">{Number(r.rating).toFixed(1)}</span>
+                  <span className="tl-sub">· {r.client_name ?? 'client'}</span>
+                  <span className="tl-when" style={{ marginLeft: 'auto' }}>{formatWhen(r.created_at)}</span>
                 </div>
-                <span className="sub" style={{ color: 'var(--muted)', fontSize: 12 }}>{formatWhen(r.created_at)}</span>
+                {r.comment && <div className="tl-sub" style={{ marginTop: 4 }}>{r.comment}</div>}
               </div>
             ))}
           </div>
@@ -405,24 +496,32 @@ export function CreatorDetail() {
       )}
 
       {data.portfolio.length > 0 && (
-        <div className="section">
-          <h2>
-            Portfolio <span className="count num">{data.portfolio.length}</span>
-          </h2>
-          <div className="card row-list">
-            {data.portfolio.map((p) => (
-              <div key={p.id} className="row">
-                <div className="who grow">
-                  <div className="name">{p.caption || '(no caption)'}</div>
-                  <div className="sub">{formatWhen(p.created_at)}</div>
-                </div>
-                <Pill
-                  tone={p.status === 'published' || p.status === 'auto' ? 'ok' : p.status === 'pending' ? 'warn' : 'neutral'}
-                >
-                  {p.status}
-                </Pill>
-              </div>
-            ))}
+        <div className="t-card" style={{ marginTop: 'var(--gap-grid)' }}>
+          <div className="t-card-head">
+            <h2>Portfolio</h2>
+            <span className="meta num">{data.portfolio.length}</span>
+          </div>
+          <div className="t-table-scroll">
+            <table className="t-table">
+              <thead>
+                <tr>
+                  <th>Caption</th>
+                  <th>Uploaded</th>
+                  <th className="right">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.portfolio.map((p) => (
+                  <tr key={p.id}>
+                    <td><span className="cell-title">{p.caption || '(no caption)'}</span></td>
+                    <td className="nowrap num">{formatWhen(p.created_at)}</td>
+                    <td className="right">
+                      <div className="cell-pills"><Pill tone={portfolioTone(p.status)}>{p.status}</Pill></div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

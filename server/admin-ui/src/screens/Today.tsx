@@ -9,7 +9,8 @@ import { Pill, formatDuration, formatMoney, formatWhen, useNow } from '../compon
  * TODAY — structure after the TeamHub reference, colour after Snapt.
  *
  * Four things it does differently from the reference, all forced by this
- * instance's actual size (19 users, 13 creators, single-digit bookings):
+ * instance's actual size (24 users, 19 creators, 32 bookings — of which 21
+ * are cancelled and 4 completed, so the working volume is smaller still):
  *
  *   - No week-over-week percentages. The real 14-day series is
  *     [0,1,0,0,0,0,1,0,12,0,7,3,8,0] — 2 last week against 30 this week,
