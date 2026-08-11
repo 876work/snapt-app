@@ -7,22 +7,40 @@
   --brand-ink: #8a6800;
   --ink: #1a1a1a;
   --ink-2: #4a4a4a;
-  --muted: #6f6f6f;
+  --muted: #767676;
   --faint: #9a9a9a;
   --bg: #fafafa;
   --card: #ffffff;
   --line: #ececec;
-  --ok: #217a46;
-  --ok-soft: #e2f4e9;
-  --warn: #9a6b00;
-  --warn-soft: #fdf0d2;
-  --danger: #c23434;
-  --danger-soft: #fde7e7;
+
+  /* STATUS COLOUR, SPLIT BY JOB.
+     The specified #2ECC71 / #EB5757 are fill colours: they carry dots, bars,
+     borders and solid badges well. As TEXT on a pale tint they sit around
+     2:1, which is not readable at 11px — so the -ink variants are the same
+     hues darkened for type, and the -soft variants are their tint. Every
+     pill therefore looks like the palette and still reads. */
+  --ok: #2ecc71;
+  --ok-ink: #1c7a44;
+  --ok-soft: #e6f9ee;
+  --warn: #ffb800;
+  --warn-ink: #8a6800;
+  --warn-soft: #fff4d6;
+  --danger: #eb5757;
+  --danger-ink: #b32828;
+  --danger-soft: #fdeaea;
   --info: #2f5fb3;
   --info-soft: #e7eefb;
   --neutral-soft: #efefef;
-  --radius: 12px;
-  --shadow: 0 1px 3px rgba(26, 26, 26, 0.06), 0 1px 2px rgba(26, 26, 26, 0.04);
+
+  /* Softer, rounder, airier — the reference's density comes mostly from
+     these three plus the spacing scale below. */
+  --radius: 16px;
+  --radius-sm: 12px;
+  --radius-pill: 999px;
+  --shadow: 0 1px 2px rgba(26, 26, 26, 0.04), 0 4px 16px rgba(26, 26, 26, 0.05);
+  --shadow-lift: 0 2px 4px rgba(26, 26, 26, 0.05), 0 8px 28px rgba(26, 26, 26, 0.07);
+  --pad-card: 22px;
+  --gap-grid: 18px;
   --sidebar-w: 224px;
 }
 
@@ -369,9 +387,9 @@ button {
   white-space: nowrap;
 }
 
-.pill.ok { background: var(--ok-soft); color: var(--ok); }
-.pill.warn { background: var(--warn-soft); color: var(--warn); }
-.pill.danger { background: var(--danger-soft); color: var(--danger); }
+.pill.ok { background: var(--ok-soft); color: var(--ok-ink); }
+.pill.warn { background: var(--warn-soft); color: var(--warn-ink); }
+.pill.danger { background: var(--danger-soft); color: var(--danger-ink); }
 .pill.info { background: var(--info-soft); color: var(--info); }
 .pill.brand { background: var(--brand-soft); color: var(--brand-ink); }
 .pill.neutral { background: var(--neutral-soft); color: var(--ink-2); }
@@ -850,8 +868,8 @@ button {
 /* spark tiles on Today — direction only, no chart furniture */
 .tile.spark-tile .label { margin-top: 4px; }
 .tile.spark-tile .delta { font-size: 12px; font-weight: 700; }
-.tile.spark-tile .delta.up { color: var(--ok); }
-.tile.spark-tile .delta.down { color: var(--danger); }
+.tile.spark-tile .delta.up { color: var(--ok-ink); }
+.tile.spark-tile .delta.down { color: var(--danger-ink); }
 
 /* login — the front door: dark canvas, one warm light source, one card. */
 .login-wrap {
@@ -960,7 +978,7 @@ button {
   padding: 10px 12px;
   border-radius: 10px;
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-ink);
   font-size: 13px;
 }
 
@@ -1078,7 +1096,7 @@ button {
   padding: 11px 12px;
   font-size: 12.5px;
   line-height: 1.5;
-  color: var(--danger);
+  color: var(--danger-ink);
 }
 /* Reassignment sits inside the warning it resolves, so it has to read as an
    action on that warning rather than a second unrelated form. */
@@ -1127,5 +1145,229 @@ button {
 }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .btn.danger { background: var(--danger); color: #fff; }
-.btn-ghost.danger { color: var(--danger); }
+.btn-ghost.danger { color: var(--danger-ink); }
 .btn:disabled, .btn-ghost:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ===========================================================================
+   TODAY — dashboard layout.
+
+   Structure borrowed from the TeamHub reference: a hero stat beside two
+   secondary stats, a queue grid, a chart column and a timeline column. Its
+   green is not borrowed — brand yellow carries the same roles, with one
+   change forced by contrast: #FFB800 cannot hold white text (about 1.9:1),
+   so where the reference puts white on green, this puts near-black on
+   yellow, and --ink takes over the "deep accent" the reference gives dark
+   green.
+
+   Patterns deliberately NOT carried over: the department bar chart, the
+   0–100 progress breakdown, the tabbed sortable table and the month
+   calendar. All four need data volume this instance does not have — two
+   bars and a five-tab filter over four rows reads as broken, not early.
+   =========================================================================== */
+
+.today-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: var(--gap-grid);
+  align-items: start;
+}
+@media (max-width: 1080px) {
+  .today-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.t-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: var(--pad-card);
+}
+.t-card + .t-card { margin-top: var(--gap-grid); }
+
+.t-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.t-card-head h2 {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.t-card-head .meta { font-size: 12px; color: var(--muted); }
+
+/* ---- stat row: one hero + two secondaries ---- */
+
+.stat-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: var(--gap-grid);
+  align-items: stretch;
+}
+@media (max-width: 720px) {
+  .stat-row { grid-template-columns: minmax(0, 1fr); }
+}
+.stat-col { display: grid; gap: var(--gap-grid); align-content: stretch; }
+
+.stat-hero {
+  background: var(--brand-soft);
+  border: 1px solid #f3e3b4;
+  border-radius: var(--radius);
+  padding: var(--pad-card);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 178px;
+  text-decoration: none;
+  color: inherit;
+}
+.stat-hero .glyph {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: var(--ink);
+  color: var(--brand);
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+}
+.stat-hero .figure {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 20px;
+}
+.stat-hero .figure .n {
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--ink);
+}
+.stat-hero .cap { font-size: 12.5px; color: var(--brand-ink); font-weight: 600; margin-top: 8px; }
+
+.stat-small {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px var(--pad-card);
+  text-decoration: none;
+  color: inherit;
+  min-height: 80px;
+}
+.stat-small:hover { box-shadow: var(--shadow-lift); }
+.stat-small .glyph {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  background: var(--neutral-soft);
+  color: var(--ink-2);
+}
+.stat-small.is-ok .glyph { background: var(--ok-soft); color: var(--ok-ink); }
+.stat-small.is-hot .glyph { background: var(--danger-soft); color: var(--danger-ink); }
+.stat-small .body { min-width: 0; flex: 1; }
+.stat-small .lab { font-size: 12px; color: var(--muted); }
+.stat-small .n { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; color: var(--ink); }
+.stat-small .tag {
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: var(--radius-pill);
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+.stat-small .tag.ok { background: var(--ok-soft); color: var(--ok-ink); }
+.stat-small .tag.hot { background: var(--danger-soft); color: var(--danger-ink); }
+
+/* ---- queue grid (the reference's "Current Vacancies") ---- */
+
+.queue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+}
+.queue-item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 14px 15px;
+  text-decoration: none;
+  color: inherit;
+  background: var(--card);
+  display: block;
+}
+.queue-item:hover { border-color: #dcdcdc; box-shadow: var(--shadow); }
+.queue-item.urgent { background: var(--brand-soft); border-color: #f3e3b4; }
+.queue-item .n { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; color: var(--ink); }
+.queue-item .lab { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+/* ---- timeline (the reference's "Schedules") ---- */
+
+.tl { position: relative; padding-left: 20px; }
+.tl::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--line);
+  border-radius: 2px;
+}
+.tl-item { position: relative; padding-bottom: 14px; }
+.tl-item:last-child { padding-bottom: 0; }
+.tl-item::before {
+  content: '';
+  position: absolute;
+  left: -19px;
+  top: 13px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--card);
+}
+.tl-item.warn::before { background: var(--warn); }
+.tl-item.hot::before { background: var(--danger); }
+.tl-card {
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  padding: 11px 13px;
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+.tl-card:hover { background: #f2f2f2; }
+.tl-item.hot .tl-card { background: var(--danger-soft); }
+.tl-item.warn .tl-card { background: var(--warn-soft); }
+.tl-when { font-size: 11.5px; color: var(--muted); font-weight: 600; }
+.tl-title { font-size: 13.5px; font-weight: 700; color: var(--ink); margin-top: 1px; }
+.tl-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+
+/* ---- per-block states: loading, failed, empty are three different things ---- */
+
+.blk-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: var(--radius-sm);
+  padding: 14px 15px;
+  font-size: 13px;
+}
+.blk-state.loading { background: var(--bg); color: var(--muted); }
+.blk-state.failed { background: var(--danger-soft); color: var(--danger-ink); font-weight: 600; }
+.blk-state.empty { background: var(--bg); color: var(--muted); }
+.blk-state .g { font-size: 15px; line-height: 1; }
+
+.bar-track { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 3px; background: var(--brand); }
