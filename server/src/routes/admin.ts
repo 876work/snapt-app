@@ -273,6 +273,51 @@ export function registerAdminRoutes(app: FastifyInstance) {
     };
   });
 
+  /**
+   * INVARIANTS BETWEEN CONFIG KEYS.
+   *
+   * Two pairs of values are documented in the seed as deliberately coupled,
+   * and neither coupling is visible from the row an admin is editing:
+   *
+   *   payout_hold_days >= dispute_filing_window_days
+   *     "matches the dispute filing window exactly so no payout precedes a
+   *     possible dispute (Don, 2026-07-26)". Set the hold lower and money
+   *     leaves before a client is able to dispute it.
+   *
+   *   in_person_addons.extra_revision == remote_addons.extra_revision
+   *     "LOCKED to the same value as remote_addons.extra_revision
+   *     intentionally, not coincidence".
+   *
+   * Returns a sentence to show the admin, or null when the write is fine.
+   */
+  async function configInvariantViolation(key: string, next: unknown): Promise<string | null> {
+    const { getConfig } = await import('../config.js');
+    const cfg = await getConfig();
+    const num = (v: unknown, fallback: number) => (typeof v === 'number' ? v : fallback);
+
+    if (key === 'payout_hold_days' || key === 'dispute_filing_window_days') {
+      const hold = key === 'payout_hold_days' ? next : cfg['payout_hold_days'];
+      const filing = key === 'dispute_filing_window_days' ? next : cfg['dispute_filing_window_days'];
+      if (typeof hold !== 'number' || typeof filing !== 'number') {
+        return 'Both payout_hold_days and dispute_filing_window_days must be numbers.';
+      }
+      if (hold < filing) {
+        return `payout_hold_days (${hold}) cannot be less than dispute_filing_window_days (${filing}) — a payout would clear before the client is still able to dispute it. Raise the hold, or lower the filing window first.`;
+      }
+    }
+
+    if (key === 'in_person_addons' || key === 'remote_addons') {
+      const other = key === 'in_person_addons' ? 'remote_addons' : 'in_person_addons';
+      const nextRev = num((next as Record<string, unknown>)?.['extra_revision'], NaN);
+      const otherRev = num((cfg[other] as Record<string, unknown>)?.['extra_revision'], NaN);
+      if (Number.isNaN(nextRev)) return `${key}.extra_revision must be a number.`;
+      if (!Number.isNaN(otherRev) && nextRev !== otherRev) {
+        return `extra_revision is locked to the same price on both order types. ${key} would be $${nextRev} while ${other} stays $${otherRev}. Change both together, or leave this one as it is.`;
+      }
+    }
+    return null;
+  }
+
   // §15 fee/promo settings: every app_config row is admin-editable.
   app.get('/v1/admin/config', async (request, reply) => {
     const adminId = await requireAdmin(request, reply);
@@ -280,18 +325,85 @@ export function registerAdminRoutes(app: FastifyInstance) {
     const { data } = await supabaseAdmin.from('app_config').select('*').order('key');
     return { config: data ?? [] };
   });
+  /**
+   * Write one config key — and MEAN it.
+   *
+   * The previous version used `.update().eq('key', …)`, which matches zero
+   * rows for a key that does not exist and reports no error. A typo'd or
+   * absent key therefore returned `{updated:true}` AND wrote an audit entry
+   * saying the value had changed. The audit log — the thing you check to
+   * find out what went wrong — lied.
+   *
+   * Three changes, following the payout-methods route above:
+   *   - upsert, so a key the server reads but the table lacks can be created
+   *     from the screen rather than being invisible (min_lead_minutes_* were
+   *     exactly that: read by minimumLeadMinutes(), absent in production);
+   *   - read back and compare, so a 200 means the row HOLDS the value;
+   *   - audit only after that comparison passes.
+   * Plus bustConfigCache(), which this route never called — getConfig()
+   * caches for 30s, so a saved change used to not bite for half a minute.
+   */
   app.put<{ Params: { key: string }; Body: { value?: unknown; confirmed?: boolean } }>(
     '/v1/admin/config/:key',
     async (request, reply) => {
       const adminId = await requireAdmin(request, reply);
       if (!adminId) return;
-      const patch: Record<string, unknown> = {};
-      if (request.body?.value !== undefined) patch.value = request.body.value;
-      if (request.body?.confirmed !== undefined) patch.confirmed = request.body.confirmed;
-      const { error } = await supabaseAdmin.from('app_config').update(patch).eq('key', request.params.key);
-      if (error) return reply.code(500).send({ error: error.message });
-      await audit(adminId, 'config_updated', request.params.key, { value: request.body?.value });
-      return { updated: true };
+      const key = request.params.key;
+      const hasValue = request.body?.value !== undefined;
+      const hasConfirmed = request.body?.confirmed !== undefined;
+      if (!hasValue && !hasConfirmed) {
+        return reply.code(400).send({ error: 'Nothing to change — send value, confirmed, or both.' });
+      }
+
+      const { data: existing } = await supabaseAdmin
+        .from('app_config')
+        .select('key, value, confirmed, description')
+        .eq('key', key)
+        .maybeSingle();
+
+      // Cross-field invariants the seed records as deliberate. These are not
+      // style rules: breaking either one moves money or contradicts a
+      // documented decision, and neither is visible from the row being
+      // edited, so the client cannot be the only thing enforcing them.
+      if (hasValue) {
+        const violation = await configInvariantViolation(key, request.body!.value);
+        if (violation) return reply.code(400).send({ error: violation });
+      }
+
+      const row = {
+        key,
+        value: hasValue ? request.body!.value : existing?.value,
+        confirmed: hasConfirmed ? request.body!.confirmed : (existing?.confirmed ?? false),
+        // A key created from the screen says so, rather than arriving blank.
+        description: existing?.description ?? 'Created from the admin Config screen.',
+      };
+      const { error } = await supabaseAdmin.from('app_config').upsert(row, { onConflict: 'key' });
+      if (error) return reply.code(500).send({ error: `Config write failed: ${error.message}` });
+
+      const { data: check } = await supabaseAdmin
+        .from('app_config')
+        .select('key, value, confirmed')
+        .eq('key', key)
+        .maybeSingle();
+      if (!check) {
+        return reply.code(500).send({ error: 'Config write did not stick — the key is still missing.' });
+      }
+      if (hasValue && JSON.stringify(check.value) !== JSON.stringify(request.body!.value)) {
+        return reply.code(500).send({
+          error: 'Config write did not stick — the stored value does not match what was sent. Nothing was changed.',
+        });
+      }
+      if (hasConfirmed && check.confirmed !== request.body!.confirmed) {
+        return reply.code(500).send({ error: 'Config write did not stick — confirmed flag unchanged.' });
+      }
+      bustConfigCache();
+
+      await audit(adminId, 'config_updated', key, {
+        created: !existing,
+        ...(hasValue ? { from: existing?.value ?? null, to: request.body!.value } : {}),
+        ...(hasConfirmed ? { confirmed: request.body!.confirmed } : {}),
+      });
+      return { updated: true, key, created: !existing, value: check.value, confirmed: check.confirmed };
     },
   );
 
