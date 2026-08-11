@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import {
   Area,
@@ -14,7 +14,29 @@ import {
   ComposedChart,
 } from 'recharts';
 import { api, downloadFile } from '../api';
-import { EmptyState, SectionSkeleton, formatMoney } from '../components/ui';
+import { Freshness, ListState, Pill, fetchState, formatMoney } from '../components/ui';
+
+/**
+ * ANALYTICS — Today's chart treatment, and Today's honesty about scale.
+ *
+ * Two of these six are real time series and chart well at any volume: 30
+ * daily buckets of bookings and of revenue. The other four are categorical,
+ * and three of them cannot be drawn as bars on this instance's data without
+ * looking broken:
+ *
+ *   - Creator utilisation: one bar per active creator. On production today
+ *     that is 4 jobs held by 1 creator and 0 by the other 13 — thirteen
+ *     zero-length bars. Stated as a figure and a list instead.
+ *   - Bookings by area: 12 areas where the tail is eight areas tied at 1.
+ *     A ranking read as a ranking, not as eight identical stubs.
+ *   - Rating distribution: 5 buckets x 2 series over ONE rating in range.
+ *     A distribution needs a population; below `RATINGS_MIN` it says so.
+ *   - Cancellations by notice DOES survive: 7 / 3 / 8 / 3 across its four
+ *     tiers is a real spread, so it stays a chart.
+ *
+ * Each fallback is a threshold, not a hard-coded choice, so these become
+ * charts on their own once the data can carry them.
+ */
 
 interface SeriesData {
   from: string;
@@ -30,9 +52,11 @@ interface SeriesData {
 
 const GOLD = '#FFB800';
 const INK = '#1A1A1A';
-const BLUE = '#2F5FB3';
 const RED = '#C23434';
-const GRID = '#EFEDE7';
+
+/** Below these, a bar chart is drawing mostly nothing. */
+const BARS_MIN = 3; // distinct non-zero categories
+const RATINGS_MIN = 10; // ratings needed before a 5-bucket distribution means anything
 
 const day = (iso: string) => `${Number(iso.slice(8, 10))}/${Number(iso.slice(5, 7))}`;
 
@@ -48,32 +72,92 @@ function rangeFor(preset: string): { from: string; to: string } {
   return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
 }
 
-function Chart({
-  title,
-  empty,
+/* ---- Today's chart furniture, in one place so all six match ---- */
+
+const AXIS = { tick: { fontSize: 11, fill: 'var(--faint)' }, axisLine: false, tickLine: false } as const;
+const TOOLTIP = {
+  contentStyle: {
+    borderRadius: 10,
+    border: '1px solid var(--line)',
+    fontSize: 12,
+    boxShadow: 'var(--shadow)',
+  },
+  labelStyle: { color: 'var(--muted)' },
+} as const;
+const LEGEND = { iconType: 'circle', wrapperStyle: { fontSize: 12 } } as const;
+const GRID = 'var(--line)';
+
+/** One card per panel — same radius, shadow and head as Today. */
+function Panel({ title, meta, children }: { title: string; meta?: ReactNode; children: ReactNode }) {
+  return (
+    <div className="t-card" style={{ marginTop: 'var(--gap-grid)' }}>
+      <div className="t-card-head">
+        <h2>{title}</h2>
+        {meta && <span className="meta">{meta}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ChartBody({
   isEmpty,
+  empty,
   height = 240,
   children,
 }: {
-  title: string;
-  empty: string;
   isEmpty: boolean;
+  empty: string;
   height?: number;
   children: React.ReactElement;
 }) {
+  if (isEmpty) {
+    return (
+      <div className="lst-inline empty">
+        <span>—</span>
+        <span>{empty}</span>
+      </div>
+    );
+  }
   return (
-    <div className="section">
-      <h2>{title}</h2>
-      {isEmpty ? (
-        <EmptyState glyph="—">{empty}</EmptyState>
-      ) : (
-        <div className="card" style={{ padding: '18px 12px 8px 0' }}>
-          <ResponsiveContainer width="100%" height={height}>
-            {children}
-          </ResponsiveContainer>
+    <div style={{ height, margin: '0 -6px' }}>
+      <ResponsiveContainer width="100%" height="100%">
+        {children}
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/** The figure-and-pill fallback: a headline number, a ranking, and a reason. */
+function FigureList({
+  n,
+  cap,
+  rows,
+  note,
+}: {
+  n: ReactNode;
+  cap: string;
+  rows: { label: string; value: ReactNode }[];
+  note: string;
+}) {
+  return (
+    <>
+      <div className="fig-lead">
+        <span className="n num">{n}</span>
+        <span className="cap">{cap}</span>
+      </div>
+      {rows.length > 0 && (
+        <div className="fig-list">
+          {rows.map((r) => (
+            <div className="fig-row" key={r.label}>
+              <span className="lab">{r.label}</span>
+              <span className="val">{r.value}</span>
+            </div>
+          ))}
         </div>
       )}
-    </div>
+      <div className="fig-note">{note}</div>
+    </>
   );
 }
 
@@ -82,29 +166,26 @@ export function Analytics() {
   const [custom, setCustom] = useState<{ from: string; to: string } | null>(null);
   const range = custom ?? rangeFor(preset);
 
-  const { data, isLoading, isError, error } = useQuery({
+  const q = useQuery({
     queryKey: ['analytics-series', range.from, range.to],
     queryFn: () => api<SeriesData>(`/v1/admin/analytics/series?from=${range.from}&to=${range.to}`),
     placeholderData: keepPreviousData,
   });
+  const { data, error, refetch, dataUpdatedAt } = q;
+  const { state, stale } = fetchState(q);
 
   const [exportErr, setExportErr] = useState<string | null>(null);
-
-  if (isError) {
-    return (
-      <>
-        <h1 className="page-title">Analytics</h1>
-        <EmptyState glyph="⚠">{(error as Error).message}</EmptyState>
-      </>
-    );
-  }
 
   const totals = data
     ? {
         bookings: data.bookings.reduce((s, r) => s + r.in_person + r.remote, 0),
         charged: Math.round(data.revenue.reduce((s, r) => s + r.charged, 0) * 100) / 100,
         fees: Math.round(data.revenue.reduce((s, r) => s + r.fees, 0) * 100) / 100,
-        cancels: data.cancellations.gt48h + data.cancellations.h24_48 + data.cancellations.lt24h + data.cancellations.unscheduled,
+        cancels:
+          data.cancellations.gt48h +
+          data.cancellations.h24_48 +
+          data.cancellations.lt24h +
+          data.cancellations.unscheduled,
       }
     : null;
 
@@ -125,12 +206,19 @@ export function Analytics() {
       }))
     : [];
 
-  const ratingsEmpty = !data || [...data.ratings.client_to_creator, ...data.ratings.creator_to_client].every((v) => v === 0);
+  const ratingTotal = data
+    ? [...data.ratings.client_to_creator, ...data.ratings.creator_to_client].reduce((s, v) => s + v, 0)
+    : 0;
+
+  const workingCreators = (data?.utilisation ?? []).filter((u) => u.jobs > 0);
+  const totalJobs = (data?.utilisation ?? []).reduce((s, u) => s + u.jobs, 0);
+  const cancelSpread = cancelRows.filter((r) => r.count > 0).length;
+  const areaTotal = (data?.areas ?? []).reduce((s, a) => s + a.count, 0);
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <h1 className="page-title" style={{ marginBottom: 0 }}>Analytics</h1>
+      <div className="page-head">
+        <h1 className="page-title">Analytics</h1>
         <div className="chip-row">
           {PRESETS.map((p) => (
             <button
@@ -182,111 +270,203 @@ export function Analytics() {
           ? ` · ${totals.bookings} bookings · ${formatMoney(totals.charged)} charged · ${formatMoney(totals.fees)} platform revenue`
           : ''}
       </p>
+      <div style={{ marginTop: 4 }}>
+        <Freshness status={state} isStale={stale} updatedAt={dataUpdatedAt} />
+      </div>
       {exportErr && (
-        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--danger)', marginBottom: 12 }}>
+        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--danger)', margin: '14px 0' }}>
           {exportErr}
         </div>
       )}
 
-      {isLoading || !data ? (
-        <SectionSkeleton rows={8} />
-      ) : (
+      <ListState
+        status={state}
+        error={(error as Error | null)?.message}
+        onRetry={() => refetch()}
+        rows={6}
+        empty=""
+      >
+        {/* JSX children are built before ListState decides whether to show
+            them, so every `data!` below would run during the pending render.
+            The ternary is what actually defers them. */}
+        {!data ? null : (
         <>
-          <Chart
-            title="Bookings over time"
-            empty="No bookings in this range yet — they'll chart here as they come in."
-            isEmpty={totals!.bookings === 0}
-          >
-            <BarChart data={data.bookings.map((r) => ({ ...r, label: day(r.date) }))}>
-              <CartesianGrid stroke={GRID} vertical={false} />
-              <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={11} minTickGap={18} />
-              <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={11} width={30} />
-              <Tooltip />
-              <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="in_person" name="in person" stackId="b" fill={GOLD} radius={[0, 0, 0, 0]} />
-              <Bar dataKey="remote" name="remote" stackId="b" fill={INK} radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </Chart>
+          <Panel title="Bookings over time" meta={`${totals?.bookings ?? 0} in range`}>
+            <ChartBody
+              isEmpty={totals!.bookings === 0}
+              empty="No bookings in this range yet — they'll chart here as they come in."
+            >
+              <BarChart data={data!.bookings.map((r) => ({ ...r, label: day(r.date) }))}>
+                <CartesianGrid stroke={GRID} vertical={false} />
+                <XAxis dataKey="label" {...AXIS} minTickGap={18} />
+                <YAxis allowDecimals={false} {...AXIS} width={30} />
+                <Tooltip {...TOOLTIP} cursor={{ fill: 'var(--bg)' }} />
+                <Legend {...LEGEND} />
+                <Bar dataKey="in_person" name="in person" stackId="b" fill={GOLD} />
+                <Bar dataKey="remote" name="remote" stackId="b" fill={INK} radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ChartBody>
+          </Panel>
 
-          <Chart
-            title="Revenue over time"
-            empty="No money moved in this range yet. Charges and platform fees will chart here."
-            isEmpty={totals!.charged === 0 && totals!.fees === 0}
-          >
-            <ComposedChart data={data.revenue.map((r) => ({ ...r, label: day(r.date) }))}>
-              <CartesianGrid stroke={GRID} vertical={false} />
-              <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={11} minTickGap={18} />
-              <YAxis tickLine={false} axisLine={false} fontSize={11} width={46} tickFormatter={(v: number) => `$${v}`} />
-              <Tooltip formatter={(v) => formatMoney(Number(v ?? 0))} />
-              <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-              <Area dataKey="charged" name="charged (net of refunds)" fill="rgba(255,184,0,0.25)" stroke={GOLD} strokeWidth={2} />
-              <Line dataKey="fees" name="platform fee revenue" stroke={INK} strokeWidth={2} dot={false} />
-            </ComposedChart>
-          </Chart>
+          <Panel title="Revenue over time" meta={`${formatMoney(totals?.charged ?? 0)} charged`}>
+            <ChartBody
+              isEmpty={totals!.charged === 0 && totals!.fees === 0}
+              empty="No money moved in this range yet. Charges and platform fees will chart here."
+            >
+              <ComposedChart data={data!.revenue.map((r) => ({ ...r, label: day(r.date) }))}>
+                <defs>
+                  <linearGradient id="revFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="var(--brand)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke={GRID} vertical={false} />
+                <XAxis dataKey="label" {...AXIS} minTickGap={18} />
+                <YAxis {...AXIS} width={46} tickFormatter={(v: number) => `$${v}`} />
+                <Tooltip {...TOOLTIP} formatter={(v) => formatMoney(Number(v ?? 0))} />
+                <Legend {...LEGEND} />
+                <Area
+                  dataKey="charged"
+                  name="charged (net of refunds)"
+                  fill="url(#revFill)"
+                  stroke={GOLD}
+                  strokeWidth={2}
+                />
+                <Line dataKey="fees" name="platform fee revenue" stroke={INK} strokeWidth={2} dot={false} />
+              </ComposedChart>
+            </ChartBody>
+          </Panel>
 
-          <Chart
-            title="Cancellations by notice"
-            empty="No cancellations in this range — nothing leaking."
-            isEmpty={totals!.cancels === 0}
-            height={190}
-          >
-            <BarChart data={cancelRows} layout="vertical">
-              <CartesianGrid stroke={GRID} horizontal={false} />
-              <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} fontSize={11} />
-              <YAxis type="category" dataKey="tier" tickLine={false} axisLine={false} fontSize={12} width={96} />
-              <Tooltip />
-              <Bar dataKey="count" name="cancellations" radius={[0, 4, 4, 0]} isAnimationActive={false} />
-            </BarChart>
-          </Chart>
+          {/* Four fixed tiers with a real spread on production — this one earns
+              its bars, so it keeps them. */}
+          <Panel title="Cancellations by notice" meta={`${totals?.cancels ?? 0} in range`}>
+            {totals!.cancels === 0 ? (
+              <div className="lst-inline empty">
+                <span>✓</span>
+                <span>No cancellations in this range — nothing leaking.</span>
+              </div>
+            ) : cancelSpread < BARS_MIN ? (
+              <FigureList
+                n={totals!.cancels}
+                cap={`cancellation${totals!.cancels === 1 ? '' : 's'} in this range`}
+                rows={cancelRows
+                  .filter((r) => r.count > 0)
+                  .map((r) => ({ label: r.tier, value: r.count }))}
+                note={`Only ${cancelSpread} of the four notice tiers has anything in it, so the bars are stated as counts instead.`}
+              />
+            ) : (
+              <ChartBody isEmpty={false} empty="" height={190}>
+                <BarChart data={cancelRows} layout="vertical">
+                  <CartesianGrid stroke={GRID} horizontal={false} />
+                  <XAxis type="number" allowDecimals={false} {...AXIS} />
+                  <YAxis type="category" dataKey="tier" {...AXIS} width={96} />
+                  <Tooltip {...TOOLTIP} cursor={{ fill: 'var(--bg)' }} />
+                  <Bar dataKey="count" name="cancellations" radius={[0, 4, 4, 0]} isAnimationActive={false} />
+                </BarChart>
+              </ChartBody>
+            )}
+          </Panel>
 
-          <Chart
-            title={`Creator utilisation · ${data.active_creators} active creator${data.active_creators === 1 ? '' : 's'}`}
-            empty="No completed jobs in this range yet. Once sessions complete, jobs-per-creator shows here."
-            isEmpty={data.utilisation.every((u) => u.jobs === 0)}
-            height={Math.max(160, data.utilisation.length * 34)}
+          {/* One bar per creator only once enough creators have jobs to compare. */}
+          <Panel
+            title="Creator utilisation"
+            meta={`${data!.active_creators} active creator${data!.active_creators === 1 ? '' : 's'}`}
           >
-            <BarChart data={data.utilisation} layout="vertical">
-              <CartesianGrid stroke={GRID} horizontal={false} />
-              <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} fontSize={11} />
-              <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} fontSize={12} width={120} />
-              <Tooltip />
-              <Bar dataKey="jobs" name="completed jobs" fill={GOLD} radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </Chart>
+            {totalJobs === 0 ? (
+              <div className="lst-inline empty">
+                <span>—</span>
+                <span>No completed jobs in this range yet. Once sessions complete, this fills in.</span>
+              </div>
+            ) : workingCreators.length < BARS_MIN ? (
+              <FigureList
+                n={totalJobs}
+                cap={`completed job${totalJobs === 1 ? '' : 's'}, held by ${workingCreators.length} of ${data!.active_creators} active creator${data!.active_creators === 1 ? '' : 's'}`}
+                rows={workingCreators.map((u) => ({
+                  label: u.name,
+                  value: `${u.jobs} job${u.jobs === 1 ? '' : 's'}`,
+                }))}
+                note={`The other ${data!.active_creators - workingCreators.length} completed nothing in this range. A bar per creator would be mostly empty bars, so it is a count until at least ${BARS_MIN} creators have work to compare.`}
+              />
+            ) : (
+              <ChartBody isEmpty={false} empty="" height={Math.max(160, data!.utilisation.length * 34)}>
+                <BarChart data={data!.utilisation} layout="vertical">
+                  <CartesianGrid stroke={GRID} horizontal={false} />
+                  <XAxis type="number" allowDecimals={false} {...AXIS} />
+                  <YAxis type="category" dataKey="name" {...AXIS} width={120} />
+                  <Tooltip {...TOOLTIP} cursor={{ fill: 'var(--bg)' }} />
+                  <Bar dataKey="jobs" name="completed jobs" fill={GOLD} radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ChartBody>
+            )}
+          </Panel>
 
-          <Chart
-            title="Bookings by area"
-            empty="No bookings in this range — area distribution appears once there are bookings."
-            isEmpty={data.areas.length === 0}
-            height={Math.max(160, data.areas.length * 32)}
-          >
-            <BarChart data={data.areas} layout="vertical">
-              <CartesianGrid stroke={GRID} horizontal={false} />
-              <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} fontSize={11} />
-              <YAxis type="category" dataKey="area" tickLine={false} axisLine={false} fontSize={12} width={120} />
-              <Tooltip />
-              <Bar dataKey="count" name="bookings" fill={BLUE} radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </Chart>
+          {/* A ranking, read as a ranking. The tail here is eight areas tied
+              at one booking each — eight identical stubs say less than a list. */}
+          <Panel title="Bookings by area" meta={`${data!.areas.length} area${data!.areas.length === 1 ? '' : 's'}`}>
+            {data!.areas.length === 0 ? (
+              <div className="lst-inline empty">
+                <span>—</span>
+                <span>No bookings in this range — area distribution appears once there are bookings.</span>
+              </div>
+            ) : (
+              <FigureList
+                n={data!.areas[0].count}
+                cap={`in ${data!.areas[0].area}, the busiest of ${data!.areas.length} area${data!.areas.length === 1 ? '' : 's'} · ${areaTotal} booking${areaTotal === 1 ? '' : 's'} placed`}
+                rows={data!.areas.map((a) => ({
+                  label: a.area,
+                  value: `${a.count} booking${a.count === 1 ? '' : 's'}`,
+                }))}
+                note="Ranked rather than plotted: most areas here carry a single booking, and bars of equal length say nothing a ranked count does not."
+              />
+            )}
+          </Panel>
 
-          <Chart
-            title="Rating distribution"
-            empty="No reviews in this range yet. Both directions chart here once ratings land."
-            isEmpty={ratingsEmpty}
-            height={210}
-          >
-            <BarChart data={ratingRows}>
-              <CartesianGrid stroke={GRID} vertical={false} />
-              <XAxis dataKey="star" tickLine={false} axisLine={false} fontSize={12} />
-              <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={11} width={30} />
-              <Tooltip />
-              <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="client → creator" fill={GOLD} radius={[3, 3, 0, 0]} />
-              <Bar dataKey="creator → client" fill={INK} radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </Chart>
+          {/* Five buckets x two directions needs a population, not a sample. */}
+          <Panel title="Rating distribution" meta={`${ratingTotal} rating${ratingTotal === 1 ? '' : 's'}`}>
+            {ratingTotal === 0 ? (
+              <div className="lst-inline empty">
+                <span>—</span>
+                <span>No reviews in this range yet. Both directions chart here once ratings land.</span>
+              </div>
+            ) : ratingTotal < RATINGS_MIN ? (
+              <FigureList
+                n={ratingTotal}
+                cap={`rating${ratingTotal === 1 ? '' : 's'} in this range`}
+                rows={[1, 2, 3, 4, 5]
+                  .map((star) => ({
+                    star,
+                    c2c: data!.ratings.client_to_creator[star - 1],
+                    cr2c: data!.ratings.creator_to_client[star - 1],
+                  }))
+                  .filter((r) => r.c2c > 0 || r.cr2c > 0)
+                  .map((r) => ({
+                    label: `${r.star}★`,
+                    value: (
+                      <span style={{ display: 'inline-flex', gap: 6 }}>
+                        {r.c2c > 0 && <Pill tone="brand">{r.c2c} client → creator</Pill>}
+                        {r.cr2c > 0 && <Pill tone="neutral">{r.cr2c} creator → client</Pill>}
+                      </span>
+                    ),
+                  }))}
+                note={`A distribution over five stars and two directions needs a population. Below ${RATINGS_MIN} ratings this states what came in; the chart returns on its own above that.`}
+              />
+            ) : (
+              <ChartBody isEmpty={false} empty="" height={210}>
+                <BarChart data={ratingRows}>
+                  <CartesianGrid stroke={GRID} vertical={false} />
+                  <XAxis dataKey="star" {...AXIS} />
+                  <YAxis allowDecimals={false} {...AXIS} width={30} />
+                  <Tooltip {...TOOLTIP} cursor={{ fill: 'var(--bg)' }} />
+                  <Legend {...LEGEND} />
+                  <Bar dataKey="client → creator" fill={GOLD} radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="creator → client" fill={INK} radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ChartBody>
+            )}
+          </Panel>
         </>
-      )}
+        )}
+      </ListState>
     </>
   );
 }
