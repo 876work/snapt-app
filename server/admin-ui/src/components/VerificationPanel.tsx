@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, getToken } from '../api';
-import { EmptyState, Pill, SectionSkeleton, formatWhen } from './ui';
+import { ListState, Pill, fetchState, formatWhen } from './ui';
 
 interface Session {
   id: string;
@@ -66,6 +66,14 @@ const DOC_LABEL: Record<string, string> = {
   P: 'Passport',
 };
 
+/** Which images the panel asks for, and what to call them on screen. */
+const IMAGE_KINDS = [
+  { kind: 'portrait', label: 'Selfie' },
+  { kind: 'document', label: 'Document (front)' },
+  { kind: 'document_back', label: 'Document (back)' },
+  { kind: 'document_full', label: 'Document (full page)' },
+] as const;
+
 const STATUS_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'neutral'> = {
   approved: 'ok',
   in_review: 'warn',
@@ -82,24 +90,29 @@ const STATUS_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'neutral'> = {
  * (never copied into our storage), and every view here is audited.
  */
 export function VerificationPanel({ creatorId }: { creatorId: string }) {
-  const { data, isLoading, isError, error } = useQuery({
+  const q = useQuery({
     queryKey: ['verification', creatorId],
     queryFn: () => api<VerificationData>(`/v1/admin/creators/${creatorId}/verification`),
   });
+  const { data, error, refetch } = q;
+  const { state } = fetchState(q);
 
-  if (isLoading) {
+  if (state !== 'success' || !data) {
     return (
-      <div className="section">
-        <h2>Identity verification</h2>
-        <SectionSkeleton rows={3} />
-      </div>
-    );
-  }
-  if (isError || !data) {
-    return (
-      <div className="section">
-        <h2>Identity verification</h2>
-        <EmptyState glyph="⚠">{(error as Error | undefined)?.message ?? 'Unavailable'}</EmptyState>
+      <div className="t-card">
+        <div className="t-card-head">
+          <h2>Identity verification</h2>
+        </div>
+        <ListState
+          status={state}
+          error={(error as Error | null)?.message}
+          errorHint="The verification record could not be read. Nothing below is known — do not read this as an applicant with no checks on file."
+          onRetry={() => refetch()}
+          rows={3}
+          empty=""
+        >
+          <></>
+        </ListState>
       </div>
     );
   }
@@ -108,24 +121,26 @@ export function VerificationPanel({ creatorId }: { creatorId: string }) {
   const status = data.profile?.verification_status ?? 'not_started';
 
   return (
-    <div className="section">
-      <h2>
-        Identity verification <Pill tone={STATUS_TONE[status] ?? 'neutral'}>{status.replace(/_/g, ' ')}</Pill>
-      </h2>
+    <div className="t-card">
+      <div className="t-card-head">
+        <h2>Identity verification</h2>
+        <Pill tone={STATUS_TONE[status] ?? 'neutral'}>{status.replace(/_/g, ' ')}</Pill>
+      </div>
 
       {!data.configured && (
-        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--warn)', marginBottom: 10 }}>
+        <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--warn)', marginBottom: 14 }}>
           Didit isn't configured on this server — applications fall through to manual review.
         </div>
       )}
 
       {!latest ? (
-        <EmptyState glyph="—">
-          No verification attempted. Decide from the documents and your own checks.
-        </EmptyState>
+        <div className="lst-inline empty">
+          <span>—</span>
+          <span>No verification attempted. Decide from the documents and your own checks.</span>
+        </div>
       ) : (
         <>
-          <div className="card kv">
+          <div className="facts">
             <div>
               <div className="k">Document</div>
               <div className="v">{DOC_LABEL[latest.document_type] ?? latest.document_type}</div>
@@ -181,7 +196,7 @@ export function VerificationPanel({ creatorId }: { creatorId: string }) {
           )}
 
           {Object.values(latest.extracted ?? {}).some(Boolean) && (
-            <div className="card kv" style={{ marginTop: 10 }}>
+            <div className="facts" style={{ marginTop: 18 }}>
               {Object.entries(latest.extracted)
                 .filter(([, v]) => v)
                 .map(([k, v]) => (
@@ -195,19 +210,22 @@ export function VerificationPanel({ creatorId }: { creatorId: string }) {
 
           {/* Warnings render in RiskPanel above, resolved to real accounts. */}
 
-          <div style={{ display: 'flex', gap: 12, marginTop: 10, flexWrap: 'wrap' }}>
-            {(['portrait', 'document'] as const).map((kind) => (
-              <AuthedImage key={kind} endpoint={data.image_endpoint} kind={kind} />
+          {/* Front and back of the document, the cropped ID portrait and the
+              selfie — the four things you actually compare when deciding
+              whether the person and the document belong together. */}
+          <div style={{ display: 'flex', gap: 12, marginTop: 18, flexWrap: 'wrap' }}>
+            {IMAGE_KINDS.map((k) => (
+              <AuthedImage key={k.kind} endpoint={data.image_endpoint} kind={k.kind} label={k.label} />
             ))}
           </div>
-          <p className="page-sub" style={{ marginTop: 8 }}>
+          <p className="page-sub" style={{ marginTop: 10 }}>
             Images are streamed from Didit for review and never stored by Snapt. Every view is
             recorded in the audit log.
           </p>
         </>
       )}
 
-      <div className="card kv" style={{ marginTop: 10 }}>
+      <div className="facts" style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--line)' }}>
         <div>
           <div className="k">Police certificate</div>
           <div className="v">
@@ -254,7 +272,7 @@ function RiskPanel({ risk }: { risk: { flags: RiskFlag[]; duplicates: RiskFlag[]
     <div
       className="card"
       style={{
-        marginTop: 10,
+        marginTop: 18,
         padding: 14,
         borderLeft: `4px solid ${
           blocking.length || dupes.length ? 'var(--danger)' : 'var(--warn)'
@@ -275,7 +293,7 @@ function RiskPanel({ risk }: { risk: { flags: RiskFlag[]; duplicates: RiskFlag[]
             {f.risk === 'DOCUMENT_EXPIRED' ? 'Expired document' : 'Blocklisted identity'}
           </strong>
           <div style={{ fontSize: 13, lineHeight: '20px' }}>{f.description}</div>
-          <div style={{ fontSize: 12.5, color: 'var(--text-dim)', marginTop: 4 }}>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4 }}>
             {f.risk === 'DOCUMENT_EXPIRED'
               ? 'Held for review — an expired document cannot approve a creator.'
               : 'Held for review — Didit has this identity on its blocklist.'}
@@ -288,7 +306,7 @@ function RiskPanel({ risk }: { risk: { flags: RiskFlag[]; duplicates: RiskFlag[]
           <strong style={{ fontSize: 14 }}>
             This identity already appears on {dupes.length === 1 ? 'another account' : 'other accounts'}
           </strong>
-          <p style={{ fontSize: 13, lineHeight: '20px', margin: '6px 0 10px', color: 'var(--text-dim)' }}>
+          <p style={{ fontSize: 13, lineHeight: '20px', margin: '6px 0 10px', color: 'var(--muted)' }}>
             The same document, face or device was used to verify a different account. That is
             legitimate for a shared household device, and the clearest sign of a borrowed or
             sold identity otherwise. Resolve it before approving.
@@ -303,7 +321,7 @@ function RiskPanel({ risk }: { risk: { flags: RiskFlag[]; duplicates: RiskFlag[]
               ) : (
                 <span style={{ opacity: 0.7 }}>account not resolved</span>
               )}
-              <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>{d.description}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>{d.description}</div>
             </div>
           ))}
         </>
@@ -311,7 +329,7 @@ function RiskPanel({ risk }: { risk: { flags: RiskFlag[]; duplicates: RiskFlag[]
         <strong style={{ fontSize: 14 }}>Checks raised {risk.flags.length} note(s)</strong>
       ) : null}
       {others.length > 0 && (
-        <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12.5, color: 'var(--text-dim)' }}>
+        <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12.5, color: 'var(--muted)' }}>
           {others.map((f, i) => (
             <li key={i}>
               <strong>{f.risk.replace(/_/g, ' ').toLowerCase()}</strong> — {f.description}
@@ -332,7 +350,7 @@ const VERDICT_LABEL: Record<string, string> = {
 
 const SIGNAL_COLOUR: Record<string, string> = {
   ok: 'var(--ok)',
-  note: 'var(--gold, #C9A227)',
+  note: 'var(--brand)',
   caution: 'var(--warn)',
   alert: 'var(--danger)',
 };
@@ -378,9 +396,9 @@ function NameReconciliation({
     <div
       className="card"
       style={{
-        marginTop: 10,
+        marginTop: 18,
         padding: 14,
-        borderLeft: `4px solid ${SIGNAL_COLOUR[rec.signal.level] ?? 'var(--border)'}`,
+        borderLeft: `4px solid ${SIGNAL_COLOUR[rec.signal.level] ?? 'var(--line)'}`,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -396,11 +414,11 @@ function NameReconciliation({
           face {rec.face_match_score != null ? `${rec.face_match_score.toFixed(1)}%` : '—'}
         </Pill>
       </div>
-      <p style={{ fontSize: 13, lineHeight: '20px', margin: '8px 0 0', color: 'var(--text-dim)' }}>
+      <p style={{ fontSize: 13, lineHeight: '20px', margin: '8px 0 0', color: 'var(--muted)' }}>
         {rec.signal.detail}
       </p>
 
-      <div className="kv" style={{ marginTop: 12 }}>
+      <div className="facts" style={{ marginTop: 14 }}>
         <div>
           <div className="k">Name on the ID</div>
           <div className="v">{rec.id_name ?? '—'}</div>
@@ -431,7 +449,7 @@ function NameReconciliation({
       </div>
 
       {reasons.length > 0 && (
-        <p style={{ fontSize: 12.5, margin: '10px 0 0', color: 'var(--text-dim)' }}>
+        <p style={{ fontSize: 12.5, margin: '10px 0 0', color: 'var(--muted)' }}>
           Matched after: {reasons.join(', ')}
           {rec.detail?.compared_with
             ? ` · compared with the ${rec.detail.compared_with.replace(/_/g, ' ')}`
@@ -456,21 +474,26 @@ function NameReconciliation({
             destroy it. The display name is untouched either way.
           </div>
           <input
+            className="input"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Why you're deciding this way (recorded in the audit log)"
-            style={{ marginTop: 10, width: '100%' }}
+            style={{ marginTop: 12, width: '100%' }}
           />
-          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+          {/* These were `btn primary` and `btn`. `primary` has no rule behind
+              it, so two opposite decisions rendered as the same solid yellow
+              button. The one that writes a legal name leads; the one that
+              changes nothing recedes. */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
             <button
-              className="btn primary"
+              className="btn"
               disabled={decide.isPending || !rec.id_name}
               onClick={() => decide.mutate('accept_id_name')}
             >
               Accept the ID name as legal name
             </button>
             <button
-              className="btn"
+              className="btn ghost"
               disabled={decide.isPending}
               onClick={() => decide.mutate('keep_display_name')}
             >
@@ -502,9 +525,17 @@ function NameReconciliation({
  * Verification images require the admin bearer token, and a token must never
  * ride in a URL — so fetch as a blob and render from an object URL.
  */
-function AuthedImage({ endpoint, kind }: { endpoint: string; kind: 'portrait' | 'document' }) {
+function AuthedImage({ endpoint, kind, label }: { endpoint: string; kind: string; label: string }) {
   const [src, setSrc] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  // 'absent' is a fact about the applicant; 'failed' is a fact about us. The
+  // server already separates them — 404 when Didit's decision carries no
+  // image URL, 502/503 when we could not reach or read it — so the panel
+  // must not collapse the two back together.
+  const [outcome, setOutcome] = useState<'loading' | 'absent' | 'failed'>('loading');
+  // Didit's `full_front_image` is a PDF, not a JPEG. Dropped into an <img> it
+  // renders as nothing at all — the same silent blank this component existed
+  // to remove — so non-image types get a link instead of a broken picture.
+  const [mime, setMime] = useState<string>('');
 
   useEffect(() => {
     let objectUrl: string | null = null;
@@ -514,13 +545,17 @@ function AuthedImage({ endpoint, kind }: { endpoint: string; kind: 'portrait' | 
         const res = await fetch(`${endpoint}?kind=${kind}`, {
           headers: { Authorization: `Bearer ${getToken() ?? ''}` },
         });
-        if (!res.ok) throw new Error(String(res.status));
+        if (!res.ok) {
+          if (!cancelled) setOutcome(res.status === 404 ? 'absent' : 'failed');
+          return;
+        }
         const blob = await res.blob();
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
+        setMime(blob.type || '');
         setSrc(objectUrl);
       } catch {
-        if (!cancelled) setFailed(true);
+        if (!cancelled) setOutcome('failed');
       }
     })();
     return () => {
@@ -529,20 +564,82 @@ function AuthedImage({ endpoint, kind }: { endpoint: string; kind: 'portrait' | 
     };
   }, [endpoint, kind]);
 
-  if (failed) return null;
   return (
     <div className="card" style={{ padding: 10 }}>
-      <div className="k" style={{ marginBottom: 6 }}>
-        {kind === 'portrait' ? 'Selfie' : 'Document'}
-      </div>
-      {src ? (
+      <div className="field-label" style={{ marginBottom: 6 }}>{label}</div>
+      {/* This whole branch used to `return null`, so BOTH of these looked
+          identical to an applicant who submitted nothing — on the panel
+          where the document is the evidence. */}
+      {outcome === 'failed' ? (
+        <div
+          role="alert"
+          style={{
+            width: 190,
+            height: 140,
+            borderRadius: 10,
+            background: 'var(--danger-soft)',
+            color: 'var(--danger-ink)',
+            display: 'grid',
+            placeItems: 'center',
+            textAlign: 'center',
+            padding: 12,
+            fontSize: 12,
+            fontWeight: 600,
+            lineHeight: 1.4,
+          }}
+        >
+          ⚠ The {label.toLowerCase()} could not be loaded — this is a failure on our side, not a
+          missing document.
+        </div>
+      ) : outcome === 'absent' ? (
+        <div
+          style={{
+            width: 190,
+            height: 140,
+            borderRadius: 10,
+            background: 'var(--bg)',
+            border: '1px dashed var(--line)',
+            color: 'var(--muted)',
+            display: 'grid',
+            placeItems: 'center',
+            textAlign: 'center',
+            padding: 12,
+            fontSize: 12,
+            lineHeight: 1.4,
+          }}
+        >
+          No {label.toLowerCase()} in this verification — Didit returned none for the session.
+        </div>
+      ) : src && mime && !mime.startsWith('image/') ? (
+        <a
+          href={src}
+          target="_blank"
+          rel="noreferrer noopener"
+          style={{
+            width: 190,
+            height: 140,
+            borderRadius: 10,
+            background: 'var(--bg)',
+            border: '1px solid var(--line)',
+            display: 'grid',
+            placeItems: 'center',
+            textAlign: 'center',
+            padding: 12,
+            fontSize: 12,
+            fontWeight: 600,
+            color: 'var(--ink-2)',
+          }}
+        >
+          Open {mime === 'application/pdf' ? 'PDF' : mime} in a new tab
+        </a>
+      ) : src ? (
         <img
           src={src}
-          alt={kind === 'portrait' ? 'Verification selfie' : 'Verification document'}
+          alt={`Verification ${label.toLowerCase()}`}
           style={{ width: 190, height: 140, objectFit: 'cover', borderRadius: 10, background: 'var(--bg)' }}
         />
       ) : (
-        <div style={{ width: 190, height: 140, borderRadius: 10, background: 'var(--bg)' }} />
+        <div className="skeleton" style={{ width: 190, height: 140, borderRadius: 10 }} />
       )}
     </div>
   );

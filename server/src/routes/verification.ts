@@ -1018,7 +1018,12 @@ export function registerVerificationRoutes(app: FastifyInstance) {
       const admin = await requireAdmin(request, reply, ['admin', 'support']);
       if (!admin) return;
       if (!diditConfigured) return reply.code(503).send({ error: 'verification_unavailable' });
-      const kind = request.query.kind === 'document' ? 'document' : 'portrait';
+      // Allow-list, so an unknown ?kind still resolves to something sane
+      // rather than silently falling through to the selfie.
+      const KINDS = ['portrait', 'document', 'document_back', 'document_full'] as const;
+      const kind = (KINDS as readonly string[]).includes(request.query.kind ?? '')
+        ? (request.query.kind as string)
+        : 'portrait';
       const { data: session } = await supabaseAdmin
         .from('verification_sessions')
         .select('didit_session_id')
@@ -1033,10 +1038,23 @@ export function registerVerificationRoutes(app: FastifyInstance) {
         });
         if (!res.ok) return reply.code(502).send({ error: 'Could not load from Didit' });
         const decision = (await res.json()) as Record<string, any>;
+        // Didit v3 returns ARRAYS — id_verifications, face_matches,
+        // liveness_checks — exactly as extractDecision() above already knows.
+        // This route was reading the singular forms only, so `url` was always
+        // undefined and every request 404'd as "No image available". The
+        // images were in the payload the whole time; no admin has ever seen
+        // one (zero `verification_image_viewed` rows in the audit log).
+        const idv = (first<any>(decision?.id_verifications) ?? decision?.id_verification ?? {}) as any;
+        const face = (first<any>(decision?.face_matches) ?? decision?.face_match ?? {}) as any;
+        const live = (first<any>(decision?.liveness_checks) ?? decision?.liveness ?? {}) as any;
         const url =
           kind === 'portrait'
-            ? decision?.face_match?.source_image ?? decision?.liveness?.reference_image
-            : decision?.id_verification?.front_image ?? decision?.id_verification?.portrait_image;
+            ? face?.source_image ?? live?.reference_image
+            : kind === 'document_back'
+              ? idv?.back_image ?? idv?.full_back_image
+              : kind === 'document_full'
+                ? idv?.full_front_image ?? idv?.front_image
+                : idv?.front_image ?? idv?.portrait_image;
         if (!url) return reply.code(404).send({ error: 'No image available' });
         const img = await fetch(url);
         if (!img.ok) return reply.code(502).send({ error: 'Image fetch failed' });
