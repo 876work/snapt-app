@@ -37,9 +37,21 @@ export async function reassignBooking(
   booking: OfferBooking,
   excludeCreatorId: string | null,
 ): Promise<{ creator_id: string | null; cancelled?: boolean }> {
+  // DISTINCT creators, not decline events.
+  //
+  // The auto-reassign path never re-offers to someone already in this list,
+  // but manual dispatch from the portal does not check it — so an admin can
+  // re-assign a creator who already declined, and their second timeout used
+  // to append the same id a second time. That inflated `declined.length`,
+  // which is the threshold below: a booking could auto-cancel and fully
+  // refund the client after ONE creator passed three times, as though three
+  // different creators had turned it down. Observed on production on
+  // bookings 211443d8 and c38821c5, both sitting at 2 of 3 with one creator.
   const declined = [
-    ...booking.declined_creator_ids,
-    ...(excludeCreatorId ? [excludeCreatorId] : []),
+    ...new Set([
+      ...booking.declined_creator_ids,
+      ...(excludeCreatorId ? [excludeCreatorId] : []),
+    ]),
   ];
 
   if (declined.length >= MAX_ASSIGNMENT_FAILURES) {
