@@ -290,6 +290,31 @@ export function registerAdminRoutes(app: FastifyInstance) {
    *
    * Returns a sentence to show the admin, or null when the write is fine.
    */
+  /**
+   * Compare a value against what the database gave back.
+   *
+   * NOT JSON.stringify on both sides: jsonb does not preserve object key
+   * order, so `{photo,video,both}` returns as `{both,photo,video}` and a
+   * string comparison calls an identical value a failed write. That turned
+   * every pricing-table save into a 500 that had actually saved — the
+   * inverse of the bug this read-back exists to catch, and just as wrong.
+   * Sorting keys recursively compares the DATA.
+   */
+  function canonical(v: unknown): string {
+    const walk = (x: unknown): unknown => {
+      if (Array.isArray(x)) return x.map(walk);
+      if (x && typeof x === 'object') {
+        return Object.fromEntries(
+          Object.keys(x as Record<string, unknown>)
+            .sort()
+            .map((k) => [k, walk((x as Record<string, unknown>)[k])]),
+        );
+      }
+      return x;
+    };
+    return JSON.stringify(walk(v));
+  }
+
   async function configInvariantViolation(key: string, next: unknown): Promise<string | null> {
     const { getConfig } = await import('../config.js');
     const cfg = await getConfig();
@@ -388,7 +413,7 @@ export function registerAdminRoutes(app: FastifyInstance) {
       if (!check) {
         return reply.code(500).send({ error: 'Config write did not stick — the key is still missing.' });
       }
-      if (hasValue && JSON.stringify(check.value) !== JSON.stringify(request.body!.value)) {
+      if (hasValue && canonical(check.value) !== canonical(request.body!.value)) {
         return reply.code(500).send({
           error: 'Config write did not stick — the stored value does not match what was sent. Nothing was changed.',
         });
