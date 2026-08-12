@@ -1,8 +1,10 @@
 import React from 'react';
-import { Image, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
 import Svg, { Path } from 'react-native-svg';
 import { Text } from '../../lib/text';
 import { colors } from '../../lib/theme';
+import { signedImageSource } from '../../lib/signedImage';
 
 /**
  * A portfolio shot, with an HONEST failure state.
@@ -33,9 +35,12 @@ export function WorkImage({
   if (uri && !failed) {
     return (
       <Image
-        source={{ uri }}
+        source={signedImageSource(uri)}
         style={[styles.fill, style]}
-        resizeMode="cover"
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        /* Portfolio shots scroll in rails and grids — see CreatorAvatar. */
+        recyclingKey={uri}
         onError={() => setFailed(true)}
       />
     );

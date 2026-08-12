@@ -1,6 +1,8 @@
 import React from 'react';
-import { Image, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
 import { Text } from '../../lib/text';
+import { signedImageSource } from '../../lib/signedImage';
 
 /**
  * Fills its parent (which sets size/radius/tint background). Renders the
@@ -25,16 +27,31 @@ export function CreatorAvatar({
    * torn-image box is a worse answer than the letter we already have.
    */
   const [failed, setFailed] = React.useState(false);
+  // A string identity for the photo: callers build `{ uri }` inline, so the
+  // object is new on every render and is useless as a dependency.
+  const key = typeof photo === 'number' ? `bundled:${photo}` : (photo?.uri ?? '');
   React.useEffect(() => {
     setFailed(false); // a new photo deserves its own attempt
-  }, [typeof photo === 'object' && photo !== null ? photo.uri : photo]);
+  }, [key]);
 
-  if (photo != null && !failed) {
+  const source = React.useMemo(() => {
+    if (photo == null) return null;
+    // A bundled require() is already a stable local asset — it needs no
+    // cache key, and signing rules do not apply to it.
+    return typeof photo === 'number' ? photo : signedImageSource(photo.uri);
+  }, [key]);
+
+  if (source != null && !failed) {
     return (
       <Image
-        source={photo}
+        source={source}
         style={styles.fill}
-        resizeMode="cover"
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        /* Avatars are rendered in lists. Without this, a recycled row shows
+           the PREVIOUS person's face until the new one decodes — briefly
+           attaching the wrong name to the wrong photo. */
+        recyclingKey={key}
         onError={() => setFailed(true)}
       />
     );

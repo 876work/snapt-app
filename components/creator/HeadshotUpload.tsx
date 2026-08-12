@@ -3,6 +3,7 @@ import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-nat
 import Svg, { Circle, Path } from 'react-native-svg';
 import { Text } from '../../lib/text';
 import { colors } from '../../lib/theme';
+import { pickMedia } from '../../lib/pickMedia';
 
 /**
  * Headshot picker + upload. Used in the creator application (required) and
@@ -28,13 +29,14 @@ export function HeadshotUpload({
 
   const pick = async () => {
     setError(null);
-    const ImagePicker = await import('expo-image-picker');
-    const result = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.9,
-    });
-    if (result.canceled || !result.assets[0]) return;
+    // allowsEditing + a square aspect applies to a capture too: the OS shows
+    // its crop step after the shutter, so a camera headshot arrives framed
+    // the same way a chosen one does.
+    const result = await pickMedia(
+      { allowsEditing: true, aspect: [1, 1], quality: 0.9 },
+      { title: 'Add your headshot', camera: 'Take a photo', library: 'Choose from library' },
+    );
+    if (!result || result.canceled || !result.assets[0]) return;
     const a = result.assets[0];
     setBusy(true);
     const { apiConfigured, uploadHeadshotApi } = await import('../../lib/api');

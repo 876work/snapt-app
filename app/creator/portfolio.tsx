@@ -7,6 +7,7 @@ import { TextField } from '../../components/ui/TextField';
 import { Button } from '../../components/ui/Button';
 import { apiConfigured, fetchMyPortfolio, submitPortfolioItemApi, PortfolioItem } from '../../lib/api';
 import { colors, spacing } from '../../lib/theme';
+import { pickMedia } from '../../lib/pickMedia';
 
 // Creator portfolio submission (Policy 04 §6.2): the first 3 photos are
 // pre-approved by a moderator before they appear publicly; submissions
@@ -36,12 +37,11 @@ export default function CreatorPortfolio() {
   const addPhoto = async () => {
     if (busy) return;
     setStatus(null);
-    const ImagePicker = await import('expo-image-picker');
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.9,
-    });
-    if (result.canceled) return;
+    const result = await pickMedia(
+      { mediaTypes: ['images'], quality: 0.9 },
+      { title: 'Add a portfolio photo', camera: 'Take a photo', library: 'Choose from library' },
+    );
+    if (!result || result.canceled) return;
     const asset = result.assets[0];
     const file = {
       uri: asset.uri,
