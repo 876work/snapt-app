@@ -453,10 +453,12 @@ export default function OrderSummary() {
             sandwiched inside legal copy, where it reads as boilerplate. It
             now sits in the footer with the other transient messages, just
             above the pay button. */}
-        <Text style={styles.usdNote}>
-          {currency === 'XCD' ? `≈ ${formatMoney(total, 'XCD')} · ` : ''}
-          {USD_PROCESSING_NOTE}
-        </Text>
+        {/* The "≈ EC$…" prefix restated the XCD total, which is already the
+            headline figure in the price card two lines up. What survives is
+            the bank-rate disclosure — the one thing nothing else on this
+            screen says, and the only conversion copy a USD-currency user
+            ever sees (the total card's note is gated behind XCD). */}
+        <Text style={styles.usdNote}>{USD_PROCESSING_NOTE}</Text>
         <View style={{ height: 24 }} />
       </KeyboardScrollView>
 
@@ -667,8 +669,11 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   noticeText: { fontSize: 12.5, fontWeight: '700', color: '#1E7A45', lineHeight: 17 },
-  footerError: { fontSize: 12.5, fontWeight: '700', color: '#A32C2C', textAlign: 'center', marginBottom: 10 },
-  footerStage: { fontSize: 12, color: colors.grey, textAlign: 'center', marginBottom: 10 },
+  // Left, matching the notice card beside them — a footer mixing a
+  // left-aligned card with centred messages is the same inconsistency
+  // one level down.
+  footerError: { fontSize: 12.5, fontWeight: '700', color: '#A32C2C', marginBottom: 10 },
+  footerStage: { fontSize: 12, color: colors.grey, marginBottom: 10 },
   payBar: {
     flexDirection: 'row',
     alignItems: 'center',
