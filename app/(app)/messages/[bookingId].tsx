@@ -20,6 +20,8 @@ interface Thread {
   booking_id: string;
   other_id: string;
   other_name: string;
+  /** The other account is switched off — sending is refused by RLS. */
+  other_disabled?: boolean;
   other_avatar: string | null;
   type: 'in_person' | 'remote';
   /** null on remote orders — they have no occasion step. */
@@ -263,9 +265,25 @@ export default function MessageThread() {
               <Text style={styles.sendErrorText}>{sendError}</Text>
             </View>
           )}
+          {/* The other account is switched off. RLS refuses the insert, so
+              leaving the composer live would produce a send that looks sent
+              and never arrives. The history stays readable — nobody loses the
+              record of the conversation. */}
+          {thread.other_disabled && (
+            <View style={styles.sendError}>
+              <Text style={styles.sendErrorText}>
+                {thread.other_name.split(' ')[0]}'s account is switched off. You can still read this
+                conversation, but new messages won't reach them.
+              </Text>
+            </View>
+          )}
           <View style={styles.inputRow}>
             <TextInput
-              placeholder={`Message ${thread.other_name.split(' ')[0]}…`}
+              placeholder={
+                thread.other_disabled
+                  ? 'This account is switched off'
+                  : `Message ${thread.other_name.split(' ')[0]}…`
+              }
               placeholderTextColor="#9A9A9A"
               style={styles.input}
               value={draft}
@@ -275,9 +293,13 @@ export default function MessageThread() {
               }}
               onSubmitEditing={send}
               returnKeyType="send"
-              editable={!sending}
+              editable={!sending && !thread.other_disabled}
             />
-            <Pressable onPress={send} style={styles.send} disabled={!draft.trim() || sending}>
+            <Pressable
+              onPress={send}
+              style={styles.send}
+              disabled={!draft.trim() || sending || thread.other_disabled}
+            >
               {sending ? (
                 <ActivityIndicator size="small" color={colors.ink} />
               ) : (

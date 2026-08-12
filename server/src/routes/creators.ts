@@ -293,7 +293,11 @@ export function registerCreatorRoutes(app: FastifyInstance) {
           : 'user_id, specialties, verified, base_area, availability, profiles!creator_profiles_user_id_fkey!inner(full_name)') as '*',
       )
       .eq('vetting_status', 'approved')
-      .eq('is_available', true);
+      .eq('is_available', true)
+      // Disabled accounts are not in the directory. This endpoint queries
+      // creator_profiles directly rather than through eligibleCreators, so it
+      // needs the predicate of its own.
+      .eq('profiles.status', 'active');
 
     const bookable = (data ?? []).filter((c: any) => {
       const week = (c.availability ?? {}) as Record<string, unknown[]>;
@@ -352,6 +356,8 @@ export function registerCreatorRoutes(app: FastifyInstance) {
           : 'user_id, specialties, verified, base_area, profiles!creator_profiles_user_id_fkey!inner(full_name)') as '*',
       )
       .eq('vetting_status', 'approved')
+      // Same reason as the directory: the featured rail is a client surface.
+      .eq('profiles.status', 'active')
       .limit(12);
     const ids = (data ?? []).map((c: any) => c.user_id as string);
     if (!ids.length) return { creators: [] };

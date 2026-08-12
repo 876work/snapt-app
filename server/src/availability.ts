@@ -73,6 +73,21 @@ export async function eligibleCreators(
     )
     .eq('vetting_status', 'approved')
     .eq('is_available', true)
+    /**
+     * A DISABLED account is not eligible for anything.
+     *
+     * This sits beside the other two on purpose. `eligibleCreators` is the
+     * single chokepoint for booking eligibility, the quote screen, auto-match
+     * reassignment and the admin dispatch pool — so a future endpoint that
+     * asks "who can do this job?" inherits the check instead of having to
+     * remember it. Disable previously only closed the door on the way IN
+     * (login, API, notifications); nothing on the way OUT knew about it, so a
+     * disabled creator stayed bookable everywhere.
+     *
+     * The embed is already `!inner`, so filtering on it is a join predicate
+     * rather than a post-filter — a disabled creator never leaves the database.
+     */
+    .eq('profiles.status', 'active')
     .contains('specialties', [occasion]);
   if (error) throw new Error(`eligibleCreators: ${error.message}`);
 

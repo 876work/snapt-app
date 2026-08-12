@@ -156,7 +156,7 @@ export function UserDetail() {
         <h1 className="page-title">{profile.full_name || '(no name)'}</h1>
         {suspended && <Pill status="suspended" />}
         {profile.deleted_at && <Pill tone="neutral">deleted account</Pill>}
-        {profile.status === 'disabled' && <Pill tone="warn">Disabled</Pill>}
+        {profile.status === 'disabled' && <Pill tone="danger">Disabled</Pill>}
         {creator && <Pill status={creator.vetting_status} />}
 
         <div className="detail-actions">
@@ -258,6 +258,24 @@ export function UserDetail() {
             <h2>Creator</h2>
             <Link className="meta" to={`/creators/${profile.id}`}>Open in Creators →</Link>
           </div>
+          {/* A disabled account is not "approved · verified · accepting
+              bookings". Those fields describe the creator record, which is
+              deliberately left untouched by the disable so a restore is
+              complete — but read literally on this screen they contradicted
+              the Disabled pill in the header, and three statements
+              disagreeing is how a wrong call gets made. The account state
+              wins, and the underlying record is shown as what it will be
+              again once restored. */}
+          {profile.status === 'disabled' && (
+            <div className="lst-inline failed" role="alert" style={{ marginBottom: 16 }}>
+              <span>⚠</span>
+              <span>
+                This account is <strong>disabled</strong> — not bookable, not visible to clients,
+                and not matched to new work, whatever the creator record says below. The values
+                below are preserved for restore, not in effect.
+              </span>
+            </div>
+          )}
           <div className="facts">
             <div>
               <div className="k">Status</div>
@@ -267,7 +285,20 @@ export function UserDetail() {
             </div>
             <div>
               <div className="k">Availability</div>
-              <div className="v">{creator.is_available ? 'accepting bookings' : 'paused'}</div>
+              <div className="v">
+                {profile.status === 'disabled' ? (
+                  <>
+                    <Pill tone="danger">not bookable</Pill>{' '}
+                    <span className="quiet">
+                      ({creator.is_available ? 'accepting bookings' : 'paused'} when restored)
+                    </span>
+                  </>
+                ) : creator.is_available ? (
+                  'accepting bookings'
+                ) : (
+                  'paused'
+                )}
+              </div>
             </div>
             <div>
               <div className="k">Service type</div>

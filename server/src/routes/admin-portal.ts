@@ -608,7 +608,9 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
       await Promise.all([
         supabaseAdmin
           .from('profiles')
-          .select('id, full_name, email, phone, created_at, suspended_at')
+          // `status` so the approval screen cannot show "approved · verified"
+          // for an account that is switched off.
+          .select('id, full_name, email, phone, created_at, suspended_at, status, disabled_reason')
           .eq('id', id)
           .maybeSingle(),
         supabaseAdmin.from('strikes').select('*').eq('creator_id', id).order('occurred_at', { ascending: false }).limit(20),

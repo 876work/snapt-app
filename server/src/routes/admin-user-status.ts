@@ -38,6 +38,29 @@ interface Commitments {
     creator_payout_usd: number;
   } | null;
   future_bookings: { booking_id: string; scheduled_at: string; client_name: string }[];
+  /**
+   * EVERY other kind of assigned work, which the disable flow used to be
+   * blind to entirely.
+   *
+   * `commitmentsFor` skipped any booking with no `scheduled_at` — and remote
+   * orders never have one. So a paid remote edit assigned to a creator was
+   * neither an active session nor a future booking: not shown, not returned
+   * to dispatch, not alerted. Booking ac3945a7 sat in exactly that hole.
+   * Past-dated confirmed work with nothing delivered fell through the same
+   * gap, because `future_bookings` required a start in the future.
+   */
+  assigned_work: {
+    booking_id: string;
+    kind: 'unscheduled_remote' | 'overdue_scheduled' | 'offer_pending';
+    status: string;
+    type: string;
+    occasion: string | null;
+    scheduled_at: string | null;
+    client_id: string;
+    client_name: string;
+    price_usd: number;
+    delivered: boolean;
+  }[];
   pending_payouts: { count: number; total_usd: number };
   /**
    * Bookings this user holds AS THE CLIENT — money already taken, a creator
@@ -68,7 +91,9 @@ async function commitmentsFor(userId: string): Promise<Commitments> {
   const now = new Date();
   const { data: bookings } = await supabaseAdmin
     .from('bookings')
-    .select('id, client_id, creator_id, scheduled_at, duration_hours, status, price_usd, pricing_snapshot')
+    .select(
+      'id, client_id, creator_id, scheduled_at, duration_hours, status, price_usd, pricing_snapshot, occasion, type, delivered_at, offer_expires_at',
+    )
     .eq('creator_id', userId)
     .in('status', ['pending', 'confirmed']);
 
@@ -91,8 +116,28 @@ async function commitmentsFor(userId: string): Promise<Commitments> {
 
   let active: Commitments['active_session'] = null;
   const future: Commitments['future_bookings'] = [];
+  const assigned: Commitments['assigned_work'] = [];
   for (const b of bookings ?? []) {
-    if (!b.scheduled_at) continue;
+    /**
+     * No scheduled_at means a REMOTE order, not "nothing to resolve". This
+     * used to `continue` and the whole booking vanished from the disable
+     * flow. It is assigned, paid work and the admin has to decide about it.
+     */
+    if (!b.scheduled_at) {
+      assigned.push({
+        booking_id: b.id as string,
+        kind: b.offer_expires_at ? 'offer_pending' : 'unscheduled_remote',
+        status: b.status as string,
+        type: b.type as string,
+        occasion: (b.occasion as string | null) ?? null,
+        scheduled_at: null,
+        client_id: b.client_id as string,
+        client_name: names.get(b.client_id as string) || 'Client',
+        price_usd: Number(b.price_usd || 0),
+        delivered: Boolean(b.delivered_at),
+      });
+      continue;
+    }
     const start = new Date(b.scheduled_at as string);
     const end = new Date(start.getTime() + (Number(b.duration_hours) || 1) * 3600_000);
     const started = live.has(b.id as string);
@@ -111,6 +156,25 @@ async function commitmentsFor(userId: string): Promise<Commitments> {
         booking_id: b.id as string,
         scheduled_at: b.scheduled_at as string,
         client_name: names.get(b.client_id as string) || 'Client',
+      });
+    } else if (!b.delivered_at) {
+      /**
+       * Scheduled in the past, still pending or confirmed, nothing delivered.
+       * Neither "future" nor "active", so this used to fall out of the flow
+       * entirely — a booking whose date has passed with the work still owed
+       * is exactly the kind that must not be orphaned by a disable.
+       */
+      assigned.push({
+        booking_id: b.id as string,
+        kind: 'overdue_scheduled',
+        status: b.status as string,
+        type: b.type as string,
+        occasion: (b.occasion as string | null) ?? null,
+        scheduled_at: b.scheduled_at as string,
+        client_id: b.client_id as string,
+        client_name: names.get(b.client_id as string) || 'Client',
+        price_usd: Number(b.price_usd || 0),
+        delivered: false,
       });
     }
   }
@@ -134,6 +198,7 @@ async function commitmentsFor(userId: string): Promise<Commitments> {
 
   return {
     active_session: active,
+    assigned_work: assigned,
     future_bookings: future.sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at)),
     pending_payouts: { count: (payouts ?? []).length, total_usd: Math.round(total * 100) / 100 },
     client_bookings: (asClient ?? []).map((b) => ({
@@ -375,6 +440,25 @@ export function registerAdminUserStatusRoutes(app: FastifyInstance) {
         });
       }
       /**
+       * ASSIGNED WORK the old flow could not see: unscheduled remote orders,
+       * pending offers, and scheduled work whose date has passed with nothing
+       * delivered. Each one is paid work with this creator's name on it, so
+       * the admin resolves them one by one — reassign to another eligible
+       * creator, or return to dispatch — before the disable can complete.
+       *
+       * Same shape as the active-session refusal above: loud, listed, and
+       * forceable only deliberately.
+       */
+      if (commitments.assigned_work.length > 0 && !request.body?.force) {
+        const n = commitments.assigned_work.length;
+        return reply.code(409).send({
+          error: `This creator has ${n} assigned job${n === 1 ? '' : 's'} that ${n === 1 ? 'is' : 'are'} not finished — including remote orders with no session date. Reassign or return each to dispatch before disabling.`,
+          code: 'assigned_work',
+          commitments,
+        });
+      }
+
+      /**
        * The same person as a CLIENT. Their bookings are paid and a creator is
        * expecting to turn up, so this refuses too — but it deliberately does
        * NOT cancel or refund. Money never moves as a side effect of an admin
@@ -399,6 +483,42 @@ export function registerAdminUserStatusRoutes(app: FastifyInstance) {
           .update({ creator_id: null, status: 'pending', offer_expires_at: null })
           .eq('id', b.booking_id);
         unassigned.push(b.booking_id);
+      }
+
+      /**
+       * Forced past assigned work. Each job returns to dispatch rather than
+       * staying attached to an account that cannot do it — and because that
+       * is a real change to someone's order, each one raises an alert and
+       * tells the client their creator changed. No silent path.
+       */
+      for (const w of commitments.assigned_work) {
+        await supabaseAdmin
+          .from('bookings')
+          .update({ creator_id: null, status: 'pending', offer_expires_at: null })
+          .eq('id', w.booking_id);
+        unassigned.push(w.booking_id);
+        await supabaseAdmin.from('admin_alerts').insert({
+          alert_type: 'assigned_work_returned_to_dispatch',
+          booking_id: w.booking_id,
+          detail: {
+            reason: 'creator_disabled',
+            creator_id: userId,
+            creator_name: profile.full_name ?? null,
+            kind: w.kind,
+            price_usd: w.price_usd,
+            forced: true,
+          },
+        });
+        // The client's own account may itself be disabled (a self-booking, or
+        // both sides switched off) — notify() drops those, so this is safe to
+        // call unconditionally.
+        await notify(
+          w.client_id,
+          'booking_reassigned',
+          'Your creator changed',
+          'The creator on your order is no longer available. It has gone back to our dispatch queue and we are matching you with someone else.',
+          { booking_id: w.booking_id },
+        );
       }
 
       // Record what availability WAS, so the audit trail can distinguish a

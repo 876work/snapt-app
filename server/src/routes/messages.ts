@@ -20,6 +20,8 @@ interface ThreadRow {
   booking_id: string;
   other_id: string;
   other_name: string;
+  /** The other account is switched off — the thread is read-only. */
+  other_disabled: boolean;
   other_avatar: string | null;
   type: string;
   // Nullable for real: only in-person bookings collect an occasion. Remote
@@ -58,7 +60,11 @@ async function loadThreads(userId: string): Promise<ThreadRow[]> {
   ];
 
   const [{ data: profiles }, { data: creatorRows }, { data: messages }, { data: reads }] = await Promise.all([
-    supabaseAdmin.from('profiles').select('id, full_name').in('id', otherIds),
+    // `status` so a thread can say the other account is switched off. Without
+    // it the composer stays live and the RLS insert fails silently — a send
+    // that looks sent. The NAME is still returned: a creator holding a paid
+    // booking needs to know who it is for.
+    supabaseAdmin.from('profiles').select('id, full_name, status').in('id', otherIds),
     supabaseAdmin
       .from('creator_profiles')
       .select('user_id, headshot_path, headshot_status')
@@ -109,6 +115,7 @@ async function loadThreads(userId: string): Promise<ThreadRow[]> {
       // `||`, not `??` — full_name can be an empty string, not just null,
       // on an account that never completed profile setup.
       other_name: other?.full_name || 'Snapt user',
+      other_disabled: (other as { status?: string } | undefined)?.status === 'disabled',
       other_avatar: headshotById.get(otherId) ?? null,
       type: b.type,
       occasion: b.occasion ?? null,

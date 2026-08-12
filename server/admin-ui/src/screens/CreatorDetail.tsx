@@ -15,6 +15,8 @@ interface CreatorDetailData {
     phone: string | null;
     created_at: string;
     suspended_at: string | null;
+    status?: 'active' | 'disabled';
+    disabled_reason?: string | null;
   } | null;
   creator: {
     portfolio_link?: string | null;
@@ -139,9 +141,16 @@ export function CreatorDetail() {
     <>
       <div className="detail-head">
         <h1 className="page-title">{profile?.full_name || '(no name)'}</h1>
+        {/* Account state leads. The vetting pill describes the creator record,
+            which a disable deliberately does not touch — so without this the
+            approval screen read "approved · verified" for someone switched
+            off. */}
+        {profile?.status === 'disabled' && <Pill tone="danger">Disabled</Pill>}
         <Pill status={creator.vetting_status} />
         {creator.verified && <Pill tone="brand">verified</Pill>}
-        {creator.vetting_status === 'approved' && !creator.is_available && <Pill tone="neutral">paused</Pill>}
+        {profile?.status !== 'disabled' &&
+          creator.vetting_status === 'approved' &&
+          !creator.is_available && <Pill tone="neutral">paused</Pill>}
 
         {isAdmin && inReview && (
           <div className="detail-actions">
@@ -178,6 +187,17 @@ export function CreatorDetail() {
       {actionError && (
         <div className="card" style={{ padding: 12, borderLeft: '4px solid var(--danger)', margin: '14px 0' }}>
           {actionError}
+        </div>
+      )}
+      {profile?.status === 'disabled' && (
+        <div className="lst-inline failed" role="alert" style={{ margin: '14px 0' }}>
+          <span>⚠</span>
+          <span>
+            This account is <strong>disabled</strong>
+            {profile.disabled_reason ? ` — ${profile.disabled_reason}` : ''}. They cannot be booked,
+            do not appear to clients, and are not matched to new work. The approval and
+            availability shown below are preserved for restore, not in effect.
+          </span>
         </div>
       )}
       {creator.vetting_status === 'rejected' && creator.rejection_reason && (
