@@ -12,6 +12,7 @@ import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { creatorById, useAuth, useBookings } from '../../lib/store';
 import { apiConfigured, fetchDaySlotsDetailed, isServerCreatorId, SlotConflict } from '../../lib/api';
 import { SlotRecoverySheet } from '../../components/booking/SlotRecoverySheet';
+import { beginSlotRecovery } from '../../lib/slotRecovery';
 import { checkoutBooking } from '../../lib/payments';
 import {
   CANCEL_FULL_REFUND_HOURS,
@@ -479,7 +480,26 @@ export default function OrderSummary() {
         }}
         onEditDetails={() => {
           setConflict(null);
-          router.back();
+          /**
+           * router.back() landed on "Your creator" — the stack is
+           * occasion → duration → location → creator → summary, so one step
+           * back from here is the creator picker, four screens from the date
+           * picker this option promises. dismissTo goes to the screen by
+           * name instead of by counting.
+           *
+           * The draft is untouched: every answer lives in the store, so
+           * occasion, duration, package, area, meeting point and add-ons are
+           * all still there and all still editable on the way forward.
+           */
+          if (draft.date && draft.time) {
+            beginSlotRecovery({
+              creatorId: isServerCreatorId(draft.creatorId) ? draft.creatorId : null,
+              creatorName: creator?.name?.split(' ')[0] ?? null,
+              takenTime: draft.time,
+              date: draft.date,
+            });
+          }
+          router.dismissTo('/booking/occasion');
         }}
         onClose={() => setConflict(null)}
       />

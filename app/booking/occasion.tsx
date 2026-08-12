@@ -8,7 +8,14 @@ import { OccasionIcon } from '../../components/ui/Icons';
 import { InfoBanner } from '../../components/ui/Misc';
 import { OCCASIONS } from '../../lib/mock/data';
 import { creatorById, useBookings } from '../../lib/store';
-import { apiConfigured, fetchDayFlags, fetchDaySlots } from '../../lib/api';
+import { apiConfigured, fetchDayFlags, fetchDaySlots, fetchDaySlotsDetailed } from '../../lib/api';
+import {
+  endSlotRecovery,
+  mergeTakenSlot,
+  resolveRecovery,
+  timesForCreator,
+  useSlotRecovery,
+} from '../../lib/slotRecovery';
 import { ADVANCE_BOOKING_WINDOW_DAYS } from '../../lib/constants/business';
 import { colors, spacing, insetBottom } from '../../lib/theme';
 
@@ -18,6 +25,14 @@ const TIMES = ['9:00', '10:30', '12:00', '14:00', '15:30', '17:00'];
 // the smallest package (1h); the server re-validates with the real duration
 // at booking creation.
 const AVAILABILITY_PROBE_HOURS = 1;
+
+/** "Sat 15 Aug" — a day someone can match against the strip above. */
+function dayLabel(iso: string | null): string {
+  if (!iso) return 'that day';
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return 'that day';
+  return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
 
 export default function OccasionAndDate() {
   const router = useRouter();
@@ -30,6 +45,27 @@ export default function OccasionAndDate() {
   const [daySlots, setDaySlots] = React.useState<string[] | null>(null);
   const [slotsFailed, setSlotsFailed] = React.useState(false);
   const [slotsReloadKey, setSlotsReloadKey] = React.useState(0);
+
+  /**
+   * COMING BACK FROM "THAT TIME WAS JUST TAKEN".
+   *
+   * The two halves of a recovery expire on different terms, which is why
+   * they are read apart rather than as one boolean:
+   *
+   *  - the CREATOR filter follows the creator, so it survives picking another
+   *    day (the point of coming here), and stops the moment the draft names
+   *    somebody else — a rematch or a change on the creator screen ends it
+   *    without anything having to remember to clear it.
+   *  - the TAKEN marker follows the date, because "18:00 is gone" is only
+   *    true of the day it went.
+   */
+  const recovery = useSlotRecovery();
+  const { filterCreatorId, takenTime, inRecovery } = resolveRecovery(
+    recovery,
+    draft.creatorId,
+    draft.date,
+  );
+  const recoveryName = recovery?.creatorName ?? 'Your creator';
 
   React.useEffect(() => {
     if (!apiConfigured || !draft.occasion) return;
@@ -48,7 +84,23 @@ export default function OccasionAndDate() {
     let stale = false;
     setDaySlots(null);
     setSlotsFailed(false);
-    fetchDaySlots(draft.occasion, draft.date, AVAILABILITY_PROBE_HOURS).then((slots) => {
+    /**
+     * Recovery reads the SAME endpoint through its detailed form, which
+     * returns the creator ids per slot — the data the plain call throws
+     * away. It also uses the real duration and area, both known by the time
+     * anyone reaches Order Summary, so these slots agree exactly with the
+     * ones the conflict was raised against. The forward path keeps the 1h
+     * probe and no area, untouched.
+     */
+    const load = inRecovery
+      ? fetchDaySlotsDetailed(
+          draft.occasion,
+          draft.date,
+          draft.durationHours ?? AVAILABILITY_PROBE_HOURS,
+          draft.area,
+        ).then((slots) => (slots == null ? null : timesForCreator(slots, filterCreatorId)))
+      : fetchDaySlots(draft.occasion, draft.date, AVAILABILITY_PROBE_HOURS);
+    load.then((slots) => {
       if (stale) return;
       // null = the availability fetch FAILED. This used to fall through to
       // the hardcoded TIMES list — a picker fabricating times that may not
@@ -65,7 +117,33 @@ export default function OccasionAndDate() {
     return () => {
       stale = true;
     };
-  }, [draft.occasion, draft.date, slotsReloadKey]);
+  }, [
+    draft.occasion,
+    draft.date,
+    slotsReloadKey,
+    // Date & Time is already mounted when a recovery starts — dismissTo pops
+    // back to it rather than remounting — so these have to be dependencies or
+    // the screen would keep showing everyone's times.
+    inRecovery,
+    filterCreatorId,
+    draft.durationHours,
+    draft.area,
+  ]);
+
+  const timeChips = React.useMemo(
+    () => mergeTakenSlot(apiConfigured ? (daySlots ?? []) : TIMES, takenTime),
+    [daySlots, takenTime],
+  );
+
+  /** The creator we came back for has nothing left on the chosen day. */
+  const creatorHasNothing =
+    apiConfigured && filterCreatorId != null && !slotsFailed && daySlots?.length === 0;
+
+  /** Drop the creator, keep everything else — the server matches whoever is free. */
+  const openToAnyCreator = () => {
+    setDraft({ creatorId: null });
+    endSlotRecovery();
+  };
 
   const days = React.useMemo(() => {
     /**
@@ -83,6 +161,13 @@ export default function OccasionAndDate() {
 
   const prefilledCreator = bookAgain ? creatorById(draft.creatorId) : undefined;
   const canContinue = !!draft.occasion && !!draft.date && !!draft.time;
+  /**
+   * The shortcut may only skip screens that are already answered. Switching
+   * the occasion to Social clears durationHours by design, so the way back is
+   * genuinely through the duration screen — and jumping over it would land on
+   * a summary with a hole in it.
+   */
+  const canReturnToSummary = canContinue && draft.durationHours != null && draft.area != null;
 
   return (
     <View style={styles.root}>
@@ -168,34 +253,107 @@ export default function OccasionAndDate() {
           <View style={{ paddingVertical: 14, alignItems: 'flex-start' }}>
             <ActivityIndicator color={colors.yellowDark} />
           </View>
+        ) : creatorHasNothing ? (
+          /* A day can read as open in the strip above and still have nothing
+             for THIS creator: those dots come from fetchDayFlags, which has
+             no creator dimension, and asking the server for per-creator
+             detail on every day in the booking window would be a lot of work
+             to draw a row of dots. The compromise is deliberate, so this
+             message has to carry it — who, what, and both ways on. Nobody
+             should tap an open-looking day and find an empty picker with no
+             explanation. */
+          <View style={styles.noneCard}>
+            <Text style={styles.noneTitle}>
+              {recoveryName} has no times left on {dayLabel(draft.date)}.
+            </Text>
+            <Text style={styles.noneBody}>
+              Every other detail is saved. Pick another day above to see when they're free, or
+              keep this day with someone else.
+            </Text>
+            <Pressable onPress={openToAnyCreator} style={styles.noneCta}>
+              <Text style={styles.noneCtaLabel}>Show times with another creator</Text>
+            </Pressable>
+          </View>
         ) : apiConfigured && daySlots?.length === 0 ? (
           <Text style={styles.hint}>No times left this day — try another date.</Text>
         ) : null}
         <View style={styles.chipWrap}>
-          {(apiConfigured ? (daySlots ?? []) : TIMES).map((t) => {
-            const active = draft.time === t;
+          {timeChips.map(({ time, taken }) => {
+            const active = draft.time === time;
             return (
               <Pressable
-                key={t}
-                onPress={() => setDraft({ time: t })}
-                style={[styles.time, active && styles.chipActive]}
+                key={time}
+                disabled={taken}
+                onPress={() => setDraft({ time })}
+                style={[styles.time, active && styles.chipActive, taken && styles.timeTaken]}
               >
-                <Text style={[styles.timeLabel, active && { color: colors.ink }]}>{t}</Text>
+                <Text
+                  style={[
+                    styles.timeLabel,
+                    active && { color: colors.ink },
+                    taken && styles.timeTakenLabel,
+                  ]}
+                >
+                  {time}
+                </Text>
+                {taken && <Text style={styles.timeTakenNote}>Taken</Text>}
               </Pressable>
             );
           })}
         </View>
         <View style={{ height: 24 }} />
       </ScrollView>
-      <View style={styles.footer}>
-        <Button
-          title="Continue"
-          arrow
-          disabled={!canContinue}
-          onPress={() => router.push('/booking/duration')}
-          style={{ flex: 1 }}
-        />
-      </View>
+      {/* A conflict here was not the user's doing, so fixing it should not
+          cost four taps through screens they are not changing. The forward
+          path is still offered underneath, unchanged, for when something
+          else does need editing. */}
+      {inRecovery ? (
+        <View style={styles.footerStack}>
+          {canReturnToSummary ? (
+            <>
+              <Button
+                title="Back to summary"
+                arrow
+                disabled={!canContinue}
+                onPress={() => {
+                  endSlotRecovery();
+                  router.push('/booking/summary');
+                }}
+              />
+              <Pressable
+                onPress={() => {
+                  endSlotRecovery();
+                  router.push('/booking/duration');
+                }}
+                style={styles.footerLink}
+                hitSlop={6}
+              >
+                <Text style={styles.footerLinkLabel}>Change other details first</Text>
+              </Pressable>
+            </>
+          ) : (
+            <Button
+              title="Continue"
+              arrow
+              disabled={!canContinue}
+              onPress={() => {
+                endSlotRecovery();
+                router.push('/booking/duration');
+              }}
+            />
+          )}
+        </View>
+      ) : (
+        <View style={styles.footer}>
+          <Button
+            title="Continue"
+            arrow
+            disabled={!canContinue}
+            onPress={() => router.push('/booking/duration')}
+            style={{ flex: 1 }}
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -247,6 +405,49 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   timeLabel: { fontSize: 13, fontWeight: '700', color: colors.grey },
+  // The lost slot: present, in its right place, visibly not selectable.
+  timeTaken: {
+    backgroundColor: colors.segBg,
+    borderColor: colors.borderWarm,
+    borderStyle: 'dashed',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    gap: 6,
+  },
+  timeTakenLabel: { color: colors.greyFaint, textDecorationLine: 'line-through' },
+  timeTakenNote: { fontSize: 10, fontWeight: '800', color: colors.greyWarm, letterSpacing: 0.2 },
+  noneCard: {
+    backgroundColor: colors.yellowSoft,
+    borderWidth: 1,
+    borderColor: colors.yellowSoftBorder,
+    borderRadius: 14,
+    padding: 14,
+    marginTop: -6,
+    marginBottom: 12,
+  },
+  noneTitle: { fontSize: 13.5, fontWeight: '800', color: colors.ink, lineHeight: 19 },
+  noneBody: { fontSize: 12.5, color: colors.grey, lineHeight: 18, marginTop: 5 },
+  noneCta: {
+    alignSelf: 'flex-start',
+    marginTop: 11,
+    paddingHorizontal: 14,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: colors.yellow,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noneCtaLabel: { fontSize: 13, fontWeight: '800', color: colors.ink },
+  footerStack: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: Math.max(insetBottom + 12, 30),
+    backgroundColor: colors.offWhite,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+  },
+  footerLink: { alignSelf: 'center', paddingVertical: 10, marginBottom: -4 },
+  footerLinkLabel: { fontSize: 13, fontWeight: '700', color: colors.yellowDark },
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
