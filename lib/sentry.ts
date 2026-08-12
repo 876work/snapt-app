@@ -103,3 +103,42 @@ export function captureHandledError(error: unknown, handledAt: string): void {
   if (!dsn) return;
   Sentry.captureException(error, { tags: { handled_at: handledAt } });
 }
+
+/* ------------------------------------------------------------------ *
+ * Proving symbolication.
+ *
+ * Source maps for an OTA bundle are uploaded by scripts/publish-ota.sh, and
+ * the failure mode is silent — maps upload, the publish succeeds, and every
+ * trace is minified with nothing anywhere saying why. The only way to know is
+ * to look at a real trace from a real published bundle.
+ *
+ * Hence a deliberate error thrown through TWO NAMED FUNCTIONS. A minifier
+ * renames both, so the answer is unambiguous at a glance:
+ *
+ *   symbolicated  →  snaptTestCrashInner   lib/sentry.ts
+ *   minified      →  a single letter, or index.android.bundle:1:2345678
+ *
+ * Captured rather than left to crash the app, so it can be run repeatedly
+ * without fighting a restart loop. It travels the same beforeSend, the same
+ * scrubbing and the same stack pipeline as a genuine error.
+ * ------------------------------------------------------------------ */
+
+function snaptTestCrashInner(): never {
+  throw new Error('Snapt test crash — deliberate, sent from Build & updates');
+}
+
+function snaptTestCrashMiddle(): void {
+  snaptTestCrashInner();
+}
+
+/** Returns false when there is no DSN — nothing was sent. */
+export function sendTestCrash(): boolean {
+  if (!dsn) return false;
+  try {
+    snaptTestCrashMiddle();
+  } catch (err) {
+    Sentry.captureException(err, { tags: { handled_at: 'test_trigger' } });
+    return true;
+  }
+  return false;
+}

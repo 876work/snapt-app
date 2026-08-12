@@ -36,6 +36,37 @@ export default function Profile() {
   const [updBusy, setUpdBusy] = React.useState(false);
   const [updStatus, setUpdStatus] = React.useState<string | null>(null);
 
+  // Hidden test-crash trigger — see the comment at its Pressable below.
+  const TEST_CRASH_TAPS = 7;
+  const crashTaps = React.useRef(0);
+  const crashTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [crashNote, setCrashNote] = React.useState<string | null>(null);
+  React.useEffect(() => () => {
+    if (crashTimer.current) clearTimeout(crashTimer.current);
+  }, []);
+  const onVersionTap = React.useCallback(() => {
+    if (crashTimer.current) clearTimeout(crashTimer.current);
+    crashTaps.current += 1;
+    const left = TEST_CRASH_TAPS - crashTaps.current;
+    if (left > 0) {
+      setCrashNote(left <= 3 ? `${left} more tap${left === 1 ? '' : 's'} to send a test error` : null);
+      // Stray taps must not accumulate into a surprise days later.
+      crashTimer.current = setTimeout(() => {
+        crashTaps.current = 0;
+        setCrashNote(null);
+      }, 4000);
+      return;
+    }
+    crashTaps.current = 0;
+    import('../../../lib/sentry').then(({ sendTestCrash }) => {
+      setCrashNote(
+        sendTestCrash()
+          ? 'Test error sent to Sentry. It should appear within a minute.'
+          : 'Crash reporting is off in this build — nothing was sent.',
+      );
+    });
+  }, []);
+
   const initial = (name || 'Y').charAt(0).toUpperCase();
   /**
    * Their own approved headshot. Same rule as Edit Profile: if the person has
@@ -325,7 +356,14 @@ export default function Profile() {
             instead of failing silently. */}
         <View style={styles.updBlock}>
           <Text style={styles.updTitle}>Build &amp; updates</Text>
-          <Text style={styles.updLine}>
+          {/* Seven taps on the version line sends a deliberate error to
+              Sentry — the only way to confirm an OTA bundle's source maps
+              actually resolve, since that fails silently. Behind a gesture
+              rather than a button: this is diagnostics, not a feature. The
+              count is announced from the fourth tap so it can never happen
+              by accident, and it resets after a few idle seconds. */}
+          <Pressable onPress={onVersionTap}>
+            <Text style={styles.updLine}>
             {/* Constants.nativeApplicationVersion / nativeBuildVersion are
                 DEPRECATED in SDK 57 (they point at expo-application, which
                 isn't installed) — both returned null, which is why this line
@@ -337,7 +375,9 @@ export default function Profile() {
             App: v{Constants.expoConfig?.version ?? '?'} · code{' '}
             {/* Stamped by scripts/publish-ota.sh at publish time. */}
             {process.env.EXPO_PUBLIC_COMMIT ?? 'factory'}
-          </Text>
+            </Text>
+          </Pressable>
+          {crashNote ? <Text style={styles.updStatus}>{crashNote}</Text> : null}
           <Text style={styles.updLine}>
             Bundle: {Updates.updateId ?? 'embedded (factory bundle)'}
           </Text>
