@@ -72,7 +72,7 @@ else
 fi
 
 echo '--- 3/3 publish the exported bundle ---'
-npx eas-cli@latest update --branch production --input-dir dist --skip-bundler \
-  --message "$MSG [$COMMIT]" --non-interactive
+npx eas-cli@latest update --branch production --environment production \
+  --input-dir dist --skip-bundler --message "$MSG [$COMMIT]" --non-interactive
 INNER
 )"
