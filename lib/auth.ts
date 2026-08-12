@@ -99,6 +99,14 @@ export type OAuthResult = AuthResult & {
   /** Account created just now → route through onboarding like a signup. */
   isNewUser?: boolean;
   name?: string;
+  /**
+   * The provider's OWN split, when it gave one. Google and Apple both return
+   * givenName/familyName separately; joining them and re-splitting on the
+   * first space would mangle any surname containing a space, so the parts are
+   * carried through to the completion step untouched.
+   */
+  firstName?: string;
+  lastName?: string;
   email?: string;
   /** All four required profile fields present? Drives the completion step. */
   profileComplete?: boolean;
@@ -110,7 +118,10 @@ export type OAuthResult = AuthResult & {
  * fullName on the FIRST authorization ever, so it must be written now or
  * it is lost permanently (private-relay users are unreachable otherwise).
  */
-async function completeOAuthSignIn(providedName: string | null): Promise<OAuthResult> {
+async function completeOAuthSignIn(
+  providedName: string | null,
+  providedParts?: { first?: string | null; last?: string | null },
+): Promise<OAuthResult> {
   const { data: auth } = await supabase!.auth.getUser();
   const user = auth.user;
   if (!user) return { error: 'Sign-in failed — try again.' };
@@ -140,7 +151,15 @@ async function completeOAuthSignIn(providedName: string | null): Promise<OAuthRe
   // is just as incomplete as one created a second ago.
   const profileComplete = isProfileComplete({ name, email, phone, country });
   useAuth.getState().setProfile({ phone, country, profileComplete });
-  return { error: null, isNewUser, name, email, profileComplete };
+  return {
+    error: null,
+    isNewUser,
+    name,
+    firstName: providedParts?.first ?? undefined,
+    lastName: providedParts?.last ?? undefined,
+    email,
+    profileComplete,
+  };
 }
 
 export async function signInWithGoogle(): Promise<OAuthResult> {
@@ -174,7 +193,9 @@ export async function signInWithGoogle(): Promise<OAuthResult> {
     if (error) return { error: error.message };
     const g = response.data.user;
     const googleName = g.name || [g.givenName, g.familyName].filter(Boolean).join(' ');
-    return completeOAuthSignIn(googleName || null);
+    // givenName/familyName are kept alongside the joined name so the
+    // completion step can prefill its two fields without guessing.
+    return completeOAuthSignIn(googleName || null, { first: g.givenName, last: g.familyName });
   } catch (e) {
     const code = (e as { code?: string }).code;
     const { statusCodes } = await import('@react-native-google-signin/google-signin');
@@ -216,7 +237,9 @@ export async function signInWithApple(): Promise<OAuthResult> {
     // stored and used like any other, nothing special to do here.
     const n = credential.fullName;
     const providedName = n ? [n.givenName, n.familyName].filter(Boolean).join(' ') : '';
-    return completeOAuthSignIn(providedName || null);
+    // Same as Google: keep Apple's own split. This is the ONLY authorization
+    // that will ever carry it, so losing the structure here loses it forever.
+    return completeOAuthSignIn(providedName || null, { first: n?.givenName, last: n?.familyName });
   } catch (e) {
     if ((e as { code?: string }).code === 'ERR_REQUEST_CANCELED') {
       return { error: null, cancelled: true };

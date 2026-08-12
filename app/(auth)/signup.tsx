@@ -15,6 +15,7 @@ import {
 } from '../../components/auth/AuthBits';
 import { Country, SAINT_LUCIA } from '../../lib/constants/countries';
 import { realAuth, signUpWithEmail } from '../../lib/auth';
+import { joinName } from '../../lib/name';
 import { colors, insetBottom, insetTop } from '../../lib/theme';
 
 // CD design signup: socials first, then full name, locked COUNTRY (Snapt is
@@ -29,7 +30,8 @@ const PW_RULES: { label: string; test: (p: string) => boolean }[] = [
 
 export default function Signup() {
   const router = useRouter();
-  const [name, setName] = React.useState('');
+  const [firstName, setFirstName] = React.useState('');
+  const [lastName, setLastName] = React.useState('');
   const [dial, setDial] = React.useState<Country>(SAINT_LUCIA);
   const [phone, setPhone] = React.useState('');
   const [email, setEmail] = React.useState('');
@@ -40,7 +42,10 @@ export default function Signup() {
   const [busy, setBusy] = React.useState(false);
 
   const pwOk = PW_RULES.every((r) => r.test(password));
-  const canContinue = name.trim().length > 0 && email.includes('@') && pwOk && !busy;
+  // Both halves required on signup — a new account always gets a full name.
+  const name = joinName(firstName, lastName);
+  const canContinue =
+    firstName.trim().length > 0 && lastName.trim().length > 0 && email.includes('@') && pwOk && !busy;
   const phoneDigits = phone.replace(/\D/g, '');
   // E.164, matching the completion step — the old `+1758 5555555` shape left
   // three different formats in the profiles table.
@@ -49,13 +54,13 @@ export default function Signup() {
   const handleContinue = async () => {
     setBusy(true);
     setError(null);
-    const result = await signUpWithEmail(name.trim(), email.trim(), password);
+    const result = await signUpWithEmail(name, email.trim(), password);
     setBusy(false);
     if (result.error) {
       setError(result.error);
       return;
     }
-    const params = { name: name.trim(), email: email.trim(), phone: fullPhone };
+    const params = { name, email: email.trim(), phone: fullPhone };
     if (realAuth && !result.needsConfirmation) {
       router.push({ pathname: '/(auth)/onboarding-currency', params });
       return;
@@ -63,7 +68,8 @@ export default function Signup() {
     router.push({ pathname: '/(auth)/verify', params });
   };
 
-  // Return key walks the form: name → phone → email → password.
+  // Return key walks the form: first → last → phone → email → password.
+  const lastNameRef = React.useRef<RNTextInput>(null);
   const phoneRef = React.useRef<RNTextInput>(null);
   const emailRef = React.useRef<RNTextInput>(null);
   const passwordRef = React.useRef<RNTextInput>(null);
@@ -89,7 +95,27 @@ export default function Signup() {
         <SocialButtons />
 
         <View style={{ gap: 12, marginTop: 4 }}>
-          <AuthInput icon="person" placeholder="Full name" value={name} onChangeText={setName} autoCapitalize="words" returnKeyType="next" onSubmitEditing={() => phoneRef.current?.focus()} />
+          <AuthInput
+            icon="person"
+            placeholder="First name"
+            value={firstName}
+            onChangeText={setFirstName}
+            autoCapitalize="words"
+            textContentType="givenName"
+            returnKeyType="next"
+            onSubmitEditing={() => lastNameRef.current?.focus()}
+          />
+          <AuthInput
+            icon="person"
+            inputRef={lastNameRef}
+            placeholder="Last name"
+            value={lastName}
+            onChangeText={setLastName}
+            autoCapitalize="words"
+            textContentType="familyName"
+            returnKeyType="next"
+            onSubmitEditing={() => phoneRef.current?.focus()}
+          />
 
           {/* Country — locked: Snapt is live in Saint Lucia only. Shared with
               the OAuth completion step so the two cannot diverge. */}

@@ -13,6 +13,7 @@ import {
 } from '../../components/auth/AuthBits';
 import { Country, SAINT_LUCIA } from '../../lib/constants/countries';
 import { saveProfile } from '../../lib/auth';
+import { joinName, splitName } from '../../lib/name';
 import { landingAfterAuth } from '../../lib/notificationTarget';
 import { useAuth } from '../../lib/store';
 import { colors, insetBottom, insetTop } from '../../lib/theme';
@@ -38,7 +39,11 @@ import { colors, insetBottom, insetTop } from '../../lib/theme';
  */
 export default function CompleteProfile() {
   const router = useRouter();
-  const { next } = useLocalSearchParams<{ next?: string }>();
+  const { next, first: firstParam, last: lastParam } = useLocalSearchParams<{
+    next?: string;
+    first?: string;
+    last?: string;
+  }>();
   const storeName = useAuth((s) => s.name);
   const storeEmail = useAuth((s) => s.email);
   const storePhone = useAuth((s) => s.phone);
@@ -46,7 +51,18 @@ export default function CompleteProfile() {
   // Prefilled with whatever the provider did give us, and still editable —
   // Apple in particular hands over a name exactly once, and it is often not
   // the name someone wants a creator to call them.
-  const [name, setName] = React.useState(storeName ?? '');
+  //
+  // Google and Apple both return givenName/familyName SEPARATELY and we used
+  // to join them and throw the structure away. When those parts came through
+  // they are used directly; the space-split is only the fallback for a
+  // provider that gave a single joined string, or for an older account that
+  // reached this screen with nothing but a stored full_name.
+  const seeded = React.useMemo(() => {
+    if (firstParam || lastParam) return { first: firstParam ?? '', last: lastParam ?? '' };
+    return splitName(storeName);
+  }, [firstParam, lastParam, storeName]);
+  const [firstName, setFirstName] = React.useState(seeded.first);
+  const [lastName, setLastName] = React.useState(seeded.last);
   const [dial, setDial] = React.useState<Country>(SAINT_LUCIA);
   const [phone, setPhone] = React.useState(storePhone ?? '');
   const [pickerOpen, setPickerOpen] = React.useState(false);
@@ -64,14 +80,17 @@ export default function CompleteProfile() {
   // E.164 — one stored shape. The three phone numbers already in production
   // are in three different formats because nothing ever normalised them.
   const e164 = digits ? `+${dial.dialCode}${digits}` : '';
-  const canContinue = name.trim().length > 0 && digits.length >= 7 && !busy;
+  // Both halves required here too — this is still first capture of the name.
+  const name = joinName(firstName, lastName);
+  const canContinue =
+    firstName.trim().length > 0 && lastName.trim().length > 0 && digits.length >= 7 && !busy;
 
   const submit = async () => {
     if (!canContinue) return;
     setBusy(true);
     setError(null);
     const result = await saveProfile({
-      name: name.trim(),
+      name,
       email: storeEmail ?? '',
       phone: e164,
       country: SAINT_LUCIA.iso2,
@@ -89,7 +108,7 @@ export default function CompleteProfile() {
       // landingAfterAuth itself.
       router.replace({
         pathname: '/(auth)/onboarding-currency',
-        params: { name: name.trim(), email: storeEmail ?? '' },
+        params: { name, email: storeEmail ?? '' },
       });
       return;
     }
@@ -98,6 +117,7 @@ export default function CompleteProfile() {
     router.replace((await landingAfterAuth()) as never);
   };
 
+  const lastNameRef = React.useRef<RNTextInput>(null);
   const phoneRef = React.useRef<RNTextInput>(null);
 
   return (
@@ -122,10 +142,22 @@ export default function CompleteProfile() {
         <View style={{ gap: 12, marginTop: 4 }}>
           <AuthInput
             icon="person"
-            placeholder="Full name"
-            value={name}
-            onChangeText={setName}
+            placeholder="First name"
+            value={firstName}
+            onChangeText={setFirstName}
             autoCapitalize="words"
+            textContentType="givenName"
+            returnKeyType="next"
+            onSubmitEditing={() => lastNameRef.current?.focus()}
+          />
+          <AuthInput
+            icon="person"
+            inputRef={lastNameRef}
+            placeholder="Last name"
+            value={lastName}
+            onChangeText={setLastName}
+            autoCapitalize="words"
+            textContentType="familyName"
             returnKeyType="next"
             onSubmitEditing={() => phoneRef.current?.focus()}
           />

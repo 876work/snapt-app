@@ -146,7 +146,13 @@ export function SocialButtons() {
         pathname: '/(auth)/complete-profile',
         // A brand-new account still owes us currency + push priming; a
         // returning one already did those and just needs the missing fields.
-        params: result.isNewUser ? { next: 'onboarding' } : {},
+        // The provider's own name split rides along so the two name fields
+        // prefill from givenName/familyName rather than a space guess.
+        params: {
+          ...(result.isNewUser ? { next: 'onboarding' } : {}),
+          ...(result.firstName ? { first: result.firstName } : {}),
+          ...(result.lastName ? { last: result.lastName } : {}),
+        },
       });
       return;
     }

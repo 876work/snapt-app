@@ -9,12 +9,27 @@ import { CreatorAvatar } from '../../../components/ui/CreatorAvatar';
 import { HeadshotUpload } from '../../../components/creator/HeadshotUpload';
 import { useAuth } from '../../../lib/store';
 import { realAuth, saveProfile } from '../../../lib/auth';
+import { hasLastName, joinName, splitName } from '../../../lib/name';
 import { colors, spacing, insetBottom } from '../../../lib/theme';
 
 export default function EditProfile() {
   const router = useRouter();
   const { name, email, phone } = useAuth();
-  const [n, setN] = React.useState(name);
+  // The stored name is split for editing and rejoined on save, so an existing
+  // name round-trips byte-identically if it is not touched.
+  const seeded = React.useMemo(() => splitName(name), [name]);
+  const [firstName, setFirstName] = React.useState(seeded.first);
+  const [lastName, setLastName] = React.useState(seeded.last);
+  /**
+   * A mononym is not an error.
+   *
+   * Existing accounts are untouched by this change, so somebody stored as
+   * "Madonna" must be able to open this screen, change their phone number and
+   * save — without being made to invent a surname they do not have. Last name
+   * is therefore required only when the stored name already had one. Save
+   * rejoins with filter(Boolean), so a one-word name stays one word.
+   */
+  const lastRequired = React.useMemo(() => hasLastName(name), [name]);
   const [e, setE] = React.useState(email);
   const [p, setP] = React.useState(phone);
   const [saving, setSaving] = React.useState(false);
@@ -52,8 +67,12 @@ export default function EditProfile() {
     loadPhoto();
   }, [loadPhoto]);
 
+  const n = joinName(firstName, lastName);
+  const canSave =
+    firstName.trim().length > 0 && (!lastRequired || lastName.trim().length > 0) && !saving;
+
   const save = async () => {
-    if (saving) return;
+    if (!canSave) return;
     setSaving(true);
     setError(null);
     const result = await saveProfile({ name: n, email: e, phone: p });
@@ -120,8 +139,28 @@ export default function EditProfile() {
           </View>
         )}
 
-        <Text style={styles.fieldLabel}>FULL NAME</Text>
-        <TextInput value={n} onChangeText={setN} placeholder="Your name" placeholderTextColor="#9A9A9A" style={styles.input} />
+        <Text style={styles.fieldLabel}>FIRST NAME</Text>
+        <TextInput
+          value={firstName}
+          onChangeText={setFirstName}
+          placeholder="First name"
+          placeholderTextColor="#9A9A9A"
+          autoCapitalize="words"
+          textContentType="givenName"
+          style={styles.input}
+        />
+        <Text style={[styles.fieldLabel, { marginTop: 18 }]}>
+          LAST NAME{lastRequired ? '' : ' (OPTIONAL)'}
+        </Text>
+        <TextInput
+          value={lastName}
+          onChangeText={setLastName}
+          placeholder={lastRequired ? 'Last name' : 'Add one if you have one'}
+          placeholderTextColor="#9A9A9A"
+          autoCapitalize="words"
+          textContentType="familyName"
+          style={styles.input}
+        />
         <Text style={[styles.fieldLabel, { marginTop: 18 }]}>EMAIL</Text>
         <TextInput
           value={e}
@@ -153,7 +192,7 @@ export default function EditProfile() {
         {error && <Text style={styles.error}>{error}</Text>}
       </KeyboardScrollView>
       <View style={styles.footer}>
-        <Pressable onPress={save} disabled={saving} style={[styles.cta, saving && { opacity: 0.6 }]}>
+        <Pressable onPress={save} disabled={!canSave} style={[styles.cta, !canSave && { opacity: 0.6 }]}>
           <Text style={styles.ctaLabel}>{saving ? 'Saving…' : 'Save changes'}</Text>
         </Pressable>
       </View>
