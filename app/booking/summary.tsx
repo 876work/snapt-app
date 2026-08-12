@@ -189,7 +189,9 @@ export default function OrderSummary() {
 
   const setDraftTime = (time: string) => {
     useBookings.getState().setDraft({ time });
-    setTimeNote(`Time updated to ${time} — slide below to confirm.`);
+    // Was "slide below to confirm" — there is no slider on this screen,
+    // and the button reads "Continue to payment".
+    setTimeNote(`Time updated to ${time}. Continue to payment to confirm.`);
   };
 
   const when =
@@ -446,7 +448,11 @@ export default function OrderSummary() {
           </Text>
           .
         </Text>
-        {timeNote ? <Text style={styles.timeNote}>{timeNote}</Text> : null}
+        {/* The time-change notice used to render HERE, between the terms
+            line and the conversion note — a transient status message
+            sandwiched inside legal copy, where it reads as boilerplate. It
+            now sits in the footer with the other transient messages, just
+            above the pay button. */}
         <Text style={styles.usdNote}>
           {currency === 'XCD' ? `≈ ${formatMoney(total, 'XCD')} · ` : ''}
           {USD_PROCESSING_NOTE}
@@ -481,6 +487,14 @@ export default function OrderSummary() {
             moment someone wonders why nothing happened. */}
         {bookError ? <Text style={styles.footerError}>{bookError}</Text> : null}
         {busy && !!stage && <Text style={styles.footerStage}>{stage}</Text>}
+        {/* Transient status about the booking itself — tinted card, not grey
+            legal type, so it cannot be mistaken for the terms. Absent
+            entirely when nothing has changed. */}
+        {timeNote ? (
+          <View style={styles.noticeCard}>
+            <Text style={styles.noticeText}>{timeNote}</Text>
+          </View>
+        ) : null}
         <View style={styles.payBar}>
           <Text style={styles.payBarLabel}>You're paying (USD)</Text>
           <Text style={styles.payBarValue}>{formatMoney(total, 'USD')}</Text>
@@ -619,7 +633,9 @@ const styles = StyleSheet.create({
   quoteFailedBody: { fontSize: 12.5, color: colors.grey, textAlign: 'center', lineHeight: 18 },
   quoteRetry: { marginTop: 8, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.yellow },
   quoteRetryLabel: { fontSize: 13, color: colors.ink },
-  usdNote: { fontSize: 11, color: colors.grey, lineHeight: 15.5, marginTop: 10, textAlign: 'center' },
+  // Left, matching the Stripe note and the terms line directly above it —
+  // the whole block below the price card now shares one alignment.
+  usdNote: { fontSize: 11, color: colors.grey, lineHeight: 15.5, marginTop: 10, paddingHorizontal: 2 },
   totalLabel: { fontSize: 15, fontWeight: '700', color: colors.ink },
   totalValue: { fontSize: 20, fontWeight: '800', color: colors.ink },
   priceLabel: { fontSize: 13.5, color: colors.grey },
@@ -641,7 +657,16 @@ const styles = StyleSheet.create({
   stripeText: { flex: 1, fontSize: 12, color: colors.grey, lineHeight: 17 },
   terms: { fontSize: 11.5, color: '#9A9A9A', lineHeight: 17, marginTop: 12, paddingHorizontal: 2 },
   link: { color: colors.yellowDark, fontWeight: '600', textDecorationLine: 'underline' },
-  timeNote: { fontSize: 12.5, fontWeight: '700', color: '#1E7A45', marginBottom: 8, textAlign: 'center' },
+  noticeCard: {
+    backgroundColor: '#E6F7EE',
+    borderLeftWidth: 3,
+    borderLeftColor: '#1E7A45',
+    borderRadius: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+  },
+  noticeText: { fontSize: 12.5, fontWeight: '700', color: '#1E7A45', lineHeight: 17 },
   footerError: { fontSize: 12.5, fontWeight: '700', color: '#A32C2C', textAlign: 'center', marginBottom: 10 },
   footerStage: { fontSize: 12, color: colors.grey, textAlign: 'center', marginBottom: 10 },
   payBar: {
