@@ -18,6 +18,11 @@ import { NotificationRouter } from '../components/NotificationRouter';
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { Text } from '../lib/text';
+import { captureHandledError, initSentry, withSentry } from '../lib/sentry';
+
+// Before anything else in the tree, so an error thrown during the first
+// render of any child is already being watched. No-op without a DSN.
+initSentry();
 
 /**
  * Root error boundary (expo-router renders this for any uncaught render
@@ -26,6 +31,12 @@ import { Text } from '../lib/text';
  * route.
  */
 export function ErrorBoundary({ error, retry }: { error: Error; retry: () => Promise<void> }) {
+  // This screen is the reason a render crash looks survivable. Report it
+  // anyway — recovering from a crash does not make it stop being one.
+  React.useEffect(() => {
+    captureHandledError(error, 'root_error_boundary');
+  }, [error]);
+
   return (
     <View style={ebStyles.root}>
       <Text style={ebStyles.title}>Something went wrong</Text>
@@ -60,7 +71,7 @@ const ebStyles = StyleSheet.create({
   ctaLabel: { fontSize: 15, fontWeight: '800', color: '#1A1A1A' },
 });
 
-export default function RootLayout() {
+function RootLayout() {
   // The design system is 100% Inter — every Text/TextInput renders through
   // lib/text.tsx, which maps fontWeight to these faces. Hold first paint
   // until they're ready (error falls through so a font CDN hiccup can never
@@ -131,3 +142,7 @@ export default function RootLayout() {
     </SafeAreaProvider>
   );
 }
+
+// Native crash handlers and the router's own error reporting attach here.
+// A plain passthrough when there is no DSN.
+export default withSentry(RootLayout);

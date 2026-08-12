@@ -15,6 +15,23 @@ import type { ConfigContext, ExpoConfig } from 'expo/config';
  * Missing keys (e.g. a fresh clone) still produce a working build — the map
  * views just render blank until a keyed build is made.
  */
+/**
+ * Sentry's config plugin wires the native source-map upload steps (an Xcode
+ * build phase and the Android Gradle plugin). Org and project are passed only
+ * when they are set: the plugin writes whatever it is given into
+ * sentry.properties, so handing it `undefined` is worse than handing it
+ * nothing — with neither key present it falls back to SENTRY_ORG /
+ * SENTRY_PROJECT from the environment, which is where they live on EAS.
+ *
+ * SENTRY_AUTH_TOKEN is deliberately NOT passed through here. The plugin reads
+ * it from the environment and strips it from props precisely so it cannot be
+ * written into the built application package.
+ */
+const sentryPluginProps = {
+  ...(process.env.SENTRY_ORG ? { organization: process.env.SENTRY_ORG } : {}),
+  ...(process.env.SENTRY_PROJECT ? { project: process.env.SENTRY_PROJECT } : {}),
+};
+
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...(config as ExpoConfig),
   // The keys go through react-native-maps' own config plugin, NOT through
@@ -32,6 +49,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         androidGoogleMapsApiKey: process.env.GOOGLE_MAPS_ANDROID_KEY,
       },
     ],
+    Object.keys(sentryPluginProps).length > 0
+      ? ['@sentry/react-native', sentryPluginProps]
+      : '@sentry/react-native',
   ],
   extra: {
     ...config.extra,
