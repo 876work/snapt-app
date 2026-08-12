@@ -529,6 +529,48 @@ export function registerCreatorRoutes(app: FastifyInstance) {
     if (!storagePath || !storagePath.startsWith(`headshots/${user.id}/`)) {
       return reply.code(400).send({ error: 'storage_path must be your own headshot upload' });
     }
+
+    /**
+     * READ THE BYTES BEFORE TRUSTING THE UPLOAD.
+     *
+     * The presign step takes content_type from the caller and only checks it
+     * starts with "image/", so until now anything at all could be PUT into
+     * the portfolio bucket and registered as a headshot. This is the first
+     * point where the real file exists, so it is where it gets checked —
+     * format from magic bytes, dimensions from the header, size from
+     * Content-Range. A stale client cannot register what the current one
+     * would refuse, because the refusal is here.
+     *
+     * A ranged GET, not a full download: every format we accept declares its
+     * dimensions in the first few KB.
+     */
+    try {
+      const { createDownloadUrl } = await import('../storage.js');
+      const url = await createDownloadUrl('portfolio', storagePath);
+      const head = await fetch(url, { headers: { Range: 'bytes=0-65535' } });
+      if (!head.ok && head.status !== 206) throw new Error(`read ${head.status}`);
+      const bytes = Buffer.from(await head.arrayBuffer());
+      // "bytes 0-65535/1234567" — the total is what matters, not what we read.
+      const range = head.headers.get('content-range');
+      const total = range?.includes('/') ? Number(range.split('/')[1]) : bytes.byteLength;
+      const { validateHeadshotBytes } = await import('../headshot-image.js');
+      const verdict = validateHeadshotBytes(bytes, Number.isFinite(total) ? total : null);
+      if (!verdict.ok) {
+        request.log.info(
+          { userId: user.id, storagePath, reason: verdict.reason },
+          'headshot rejected by server-side validation',
+        );
+        return reply.code(422).send({ error: verdict.error, code: verdict.reason });
+      }
+    } catch (err) {
+      /**
+       * FAIL OPEN, LOUDLY. A storage hiccup between the PUT and this read
+       * must not cost someone a headshot they uploaded correctly — the photo
+       * still goes to a human either way, which is the actual gate. What
+       * would be wrong is failing open SILENTLY, so this is logged at warn.
+       */
+      request.log.warn({ err, userId: user.id, storagePath }, 'headshot validation skipped');
+    }
     const { data: existing } = await supabaseAdmin
       .from('creator_profiles')
       .select('vetting_status, headshot_status, headshot_path')

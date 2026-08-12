@@ -4,6 +4,7 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import { Text } from '../../lib/text';
 import { colors } from '../../lib/theme';
 import { pickMedia } from '../../lib/pickMedia';
+import { checkHeadshot } from '../../lib/headshotRules';
 
 /**
  * Headshot picker + upload. Used in the creator application (required) and
@@ -38,6 +39,14 @@ export function HeadshotUpload({
     );
     if (!result || result.canceled || !result.assets[0]) return;
     const a = result.assets[0];
+    // Checked BEFORE the upload starts: a photo that cannot work should cost
+    // one tap, not a wait, an upload and a rejection days later. The server
+    // re-checks the real bytes — this is the fast, kind half.
+    const verdict = checkHeadshot({ width: a.width, height: a.height, fileSize: a.fileSize });
+    if (!verdict.ok) {
+      setError(verdict.message);
+      return;
+    }
     setBusy(true);
     const { apiConfigured, uploadHeadshotApi } = await import('../../lib/api');
     if (!apiConfigured) {
@@ -88,7 +97,7 @@ export function HeadshotUpload({
           </Text>
           <Text style={styles.guide}>
             A clear, friendly photo of just you, facing the camera in good light — like you'd
-            greet a client. No sunglasses, logos, group shots, or heavy filters.
+            greet a client.
           </Text>
           {status === 'pending' && preview == null && (
             <Text style={styles.statusPending}>In review — visible to clients once approved.</Text>
@@ -103,10 +112,59 @@ export function HeadshotUpload({
           </Pressable>
         </View>
       </View>
+
+      {/* The rules, shown rather than described. A row of four is faster to
+          read than the sentence it replaces, and "no logos" is much clearer
+          as a picture of a logo over someone's face. Full width, below the
+          row, because four legible tiles do not fit the flexed column beside
+          a 76pt photo. */}
+      <View style={styles.examples}>
+        {HEADSHOT_EXAMPLES.map((ex) => (
+          <View key={ex.key} style={styles.example}>
+            <View style={[styles.exampleTile, ex.good ? styles.exampleGood : styles.exampleBad]}>
+              {ex.source ? (
+                <Image source={ex.source} style={styles.exampleImg} resizeMode="cover" />
+              ) : (
+                /* PLACEHOLDER until the four assets land. A missing require()
+                   is a bundling error, not a runtime one, so the files cannot
+                   be referenced before they exist — swapping them in is the
+                   four commented lines in HEADSHOT_EXAMPLES. */
+                <Text style={styles.examplePlaceholder}>{ex.good ? '✓' : '✕'}</Text>
+              )}
+            </View>
+            <Text style={[styles.exampleLabel, ex.good && styles.exampleLabelGood]} numberOfLines={2}>
+              {ex.label}
+            </Text>
+          </View>
+        ))}
+      </View>
+
       {!!error && <Text style={styles.error}>{error}</Text>}
     </View>
   );
 }
+
+/**
+ * Set `source` to require('../../assets/guidance/<file>.jpg') once the four
+ * images exist — 360x360 JPEG, sRGB, under 40KB each. Labels stay here in
+ * text rather than baked into the images, so they remain legible at this size
+ * and translatable later.
+ */
+const HEADSHOT_EXAMPLES: {
+  key: string;
+  label: string;
+  good: boolean;
+  source: number | null;
+}[] = [
+  // { ...good, source: require('../../assets/guidance/headshot-good.jpg') },
+  { key: 'good', label: 'Just you, facing the camera', good: true, source: null },
+  // { ...logo, source: require('../../assets/guidance/headshot-bad-logo.jpg') },
+  { key: 'logo', label: 'No logos or graphics', good: false, source: null },
+  // { ...group, source: require('../../assets/guidance/headshot-bad-group.jpg') },
+  { key: 'group', label: 'Not a group shot', good: false, source: null },
+  // { ...shades, source: require('../../assets/guidance/headshot-bad-sunglasses.jpg') },
+  { key: 'shades', label: 'No sunglasses', good: false, source: null },
+];
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 14, alignItems: 'flex-start' },
@@ -135,6 +193,31 @@ const styles = StyleSheet.create({
   title: { fontSize: 14, fontWeight: '800', color: colors.ink },
   req: { fontSize: 11.5, fontWeight: '700', color: colors.yellowDark },
   guide: { fontSize: 12, color: colors.grey, lineHeight: 17.5, marginTop: 4 },
+  examples: { flexDirection: 'row', gap: 8, marginTop: 16 },
+  example: { flex: 1, alignItems: 'center' },
+  exampleTile: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    overflow: 'hidden',
+    backgroundColor: '#F1EEE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exampleGood: { borderColor: '#2E7D43' },
+  exampleBad: { borderColor: colors.borderWarm },
+  exampleImg: { width: '100%', height: '100%' },
+  examplePlaceholder: { fontSize: 20, fontWeight: '800', color: colors.greyLight },
+  exampleLabel: {
+    fontSize: 9.5,
+    lineHeight: 12.5,
+    fontWeight: '700',
+    color: colors.greyWarm,
+    textAlign: 'center',
+    marginTop: 5,
+  },
+  exampleLabelGood: { color: '#2E7D43' },
   statusPending: { fontSize: 11.5, fontWeight: '700', color: '#8A6800', marginTop: 6 },
   statusRejected: { fontSize: 11.5, fontWeight: '700', color: '#A32C2C', marginTop: 6 },
   action: { fontSize: 12.5, fontWeight: '800', color: colors.goldText, marginTop: 7 },
