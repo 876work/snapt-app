@@ -9,6 +9,7 @@ import { chatEnabled, fetchMessages, sendMessage, subscribeToMessages } from '..
 import { apiBase, authHeaders } from '../../../lib/api';
 import { CreatorAvatar } from '../../../components/ui/CreatorAvatar';
 import { colors, insetBottom } from '../../../lib/theme';
+import { STATUS_TONE, threadStatus, threadSubject } from '../../../lib/threadStatus';
 
 /**
  * One conversation thread. Real messages (lib/chat.ts, Supabase Realtime,
@@ -30,15 +31,6 @@ interface Thread {
   status: string;
   delivered_at: string | null;
   closed: boolean;
-}
-
-// Mirrors the inbox list: a null occasion must never reach a template literal.
-function subjectFor(t: Thread): string {
-  if (t.type === 'remote') return t.occasion ? `Remote order · ${t.occasion}` : 'Remote order';
-  const label = t.occasion ?? 'Session';
-  if (!t.scheduled_at) return label;
-  const d = new Date(t.scheduled_at);
-  return `${label} · ${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`;
 }
 
 export default function MessageThread() {
@@ -198,6 +190,8 @@ export default function MessageThread() {
     );
   }
 
+  const { phrase, tone } = threadStatus(thread);
+
   return (
     <View style={styles.root}>
       <ScreenHeader
@@ -212,7 +206,9 @@ export default function MessageThread() {
           </View>
         }
       />
-      <Text style={styles.subject}>{subjectFor(thread)}</Text>
+      <Text style={styles.subject}>
+        {threadSubject(thread)} <Text style={{ color: STATUS_TONE[tone] }}>· {phrase}</Text>
+      </Text>
 
       <KeyboardScrollView ref={scrollRef} style={styles.body} contentContainerStyle={{ paddingVertical: 12 }}>
         {messages === null ? (
@@ -230,8 +226,35 @@ export default function MessageThread() {
             </Pressable>
           </View>
         ) : messages.length === 0 ? (
-          <View style={styles.centre}>
-            <Text style={styles.emptyBody}>No messages yet — say hello.</Text>
+          /* This was one grey line in a screenful of nothing. An empty thread
+             is the one place with no content of its own, so it answers the
+             three questions you would otherwise leave to find out: who this
+             is with, what the booking is, and when it happens. */
+          <View style={styles.startCard}>
+            <View style={styles.startAvatar}>
+              <CreatorAvatar
+                name={thread.other_name}
+                photo={thread.other_avatar ? { uri: thread.other_avatar } : null}
+                textSize={22}
+              />
+            </View>
+            <Text style={styles.startName}>{thread.other_name}</Text>
+            <Text style={styles.startSubject}>
+              {threadSubject(thread)} <Text style={{ color: STATUS_TONE[tone] }}>· {phrase}</Text>
+            </Text>
+            {/* No invitation to send when sending is refused. A closed thread
+                and a switched-off account each explain themselves below the
+                composer already — saying "send the first message" above one of
+                those would be the app arguing with itself. */}
+            {!thread.closed && !thread.other_disabled && (
+              <Text style={styles.startHint}>
+                No messages yet — send the first one and {thread.other_name.split(' ')[0]} gets a
+                notification.
+              </Text>
+            )}
+            {(thread.closed || thread.other_disabled) && (
+              <Text style={styles.startHint}>No messages were sent on this booking.</Text>
+            )}
           </View>
         ) : (
           messages.map((m) => (
@@ -336,6 +359,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     marginTop: -4,
     marginBottom: 4,
+  },
+  startCard: { alignItems: 'center', paddingHorizontal: 28, paddingTop: 52 },
+  startAvatar: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    overflow: 'hidden',
+    backgroundColor: '#EFEBE3',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  startName: { fontSize: 16.5, fontWeight: '800', color: colors.ink, textAlign: 'center' },
+  startSubject: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: colors.yellowDark,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  startHint: {
+    fontSize: 13,
+    color: colors.grey,
+    textAlign: 'center',
+    lineHeight: 19,
+    marginTop: 14,
   },
   body: { flex: 1, paddingHorizontal: 16 },
   msgRow: { flexDirection: 'row', marginBottom: 10 },
