@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Text } from '../../lib/text';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
@@ -14,7 +14,7 @@ import type { FeaturedCreator, SocialProof } from '../../lib/api';
 import { formatMoney } from '../../lib/constants/business';
 import { TourOverlay } from '../../components/tour/TourOverlay';
 import { claimTourRun, markTourSeenSilently, registerTourTarget, useTour } from '../../lib/tour';
-import { colors, insetTop } from '../../lib/theme';
+import { colors, insetTop, navPillClearance } from '../../lib/theme';
 import { navShrinkOnScroll } from '../../lib/navShrink';
 
 /**
@@ -27,8 +27,53 @@ const MIRROR_REMOTE_FROM = Math.min(
   ...Object.values(REMOTE_PACKAGES).flatMap((tiers) => tiers.map((t) => t.priceUsd)),
 );
 
+/**
+ * HERO GEOMETRY — the headline and the artwork stop competing for the same
+ * horizontal space on narrow screens.
+ *
+ * The art is 440x435 drawn `contain` into a 220x175 box, so it renders 177pt
+ * wide and centred: the VISIBLE artwork starts at left+21, and the phone rig
+ * (the leftmost third of the source) lands around x=180. The headline's
+ * second line, "We've got the rest.", runs to roughly x=231 at its natural
+ * width — straight through the rig.
+ *
+ * Below the breakpoint the art shrinks and hugs the right edge, and the
+ * headline is capped to stop short of the artwork's visible left edge. At or
+ * above it every number is exactly what shipped, so wider devices are
+ * unchanged by construction rather than by re-tuning.
+ */
+const HERO_COMPACT_MAX_WIDTH = 390;
+const HERO_ART = { w: 220, h: 175, left: 151, srcAspect: 440 / 435 };
+const HERO_PAD_X = 22;
+const HERO_GUTTER = 14;
+
+function useHeroLayout() {
+  const { width } = useWindowDimensions();
+  if (width >= HERO_COMPACT_MAX_WIDTH) {
+    return {
+      art: { width: HERO_ART.w, height: HERO_ART.h, left: HERO_ART.left },
+      headlineMaxWidth: '66%' as const,
+    };
+  }
+  // Box aspect === source aspect, so `contain` fills it exactly and the
+  // visible edges ARE the box edges — no hidden letterbox offset to reason
+  // about, and nothing is cropped.
+  const boxW = Math.round(Math.min(HERO_ART.w, width * 0.4));
+  const boxH = Math.round(boxW / HERO_ART.srcAspect);
+  const left = Math.round(width - HERO_PAD_X - boxW);
+  // The cap is the whole point, so it is NOT floored above itself — a floor
+  // that overrides the computed clearance just puts the text back on the rig.
+  // 120 is a guard against a pathological viewport, and never binds on a
+  // real device (it computes to 134 even on a 320pt screen).
+  return {
+    art: { width: boxW, height: boxH, left },
+    headlineMaxWidth: Math.max(120, left - HERO_PAD_X - HERO_GUTTER),
+  };
+}
+
 export default function Home() {
   const router = useRouter();
+  const hero = useHeroLayout();
   const { name, currency } = useAuth();
   const { resetDraft, setDraft } = useBookings();
   const bookings = useBookings((s) => s.bookings);
@@ -208,12 +253,15 @@ export default function Home() {
           was colliding with the time (same class of bug as the Meeting Point
           header). A fixed band keeps the status bar readable at any offset. */}
       <View pointerEvents="none" style={styles.statusScrim} />
-      <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+      {/* navPillClearance, not a hand-picked number: the pill floats over
+          this content, so "How it works" was unreachable at any scroll
+          offset. */}
+      <ScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: navPillClearance }}>
         {/* Yellow hero header */}
         <View style={styles.hero}>
           <Image
             source={require('../../assets/design/hero-creator-crop.webp')}
-            style={styles.heroImg}
+            style={[styles.heroImg, hero.art]}
             resizeMode="contain"
           />
           <View style={styles.heroTopRow}>
@@ -234,7 +282,7 @@ export default function Home() {
               </Pressable>
             </View>
           </View>
-          <Text style={styles.headline}>Be in the moment.{'\n'}We've got the rest.</Text>
+          <Text style={[styles.headline, { maxWidth: hero.headlineMaxWidth }]}>Be in the moment.{'\n'}We've got the rest.</Text>
         </View>
 
         {/* Overlapping content */}
@@ -694,7 +742,8 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 34,
     borderBottomRightRadius: 34,
   },
-  heroImg: { position: 'absolute', width: 220, height: 175, left: 151, top: 69 },
+  // width / height / left are supplied per-device by useHeroLayout().
+  heroImg: { position: 'absolute', top: 69 },
   heroTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 2 },
   greeting: { fontSize: 13, fontWeight: '800', letterSpacing: -0.2, color: '#fff' },
   bellBtn: {

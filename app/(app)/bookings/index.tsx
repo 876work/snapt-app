@@ -7,7 +7,7 @@ import { OccasionIcon } from '../../../components/ui/Icons';
 import { creatorById, useAuth, useBookings } from '../../../lib/store';
 import { formatMoney } from '../../../lib/constants/business';
 import { Booking, BookingStatus } from '../../../lib/mock/data';
-import { colors, spacing, insetTop } from '../../../lib/theme';
+import { colors, spacing, insetTop, navPillClearance } from '../../../lib/theme';
 import { navShrinkOnScroll } from '../../../lib/navShrink';
 
 /**
@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
   stateTitle: { fontSize: 15, fontWeight: '800', color: colors.ink, textAlign: 'center' },
   stateBody: { fontSize: 13, color: colors.grey, textAlign: 'center', lineHeight: 19 },
   root: { flex: 1, backgroundColor: colors.offWhite },
-  body: { paddingHorizontal: spacing.screenX, paddingTop: insetTop + 23 },
+  body: { paddingHorizontal: spacing.screenX, paddingTop: insetTop + 23, paddingBottom: navPillClearance },
   title: { fontSize: 24, fontWeight: '800', letterSpacing: -0.6, color: colors.ink, marginBottom: 18 },
   tabs: {
     flexDirection: 'row',

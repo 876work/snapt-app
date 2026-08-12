@@ -48,6 +48,29 @@ export const spacing = {
   headerTop: insetTop + 11,
 } as const;
 
+/**
+ * THE FLOATING NAV PILL, as geometry rather than a guess.
+ *
+ * The pill is absolutely positioned, so it takes no layout space and sits ON
+ * TOP of whatever a screen renders underneath. Every tab root therefore has to
+ * reserve room for it, or its last section is unreachable no matter how far
+ * you scroll — "How it works" on Home was permanently behind it.
+ *
+ * These are the SAME numbers the bar itself is built from (app/(app)/_layout
+ * imports them), so the clearance cannot drift away from the thing it is
+ * clearing. `insetBottom` covers the iOS home indicator AND the Android
+ * system nav bar, both of which sit under the pill.
+ */
+export const navPill = {
+  /** 42pt item + 7pt padding top and bottom. */
+  height: 56,
+  /** Gap from the bottom of the screen, floored for devices with no inset. */
+  bottom: Math.max(insetBottom + 8, 26),
+} as const;
+
+/** Bottom padding a scrollable tab root needs so nothing hides behind the pill. */
+export const navPillClearance = navPill.height + navPill.bottom + 12;
+
 export const type = {
   title: { fontSize: 19, fontWeight: '800' as const, letterSpacing: -0.3, color: colors.ink },
   section: { fontSize: 15, fontWeight: '800' as const, letterSpacing: -0.2, color: colors.ink },

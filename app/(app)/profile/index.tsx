@@ -10,7 +10,7 @@ import { signOutEverywhere } from '../../../lib/auth';
 import * as Updates from 'expo-updates';
 import Constants from 'expo-constants';
 import { CreatorAvatar } from '../../../components/ui/CreatorAvatar';
-import { colors, spacing, insetTop, insetBottom } from '../../../lib/theme';
+import { colors, spacing, insetTop, insetBottom, navPillClearance } from '../../../lib/theme';
 import { navShrinkOnScroll } from '../../../lib/navShrink';
 
 const chevron = (
@@ -491,7 +491,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   currencyLabel: { fontSize: 12, fontWeight: '700', color: colors.ink },
-  body: { paddingHorizontal: spacing.screenX, paddingTop: 12 },
+  body: { paddingHorizontal: spacing.screenX, paddingTop: 12, paddingBottom: navPillClearance },
   modeTrack: { flexDirection: 'row', gap: 6, backgroundColor: '#F1EEE7', borderRadius: 14, padding: 4, marginBottom: 18 },
   modeSeg: { flex: 1, height: 40, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   modeSegActive: {

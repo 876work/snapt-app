@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, V
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Text } from '../../../lib/text';
 import { CreatorAvatar } from '../../../components/ui/CreatorAvatar';
-import { colors, spacing, insetTop } from '../../../lib/theme';
+import { colors, spacing, insetTop, navPillClearance } from '../../../lib/theme';
 import { navShrinkOnScroll } from '../../../lib/navShrink';
 import { apiBase, authHeaders } from '../../../lib/api';
 
@@ -167,7 +167,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.offWhite },
   header: { paddingTop: insetTop + 19, paddingHorizontal: 22, paddingBottom: 8 },
   title: { fontSize: 18, fontWeight: '800', letterSpacing: -0.35, color: colors.ink },
-  body: { paddingHorizontal: spacing.screenX, paddingTop: 6 },
+  body: { paddingHorizontal: spacing.screenX, paddingTop: 6, paddingBottom: navPillClearance },
   centre: { alignItems: 'center', justifyContent: 'center', paddingTop: 90, gap: 8, paddingHorizontal: 20 },
   emptyTitle: { fontSize: 15, fontWeight: '800', color: colors.ink, textAlign: 'center' },
   emptyBody: { fontSize: 13, color: colors.grey, textAlign: 'center', lineHeight: 19, paddingHorizontal: 20 },

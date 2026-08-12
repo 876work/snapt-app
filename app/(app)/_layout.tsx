@@ -2,7 +2,7 @@ import React from 'react';
 import { Redirect, Tabs, usePathname } from 'expo-router';
 import { Animated, AppState, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '../../lib/text';
-import { colors, insetBottom } from '../../lib/theme';
+import { colors, navPill } from '../../lib/theme';
 import { navShrinkReset, useNavShrinkAnim } from '../../lib/navShrink';
 import { registerTourTarget } from '../../lib/tour';
 import { BookingsIcon, HomeIcon, MessagesIcon, ProfileIcon } from '../../components/ui/Icons';
@@ -140,7 +140,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 18,
     right: 18,
-    bottom: Math.max(insetBottom + 8, 26),
+    // Same source of truth as navPillClearance, so a change to one is a
+    // change to both.
+    bottom: navPill.bottom,
     backgroundColor: colors.ink,
     borderRadius: 28,
     padding: 7,
