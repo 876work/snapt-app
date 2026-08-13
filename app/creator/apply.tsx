@@ -301,7 +301,12 @@ export default function CreatorApplication() {
                 <Check on={bgCheckConsent} />
                 <Text style={styles.consentText}>
                   I consent to a background check as described in the{' '}
-                  <Text onPress={() => router.push('/legal/background-check')} style={styles.link}>
+                  <Text
+                    // Straight to the anchored part, not the top of the
+                    // consolidated Creator Agreement.
+                    onPress={() => router.push('/legal/creator-agreement?section=background-check')}
+                    style={styles.link}
+                  >
                     Background Check & Vetting Disclosure
                   </Text>
                   .

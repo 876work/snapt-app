@@ -8,7 +8,10 @@ interface PolicyRow {
   doc_type: string;
   version: number;
   title: string;
-  status: 'draft' | 'published';
+  // 'archived' has always existed in the policy_doc_status enum; this type
+  // simply never modelled it, so an archived row rendered as an unrecognised
+  // status. Live rows are draft/published; superseded ones are archived.
+  status: 'draft' | 'published' | 'archived';
   published_at: string | null;
   requires_reconsent: boolean;
   created_at: string;
@@ -57,9 +60,22 @@ export function Legal() {
   });
 
   // Group by doc type: latest version first within each.
-  const byType = new Map<string, PolicyRow[]>();
+  const allTypes = new Map<string, PolicyRow[]>();
   for (const p of data?.policies ?? []) {
-    byType.set(p.doc_type, [...(byType.get(p.doc_type) ?? []), p]);
+    allTypes.set(p.doc_type, [...(allTypes.get(p.doc_type) ?? []), p]);
+  }
+  /**
+   * The 2026-08-13 consolidation left nine doc types with nothing but
+   * archived rows. They are kept — consent records point at them — but a CMS
+   * listing thirteen policies when four are live is the confusion the
+   * consolidation existed to remove. Live types are listed; retired ones
+   * collapse into a muted note that still names them.
+   */
+  const byType = new Map<string, PolicyRow[]>();
+  const retired: string[] = [];
+  for (const [slug, versions] of allTypes) {
+    if (versions.some((v) => v.status !== 'archived')) byType.set(slug, versions);
+    else retired.push(slug);
   }
 
   const startDraft = async (slug: string, from: PolicyRow | null) => {
@@ -212,6 +228,15 @@ export function Legal() {
             </div>
           );
         })
+      )}
+
+      {retired.length > 0 && (
+        /* Archived, never deleted — consent records reference these rows. */
+        <p className="muted" style={{ marginTop: 18, fontSize: 12 }}>
+          {retired.length} policy {retired.length === 1 ? 'type is' : 'types are'} retired and fully
+          archived after the consolidation: {retired.join(', ')}. Their versions are kept for the
+          consent records that reference them.
+        </p>
       )}
     </>
   );

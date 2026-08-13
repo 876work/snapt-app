@@ -18,11 +18,17 @@ const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN ?? '';
 
 /** Update identity, so a crash names WHICH over-the-air bundle produced it. */
 function updateTags(): Record<string, string> {
-  const tags: Record<string, string> = {
-    // Stamped by scripts/publish-ota.sh — the exact commit of the running
-    // bundle, and the fastest way from a stack trace back to the source.
-    commit: process.env.EXPO_PUBLIC_COMMIT ?? 'unknown',
-  };
+  /**
+   * NO `commit` TAG. It read process.env.EXPO_PUBLIC_COMMIT, which Metro
+   * inlines at transform time against a cache keyed on file contents — so a
+   * publish that did not modify the file holding it reported an older
+   * commit. It did exactly that on 2026-08-13.
+   *
+   * `update_id` below replaces it and is strictly better: it comes from the
+   * update manifest at runtime, cannot drift, and resolves to its exact
+   * commit in the EAS dashboard.
+   */
+  const tags: Record<string, string> = {};
   try {
     // Static getters, but they are native-backed: a dev client without the
     // updates module must not take the whole init down with it.
