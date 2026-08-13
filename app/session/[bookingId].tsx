@@ -1,13 +1,13 @@
 import React from 'react';
-import { ActivityIndicator, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { KeyboardScrollView } from '../../components/ui/KeyboardScrollView';
-import { Text, TextInput } from '../../lib/text';
+import { ChatThread, type ChatThreadInfo } from '../../components/chat/ChatThread';
+import { Text } from '../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { CreatorAvatar } from '../../components/ui/CreatorAvatar';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { creatorById, useBookings } from '../../lib/store';
-import { chatEnabled, fetchMessages, sendMessage, subscribeToMessages } from '../../lib/chat';
 import { apiConfigured } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 import { NO_SHOW_GRACE_MINUTES } from '../../lib/constants/business';
@@ -61,6 +61,7 @@ export default function SessionDay() {
   const [creatorCancelled, setCreatorCancelled] = React.useState(false);
   const [safetyOpen, setSafetyOpen] = React.useState(false);
   const [chatOpen, setChatOpen] = React.useState(false);
+  const [chatThread, setChatThread] = React.useState<ChatThreadInfo | null>(null);
   const [toast, setToast] = React.useState<string | null>(null);
   const [endedForSafety, setEndedForSafety] = React.useState(false);
 
@@ -105,83 +106,19 @@ export default function SessionDay() {
   // with full confidence, guaranteed to fail at the creator's keypad.
   const code = realCode ?? (apiConfigured ? null : '4827');
 
-  // Real chat when Supabase is configured; null = mock scripted message.
-  const [chatMessages, setChatMessages] = React.useState<
-    { id: string; body: string; mine: boolean }[] | null
-  >(null);
-  const [chatDraft, setChatDraft] = React.useState('');
-  const [chatSending, setChatSending] = React.useState(false);
-  const [chatError, setChatError] = React.useState<string | null>(null);
-  const [chatHistoryFailed, setChatHistoryFailed] = React.useState(false);
-  const [chatLive, setChatLive] = React.useState(true);
-  React.useEffect(() => {
-    if (!chatEnabled || !bookingId) return;
-    let uid: string | null = null;
-    let unsub = () => {};
-    supabase?.auth.getUser().then(({ data }) => {
-      uid = data.user?.id ?? null;
-      const row = (m: { id: string; body: string; sender_id: string }) => ({
-        id: m.id, body: m.body, mine: m.sender_id === uid,
-      });
-      fetchMessages(bookingId).then((msgs) => {
-        // null = the read failed. Don't render that as an empty conversation.
-        if (msgs === null) {
-          setChatHistoryFailed(true);
-          setChatMessages([]);
-          return;
-        }
-        setChatHistoryFailed(false);
-        setChatMessages(msgs.map(row));
-      });
-      unsub = subscribeToMessages(
-        bookingId,
-        (m) => setChatMessages((prev) => [...(prev ?? []), row(m)]),
-        setChatLive,
-        () => {
-          // Registration ack — the stream is only now provably flowing (it
-          // confirms up to seconds after SUBSCRIBED). Refetch to pick up
-          // anything committed in the gap; merge keeps live arrivals newer
-          // than the fetch snapshot. Mid-shoot is exactly where a silently
-          // dropped "running 10 minutes late" hurts most.
-          fetchMessages(bookingId).then((msgs) => {
-            if (msgs === null) return;
-            setChatHistoryFailed(false);
-            setChatMessages((prev) => {
-              const seen = new Set(msgs.map((m) => m.id));
-              return [...msgs.map(row), ...(prev ?? []).filter((p) => !seen.has(p.id))];
-            });
-          });
-        },
-      );
-    });
-    return () => unsub();
-  }, [bookingId]);
-
-  // Same rule as the standalone thread screen: the composer clears only once
-  // the row is confirmed written. Clearing first and discarding the null
-  // return meant a send with no signal destroyed the text in silence — worst
-  // of all here, where people are mid-shoot and least able to retype.
-  const sendChat = async () => {
-    const body = chatDraft.trim();
-    if (!body || chatSending) return;
-    if (chatEnabled && bookingId) {
-      setChatSending(true);
-      setChatError(null);
-      const sent = await sendMessage(bookingId, body);
-      setChatSending(false);
-      if (sent) {
-        setChatDraft(''); // Realtime echo appends it; no optimistic row needed.
-      } else {
-        setChatError("Not sent — check your connection, then tap send again.");
-      }
-    } else {
-      setChatDraft('');
-      setChatMessages((prev) => [
-        ...(prev ?? []),
-        { id: `local-${Date.now()}`, body, mine: true },
-      ]);
-    }
-  };
+  /**
+   * The chat lives in components/chat/ChatThread now — the same component the
+   * Messages tab renders. This screen used to carry its own copy, forked
+   * partway through that one's fixes: it never got the disabled-counterparty
+   * warning or the retry on a failed load, and it resolved the counterparty
+   * with creatorById() against the LOCAL catalog, which is why it showed
+   * "Creator" with no name and could never have worked for a creator looking
+   * at a client.
+   *
+   * The scripted "On my way! Running right on time" mock went with it. A
+   * fabricated message on a live session screen is the same class of thing as
+   * a fabricated booking.
+   */
 
   React.useEffect(() => {
     if (!graceRunning || graceLeft <= 0) return;
@@ -557,16 +494,23 @@ export default function SessionDay() {
       <Modal visible={chatOpen} transparent animationType="slide" onRequestClose={() => setChatOpen(false)}>
         <View style={styles.sheetBackdrop}>
           <Pressable style={{ flex: 1 }} onPress={() => setChatOpen(false)} />
-          <View style={[styles.sheet, { paddingHorizontal: 0, paddingBottom: 14 }]}>
+          <View style={[styles.sheet, { paddingHorizontal: 0, paddingBottom: 0 }]}>
             <View style={styles.chatHead}>
-              {creator && (
+              {/* Counterparty comes from the THREAD now, not creatorById()
+                  against the local catalog — that lookup returned undefined
+                  for any creator outside the featured list, which is why this
+                  header read "Creator" with no name and no avatar. */}
+              {chatThread && (
                 <View style={styles.chatAvatar}>
-                  <CreatorAvatar name={creator.name} photo={creator.photo} />
+                  <CreatorAvatar
+                    name={chatThread.other_name}
+                    photo={chatThread.other_avatar ? { uri: chatThread.other_avatar } : null}
+                  />
                 </View>
               )}
               <View style={{ flex: 1 }}>
-                <Text style={styles.chatName}>{creator?.name ?? 'Creator'}</Text>
-                <Text style={styles.chatRole}>Your creator</Text>
+                <Text style={styles.chatName}>{chatThread?.other_name ?? 'Conversation'}</Text>
+                <Text style={styles.chatRole}>{chatThread ? 'This booking' : ''}</Text>
               </View>
               <Pressable onPress={() => setChatOpen(false)} style={styles.chatClose}>
                 <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
@@ -574,82 +518,11 @@ export default function SessionDay() {
                 </Svg>
               </Pressable>
             </View>
-            <KeyboardScrollView style={styles.chatBody}>
-              {/* Real chat (Supabase Realtime) when configured; scripted
-                  message in mock mode. */}
-              {chatHistoryFailed ? (
-                <View style={styles.chatError}>
-                  <Text style={styles.chatErrorText}>
-                    Couldn't load earlier messages — a connection problem, not lost history.
-                  </Text>
-                </View>
-              ) : chatMessages === null ? (
-                <View style={styles.chatMsgRow}>
-                  {creator && (
-                    <View style={styles.chatMsgAvatar}>
-                      <CreatorAvatar name={creator.name} photo={creator.photo} />
-                    </View>
-                  )}
-                  <View style={styles.chatBubble}>
-                    <Text style={styles.chatBubbleText}>On my way! Running right on time — see you soon.</Text>
-                  </View>
-                </View>
-              ) : (
-                chatMessages.map((m) => (
-                  <View
-                    key={m.id}
-                    style={[styles.chatMsgRow, m.mine && { justifyContent: 'flex-end' }]}
-                  >
-                    {!m.mine && creator && (
-                      <View style={styles.chatMsgAvatar}>
-                        <CreatorAvatar name={creator.name} photo={creator.photo} />
-                      </View>
-                    )}
-                    <View style={[styles.chatBubble, m.mine && { backgroundColor: colors.yellowSoft }]}>
-                      <Text style={styles.chatBubbleText}>{m.body}</Text>
-                    </View>
-                  </View>
-                ))
-              )}
-            </KeyboardScrollView>
-            <View style={styles.chatInputWrap}>
-              {!chatLive && !chatHistoryFailed && (
-                <View style={styles.chatOffline}>
-                  <Text style={styles.chatOfflineText}>
-                    Not receiving live updates — new messages may not appear until you reopen this
-                    screen.
-                  </Text>
-                </View>
-              )}
-              {chatError && (
-                <View style={styles.chatError}>
-                  <Text style={styles.chatErrorText}>{chatError}</Text>
-                </View>
-              )}
-              <View style={styles.chatInputRow}>
-                <TextInput
-                  placeholder={`Message ${firstName}…`}
-                  placeholderTextColor="#9A9A9A"
-                  style={styles.chatInput}
-                  value={chatDraft}
-                  onChangeText={(t) => {
-                    setChatDraft(t);
-                    if (chatError) setChatError(null);
-                  }}
-                  onSubmitEditing={sendChat}
-                  returnKeyType="send"
-                  editable={!chatSending}
-                />
-                <Pressable onPress={sendChat} style={styles.chatSend} disabled={chatSending}>
-                  {chatSending ? (
-                    <ActivityIndicator size="small" color={colors.ink} />
-                  ) : (
-                    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-                      <Path d="M4 12L20 4l-6 16-3-7-7-1z" stroke={colors.ink} strokeWidth={1.8} strokeLinejoin="round" />
-                    </Svg>
-                  )}
-                </Pressable>
-              </View>
+            {/* sheet mode carries its own KeyboardAvoidingView: a Modal is a
+                separate native hierarchy, so the app-wide one in app/_layout
+                never reached this composer. */}
+            <View style={{ height: '78%' }}>
+              {bookingId ? <ChatThread bookingId={bookingId} mode="sheet" onThread={setChatThread} /> : null}
             </View>
           </View>
         </View>
@@ -999,55 +872,6 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: 16,
     backgroundColor: colors.segBgAlt,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chatBody: { padding: 14, paddingHorizontal: 16, maxHeight: 280 },
-  chatMsgRow: { flexDirection: 'row', gap: 9, alignItems: 'flex-end', marginBottom: 12 },
-  chatMsgAvatar: { width: 26, height: 26, borderRadius: 13, overflow: 'hidden', backgroundColor: '#EFEBE3' },
-  chatBubble: {
-    maxWidth: '82%',
-    backgroundColor: colors.segBgAlt,
-    borderRadius: 14,
-    borderBottomLeftRadius: 4,
-    padding: 10,
-    paddingHorizontal: 13,
-  },
-  chatBubbleText: { fontSize: 13, lineHeight: 18, color: colors.ink },
-  chatInputWrap: { paddingHorizontal: 14, paddingTop: 10 },
-  chatError: {
-    backgroundColor: '#FDECEC',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 8,
-  },
-  chatErrorText: { fontSize: 13, color: '#A3261F' },
-  chatOffline: {
-    backgroundColor: '#FFF4D6',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 8,
-  },
-  chatOfflineText: { fontSize: 13, color: '#7A5B12' },
-  chatInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: colors.offWhite,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 14,
-    padding: 6,
-    paddingLeft: 14,
-  },
-  chatInput: { flex: 1, fontSize: 14, color: colors.ink, padding: 0 },
-  chatSend: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: colors.yellow,
     alignItems: 'center',
     justifyContent: 'center',
   },
