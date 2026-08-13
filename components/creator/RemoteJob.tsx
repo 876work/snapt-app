@@ -7,6 +7,7 @@ import { DeliverPanel, useUploadBatch } from './DeliverUploader';
 import type { JobOffer } from '../../lib/store/creator';
 import { EDIT_STYLES, REMOTE_PACKAGES } from '../../lib/store/upload';
 import { colors } from '../../lib/theme';
+import { offerSettings, photoFilename, saveToPhotos } from '../../lib/saveToPhotos';
 
 /**
  * A remote edit order is a DESK job, and this is its screen: what was
@@ -103,27 +104,38 @@ export function RemoteJob({
 
   const saveSource = async (f: SourceFile) => {
     setSaveNote(null);
-    try {
-      const FS = (await import('expo-file-system')) as Record<string, any>;
-      let localUri: string;
-      if (FS.File && FS.Paths) {
-        const file = await FS.File.downloadFileAsync(f.url, new FS.Directory(FS.Paths.cache));
-        localUri = file.uri;
-      } else {
-        const result = await FS.downloadAsync(f.url, `${FS.cacheDirectory}${f.name}`);
-        localUri = result.uri;
-      }
-      const MediaLibrary = await import('expo-media-library');
-      const perm = await MediaLibrary.requestPermissionsAsync();
-      if (!perm.granted) {
-        setSaveNote('Allow photo access to save the source files.');
-        return;
-      }
-      await MediaLibrary.saveToLibraryAsync(localUri);
+    const index = (sources ?? []).findIndex((s) => s.id === f.id);
+    const result = await saveToPhotos({
+      url: f.url,
+      filename: photoFilename({
+        subject: job.occasion,
+        date: job.when,
+        index: index >= 0 ? index + 1 : undefined,
+        originalName: f.name,
+        contentType: f.contentType,
+      }),
+      // Signed links last an hour and this listing was fetched on mount, so
+      // an expired URL is the ordinary case on a job left open. Re-listing
+      // re-presigns everything; find this file again by id.
+      refreshUrl: async () => {
+        const api = await import('../../lib/api');
+        const listing = await api.fetchMediaListingApi(job.id);
+        const fresh = listing?.media.find((m) => m.id === f.id && !m.deleted);
+        if (fresh?.download_url) {
+          setSources((prev) =>
+            (prev ?? []).map((s) => (s.id === f.id ? { ...s, url: fresh.download_url! } : s)),
+          );
+        }
+        return fresh?.download_url ?? null;
+      },
+      context: 'creator_source',
+    });
+    if (result.ok) {
       setSavedIds((prev) => new Set(prev).add(f.id));
-    } catch {
-      setSaveNote(`Couldn't save ${f.name} — try again.`);
+      return;
     }
+    setSaveNote(result.message);
+    offerSettings(result);
   };
 
   const deliverFinal = async () => {

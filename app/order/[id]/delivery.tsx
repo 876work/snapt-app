@@ -9,6 +9,7 @@ import { SlideToConfirm } from '../../../components/ui/SlideToConfirm';
 import { creatorById, useBookings } from '../../../lib/store';
 import { apiConfigured } from '../../../lib/api';
 import { colors, insetBottom } from '../../../lib/theme';
+import { offerSettings, photoFilename, saveToPhotos } from '../../../lib/saveToPhotos';
 
 // No mock fallback: a failed fetch used to show four bundled sample images
 // as if they were the client's delivered files.
@@ -19,6 +20,11 @@ interface Deliverable {
   /** Signed remote URL from the server ({ uri }). */
   thumb: { uri: string };
   tint: string;
+  /** Media row id — needed to re-presign a link that has expired. */
+  id?: string;
+  contentType?: string | null;
+  /** ISO of the delivered file, for a filename someone can find again. */
+  createdAt?: string | null;
 }
 
 export default function Delivery() {
@@ -73,6 +79,9 @@ export default function Delivery() {
             meta: m.content_type ?? 'delivered file',
             thumb: { uri: m.download_url! },
             tint: '#F2C14E',
+            id: m.id,
+            contentType: m.content_type,
+            createdAt: m.created_at ?? null,
           })),
         );
       });
@@ -92,30 +101,41 @@ export default function Delivery() {
       setSaveNote('Demo files — downloads work on real deliveries.');
       return false;
     }
-    try {
-      const FS = (await import('expo-file-system')) as Record<string, any>;
-      let localUri: string;
-      if (FS.File && FS.Paths) {
-        // SDK 54+ File API
-        const file = await FS.File.downloadFileAsync(uri, new FS.Directory(FS.Paths.cache));
-        localUri = file.uri;
-      } else {
-        const result = await FS.downloadAsync(uri, `${FS.cacheDirectory}${d.name}`);
-        localUri = result.uri;
-      }
-      const MediaLibrary = await import('expo-media-library');
-      const perm = await MediaLibrary.requestPermissionsAsync();
-      if (!perm.granted) {
-        setSaveNote('Allow photo access to save your files.');
-        return false;
-      }
-      await MediaLibrary.saveToLibraryAsync(localUri);
+    const index = deliverables.findIndex((x) => x.name === d.name);
+    const result = await saveToPhotos({
+      url: uri,
+      filename: photoFilename({
+        subject: 'Delivery',
+        date: d.createdAt,
+        index: index >= 0 ? index + 1 : undefined,
+        originalName: d.name,
+        contentType: d.contentType,
+      }),
+      // Signed links last an hour; this listing was fetched on mount. Re-list
+      // to re-presign rather than telling someone their delivery failed.
+      refreshUrl: async () => {
+        if (!id || !d.id) return null;
+        const api = await import('../../../lib/api');
+        const media = await api.fetchMediaApi(id);
+        const fresh = media?.find((m) => m.id === d.id && !m.deleted);
+        if (fresh?.download_url) {
+          setReal((prev) =>
+            (prev ?? []).map((x) =>
+              x.id === d.id ? { ...x, thumb: { uri: fresh.download_url! } } : x,
+            ),
+          );
+        }
+        return fresh?.download_url ?? null;
+      },
+      context: 'client_delivery',
+    });
+    if (result.ok) {
       setSavedNames((prev) => new Set(prev).add(d.name));
       return true;
-    } catch {
-      setSaveNote(`Couldn't save ${d.name} — try again.`);
-      return false;
     }
+    setSaveNote(result.message);
+    offerSettings(result);
+    return false;
   };
 
   // Revision request (1 free round; extra rounds only if purchased at
