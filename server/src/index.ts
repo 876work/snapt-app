@@ -21,6 +21,7 @@ import { registerAdminPortalRoutes } from './routes/admin-portal.js';
 import { registerAdminTeamRoutes } from './routes/admin-team.js';
 import { registerVerificationRoutes } from './routes/verification.js';
 import { registerAdminUi } from './admin-ui.js';
+import { registerWellKnownRoutes } from './well-known.js';
 import { registerRevisionRoutes } from './routes/revisions.js';
 import { registerPolicyRoutes } from './routes/policies.js';
 import { registerModerationRoutes } from './routes/moderation.js';
@@ -67,6 +68,9 @@ registerConfigRoutes(app);
 
 registerNotificationRoutes(app);
 registerMessageRoutes(app);
+// Apple/Google link verification. Registered BEFORE the admin UI, whose SPA
+// fallback would otherwise answer /.well-known/* with index.html.
+registerWellKnownRoutes(app);
 registerPaymentRoutes(app);
 registerCreatorRoutes(app);
 registerBookingRoutes(app);

@@ -235,6 +235,12 @@ export async function checkoutBooking(
 
   onStage('');
   const { error } = await presentPaymentSheet();
+  if (!error) {
+    // Payment taken. Fire-and-forget for the same reason as the slider.
+    import('expo-haptics')
+      .then((H) => H.notificationAsync(H.NotificationFeedbackType.Success))
+      .catch(() => undefined);
+  }
   if (error) {
     // Sheet closed or declined. NOTHING was created — no booking, no offer,
     // no notification — so there is nothing to abandon or clean up.
@@ -305,6 +311,12 @@ export async function payForSelectionExtras(params: {
   });
   if (init.error) return { ok: false, reason: 'unavailable', message: init.error.message };
   const { error } = await presentPaymentSheet();
+  if (!error) {
+    // Payment taken. Fire-and-forget for the same reason as the slider.
+    import('expo-haptics')
+      .then((H) => H.notificationAsync(H.NotificationFeedbackType.Success))
+      .catch(() => undefined);
+  }
   if (error) {
     const cancelled = error.code === 'Canceled';
     return {
@@ -349,6 +361,12 @@ export async function payForBooking(bookingId: string, clientName?: string): Pro
   }
 
   const { error } = await presentPaymentSheet();
+  if (!error) {
+    // Payment taken. Fire-and-forget for the same reason as the slider.
+    import('expo-haptics')
+      .then((H) => H.notificationAsync(H.NotificationFeedbackType.Success))
+      .catch(() => undefined);
+  }
   if (error) {
     // 'Canceled' = user dismissed the sheet (including after a decline they
     // chose not to retry). Anything else is a real failure.

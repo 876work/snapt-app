@@ -10,6 +10,7 @@ import { RadioDot } from '../../components/ui/RadioDot';
 import { useAuth } from '../../lib/store';
 import { formatMoney } from '../../lib/constants/business';
 import { colors, insetBottom } from '../../lib/theme';
+import { unlock } from '../../lib/biometrics';
 
 // OFFLINE FALLBACK ONLY. The server owns this list (names, ETA badges,
 // required fields, availability) via /v1/creator/payout-methods, so a bank
@@ -42,6 +43,29 @@ function methodSub(id: string, saved?: Record<string, string>): string {
 }
 
 export default function CashOut() {
+  /**
+   * ALWAYS ON for this screen, unlike the optional app-start lock — payout
+   * details are the one thing worth a prompt every time.
+   *
+   * It still fails open at every step (lib/biometrics). 'gate' is only ever
+   * used to hold the FIRST paint; there is no state in which this screen
+   * refuses to render, because locking a creator out of their own earnings
+   * is worse than a stranger glimpsing an account number.
+   */
+  const [gate, setGate] = React.useState<'checking' | 'open'>('checking');
+  const [unverified, setUnverified] = React.useState(false);
+  React.useEffect(() => {
+    let cancelled = false;
+    unlock('Unlock your payout details').then((outcome) => {
+      if (cancelled) return;
+      setUnverified(outcome === 'bypassed');
+      setGate('open');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const router = useRouter();
   const currency = useAuth((s) => s.currency);
   const [method, setMethod] = React.useState('cibc');
@@ -155,10 +179,27 @@ export default function CashOut() {
     );
   }
 
+  // Holds the FIRST paint only, so account numbers are not on screen behind
+  // the OS prompt. Never a refusal — every outcome sets 'open'.
+  if (gate === 'checking') {
+    return (
+      <View style={styles.root}>
+        <ScreenHeader title="Cash out" />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.root}>
       <ScreenHeader title="Cash out" />
       <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        {unverified && (
+          /* Let through without confirming identity — say so rather than
+             pretend the check passed. */
+          <Text style={styles.unverifiedNote}>
+            Opened without verification — your device couldn't confirm it was you.
+          </Text>
+        )}
         <View style={styles.amountCard}>
           <Text style={styles.amountLabel}>AVAILABLE TO CASH OUT</Text>
           <Text style={styles.amountValue}>{formatMoney(available, currency)}</Text>
@@ -269,6 +310,13 @@ export default function CashOut() {
 }
 
 const styles = StyleSheet.create({
+  unverifiedNote: {
+    fontSize: 11.5,
+    color: colors.greyWarm,
+    lineHeight: 16,
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
   root: { flex: 1, backgroundColor: colors.offWhite },
   body: { paddingHorizontal: 22, paddingTop: 8 },
   amountCard: { backgroundColor: colors.ink, borderRadius: 18, padding: 22, alignItems: 'center' },

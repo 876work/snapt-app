@@ -36,6 +36,25 @@ export default function Profile() {
   const [updBusy, setUpdBusy] = React.useState(false);
   const [updStatus, setUpdStatus] = React.useState<string | null>(null);
 
+  /**
+   * App-start biometric lock: OPT-IN, and off unless someone turns it on.
+   * A photography app demanding Face ID on first launch reads as invasive,
+   * so absence of the setting means off. The payout screen is separate and
+   * always on. Both fail open — see lib/biometrics.
+   */
+  const [appLock, setAppLock] = React.useState(false);
+  const [lockUnsupported, setLockUnsupported] = React.useState(false);
+  React.useEffect(() => {
+    import('../../../lib/biometrics').then(async (B) => {
+      setAppLock(await B.isAppLockEnabled());
+      setLockUnsupported(!(await B.canVerify()));
+    });
+  }, []);
+  const toggleAppLock = React.useCallback((next: boolean) => {
+    setAppLock(next);
+    import('../../../lib/biometrics').then((B) => B.setAppLockEnabled(next));
+  }, []);
+
   // Hidden test-crash trigger — see the comment at its Pressable below.
   const TEST_CRASH_TAPS = 7;
   const crashTaps = React.useRef(0);
@@ -295,6 +314,21 @@ export default function Profile() {
               </Svg>
             }
           />
+          <ListRow
+            label={appLock ? 'App lock: on' : 'App lock: off'}
+            onPress={() => toggleAppLock(!appLock)}
+            icon={
+              <Svg width={21} height={21} viewBox="0 0 24 24" fill="none">
+                <Path d="M6 10.5h12v9H6v-9z" stroke={colors.grey} strokeWidth={1.8} strokeLinejoin="round" />
+                <Path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5" stroke={colors.grey} strokeWidth={1.8} strokeLinecap="round" />
+              </Svg>
+            }
+          />
+          {lockUnsupported && appLock && (
+            <Text style={styles.updStatus}>
+              This device has no Face ID, Touch ID or passcode set up, so the app won't lock.
+            </Text>
+          )}
           <ListRow
             label="Notification settings"
             onPress={() => router.push('/profile/notifications')}

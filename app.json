@@ -7,18 +7,16 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "scheme": "snapt",
-    "splash": {
-      "image": "./assets/design/snapt-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FAFAFA"
-    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "app.snaptcarib.snapt",
       "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "associatedDomains": [
+        "applinks:links.snaptcarib.app"
+      ]
     },
     "android": {
       "package": "app.snaptcarib.snapt",
@@ -29,12 +27,31 @@
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "android.permission.RECORD_AUDIO",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
         "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_VIDEO"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "links.snaptcarib.app",
+              "pathPrefix": "/"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
         "android.permission.READ_MEDIA_AUDIO"
       ]
     },
@@ -73,7 +90,22 @@
           "iosUrlScheme": "com.googleusercontent.apps.570146606269-j3c88mhk91ai60bsvsk7lchecutdei80"
         }
       ],
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#FAFAFA"
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Snapt uses Face ID to unlock the app and your payout details. You can always fall back to your device passcode."
+        }
+      ]
     ],
     "extra": {
       "router": {},
@@ -86,6 +118,9 @@
     },
     "updates": {
       "url": "https://u.expo.dev/2a9fec14-9f94-4cf7-9981-9429174eefd3"
+    },
+    "locales": {
+      "en": "./locales/store/en.json"
     }
   }
 }

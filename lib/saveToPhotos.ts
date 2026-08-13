@@ -106,7 +106,7 @@ export function offerSettings(result: SaveResult): void {
   ]);
 }
 
-async function downloadTo(url: string, filename: string): Promise<string> {
+export async function downloadTo(url: string, filename: string): Promise<string> {
   const FS = (await import('expo-file-system')) as Record<string, any>;
   // Destination is a FILE, not a directory. Handing over a directory lets the
   // library name the file from the response headers — and an R2 presigned GET
@@ -181,5 +181,76 @@ export async function saveToPhotos(opts: {
       kind: 'save',
       message: "Downloaded, but your photo library refused it. Check you have storage space free.",
     };
+  }
+}
+
+/**
+ * SHARE THE SAME LOCAL FILE THE SAVE PATH PRODUCES.
+ *
+ * Deliberately built on downloadTo and the same filename rules, so a client
+ * sending photos to WhatsApp gets the identical file the camera roll would —
+ * and there is one download implementation, not two.
+ *
+ * Needs no photo-library permission: nothing is written to the library.
+ */
+export async function shareFile(opts: {
+  url: string;
+  filename: string;
+  mimeType?: string | null;
+  refreshUrl?: () => Promise<string | null>;
+  context: string;
+}): Promise<SaveResult> {
+  const Sharing = await import('expo-sharing');
+  if (!(await Sharing.isAvailableAsync())) {
+    return {
+      ok: false,
+      kind: 'save',
+      message: "Sharing isn't available on this device. You can still save to your photos.",
+    };
+  }
+
+  let localUri: string;
+  try {
+    localUri = await downloadTo(opts.url, opts.filename);
+  } catch (first) {
+    // Same expired-signature dance as saving: one silent re-presign.
+    let fresh: string | null = null;
+    try {
+      fresh = (await opts.refreshUrl?.()) ?? null;
+    } catch {
+      fresh = null;
+    }
+    if (!fresh || fresh === opts.url) {
+      captureHandledError(first, `shareFile:download:${opts.context}`);
+      return {
+        ok: false,
+        kind: 'download',
+        message: "Couldn't download that file — check your connection, then try again.",
+      };
+    }
+    try {
+      localUri = await downloadTo(fresh, opts.filename);
+    } catch (second) {
+      captureHandledError(second, `shareFile:download_after_refresh:${opts.context}`);
+      return {
+        ok: false,
+        kind: 'download',
+        message: "Couldn't download that file — check your connection, then try again.",
+      };
+    }
+  }
+
+  try {
+    await Sharing.shareAsync(localUri, {
+      mimeType: opts.mimeType ?? undefined,
+      UTI: (opts.mimeType ?? '').includes('png') ? 'public.png' : 'public.jpeg',
+    });
+    return { ok: true };
+  } catch (err) {
+    // Dismissing the share sheet is not an error worth reporting as one, but
+    // we cannot tell dismissal from failure here — so report quietly and say
+    // nothing alarming.
+    captureHandledError(err, `shareFile:share:${opts.context}`);
+    return { ok: false, kind: 'save', message: "Couldn't open the share sheet." };
   }
 }

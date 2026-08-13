@@ -49,6 +49,12 @@ export function SlideToConfirm({ label, onConfirm, disabled, value, valueLabel }
   const complete = React.useCallback(async () => {
     if (lockRef.current) return;
     lockRef.current = true;
+    // The latch: the moment the slide is committed and can no longer be
+    // taken back. Fire-and-forget — a device without a taptic engine, or one
+    // with system haptics disabled, must not delay or fail the confirmation.
+    import('expo-haptics')
+      .then((H) => H.impactAsync(H.ImpactFeedbackStyle.Medium))
+      .catch(() => undefined);
     setBusy(true);
     let ok = true;
     try {

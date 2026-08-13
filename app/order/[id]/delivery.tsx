@@ -9,7 +9,7 @@ import { SlideToConfirm } from '../../../components/ui/SlideToConfirm';
 import { creatorById, useBookings } from '../../../lib/store';
 import { apiConfigured } from '../../../lib/api';
 import { colors, insetBottom } from '../../../lib/theme';
-import { offerSettings, photoFilename, saveToPhotos } from '../../../lib/saveToPhotos';
+import { offerSettings, photoFilename, saveToPhotos, shareFile } from '../../../lib/saveToPhotos';
 
 // No mock fallback: a failed fetch used to show four bundled sample images
 // as if they were the client's delivered files.
@@ -138,6 +138,41 @@ export default function Delivery() {
     return false;
   };
 
+  /**
+   * Send straight to WhatsApp and friends. Same filename and same re-presign
+   * as saving, and it goes through the shared download step rather than a
+   * second copy of it — that duplication is what made downloads broken in two
+   * places for weeks.
+   */
+  const shareOne = async (d: Deliverable) => {
+    const uri = d.thumb.uri;
+    if (!uri) {
+      setSaveNote('Demo files — sharing works on real deliveries.');
+      return;
+    }
+    const index = deliverables.findIndex((x) => x.name === d.name);
+    const result = await shareFile({
+      url: uri,
+      filename: photoFilename({
+        subject: 'Delivery',
+        date: d.createdAt,
+        index: index >= 0 ? index + 1 : undefined,
+        originalName: d.name,
+        contentType: d.contentType,
+      }),
+      mimeType: d.contentType,
+      refreshUrl: async () => {
+        if (!id || !d.id) return null;
+        const api = await import('../../../lib/api');
+        const media = await api.fetchMediaApi(id);
+        const fresh = media?.find((m) => m.id === d.id && !m.deleted);
+        return fresh?.download_url ?? null;
+      },
+      context: 'client_delivery_share',
+    });
+    if (!result.ok) setSaveNote(result.message);
+  };
+
   // Revision request (1 free round; extra rounds only if purchased at
   // booking). Server enforces entitlement; quality disputes require a
   // delivered revision first (Policy 08 §2).
@@ -261,6 +296,12 @@ export default function Delivery() {
                   </Text>
                   <Text style={styles.fileMeta}>{d.meta}</Text>
                 </View>
+                <Pressable onPress={() => shareOne(d)} style={styles.dlBtn}>
+                  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                    <Path d="M12 16V4m0 0L8 8m4-4l4 4" stroke={colors.ink} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                    <Path d="M5 14v4a2 2 0 002 2h10a2 2 0 002-2v-4" stroke={colors.ink} strokeWidth={2} strokeLinecap="round" />
+                  </Svg>
+                </Pressable>
                 <Pressable onPress={() => saveFile(d)} style={styles.dlBtn}>
                   {savedNames.has(d.name) ? (
                     <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
