@@ -64,6 +64,11 @@ echo '--- 1/3 export (source maps on) ---'
 npx expo export --platform all --output-dir dist --source-maps --dump-assetmap
 
 echo '--- 2/3 upload source maps ---'
+# sentry-expo-upload-sourcemaps consults the Expo config when ANY of org,
+# project or url is unset — and that lookup returns nothing here, so it exits
+# 1 even though org and project are both in the environment. Supplying the
+# url (a constant, not a secret) keeps it on the environment path entirely.
+export SENTRY_URL="\${SENTRY_URL:-https://sentry.io}"
 if [[ -n "\${SENTRY_AUTH_TOKEN:-}" ]]; then
   npx sentry-expo-upload-sourcemaps dist
 else
