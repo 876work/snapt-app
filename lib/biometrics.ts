@@ -32,8 +32,29 @@ export type UnlockOutcome =
   | 'verified'
   /** Nothing to check against — no hardware, or nothing enrolled. */
   | 'unavailable'
-  /** Let through WITHOUT confirming. The caller should say so. */
+  /**
+   * The OS refused and WILL NOT ASK AGAIN — permission denied for this app,
+   * or biometrics unusable at OS level. Distinct from 'bypassed' because the
+   * honest answer differs: "try again" is useless here, Settings is the only
+   * route. Still let through.
+   */
+  | 'blocked'
+  /** Let through WITHOUT confirming, but the OS will ask again next time. */
   | 'bypassed';
+
+/**
+ * Errors meaning the prompt will never appear again on its own.
+ *
+ * iOS asks for Face ID permission ONCE per install. After a denial
+ * authenticateAsync returns 'not_available' immediately, with no prompt — so
+ * a lock that keeps saying "try again" is lying about what will happen.
+ */
+const WILL_NOT_PROMPT = new Set(['not_available', 'not_enrolled', 'passcode_not_set']);
+
+/** Exported so the mapping can be tested without a device. */
+export function outcomeForError(error: string | undefined): UnlockOutcome {
+  return error && WILL_NOT_PROMPT.has(error) ? 'blocked' : 'bypassed';
+}
 
 const APP_LOCK_KEY = 'snapt.appLock.enabled';
 
@@ -83,8 +104,9 @@ export async function unlock(reason: string): Promise<UnlockOutcome> {
     });
     // Steps 3 and 5.
     if (res.success) return 'verified';
-    // Step 6 — cancelled, or the OS had no way to continue. Through anyway.
-    return 'bypassed';
+    // Step 6 — cancelled, or the OS had no way to continue. Through anyway,
+    // but distinguishing "you cancelled" from "the OS will never ask again".
+    return outcomeForError((res as { error?: string }).error);
   } catch (err) {
     // Step 7. A thrown error here is a broken lock, not a failed identity
     // check, and a broken lock must not become a closed door.

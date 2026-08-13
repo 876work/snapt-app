@@ -58,7 +58,9 @@ export default function CashOut() {
     let cancelled = false;
     unlock('Unlock your payout details').then((outcome) => {
       if (cancelled) return;
-      setUnverified(outcome === 'bypassed');
+      // 'blocked' counts too: the OS refused and will not ask again, so the
+      // screen opened without confirming who this is either way.
+      setUnverified(outcome === 'bypassed' || outcome === 'blocked');
       setGate('open');
     });
     return () => {
