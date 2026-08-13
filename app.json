@@ -118,9 +118,6 @@
     },
     "updates": {
       "url": "https://u.expo.dev/2a9fec14-9f94-4cf7-9981-9429174eefd3"
-    },
-    "locales": {
-      "en": "./locales/store/en.json"
     }
   }
 }
