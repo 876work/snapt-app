@@ -362,7 +362,23 @@ export default function Profile() {
               rather than a button: this is diagnostics, not a feature. The
               count is announced from the fourth tap so it can never happen
               by accident, and it resets after a few idle seconds. */}
-          <Pressable onPress={onVersionTap}>
+          {/* THE COMMIT STAMP IS GONE ON PURPOSE.
+              It read `process.env.EXPO_PUBLIC_COMMIT`, which Metro INLINES at
+              transform time — and Metro's transform cache is keyed on file
+              contents plus babel options, not on environment values. So any
+              publish that did not happen to change THIS file reused the
+              transform from an earlier one and printed that earlier commit.
+              On 2026-08-13 it reported a bundle two publishes stale and sent
+              us hunting a delivery fault that did not exist.
+              Bundle id, published time and runtime below all come from the
+              update manifest at runtime, so they cannot drift. They are the
+              three that were right when the commit was wrong. */}
+          <Pressable
+            onPress={onVersionTap}
+            // A 12pt line of text is not a tap target. This one has to be
+            // hit seven times.
+            hitSlop={{ top: 12, bottom: 12, left: 24, right: 24 }}
+          >
             <Text style={styles.updLine}>
             {/* Constants.nativeApplicationVersion / nativeBuildVersion are
                 DEPRECATED in SDK 57 (they point at expo-application, which
@@ -372,9 +388,7 @@ export default function Profile() {
                 at all here: eas.json uses appVersionSource "remote", so EAS
                 assigns it at build time and it never reaches app.json. The
                 runtime hash below identifies the binary instead. */}
-            App: v{Constants.expoConfig?.version ?? '?'} · code{' '}
-            {/* Stamped by scripts/publish-ota.sh at publish time. */}
-            {process.env.EXPO_PUBLIC_COMMIT ?? 'factory'}
+            App: v{Constants.expoConfig?.version ?? '?'}
             </Text>
           </Pressable>
           {crashNote ? <Text style={styles.updStatus}>{crashNote}</Text> : null}
