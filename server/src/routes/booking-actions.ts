@@ -177,19 +177,24 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
 
     // Creator cancel: no client penalty ever (§8) — full refund + strike.
     const late = booking.scheduled_at != null && hoursUntil(booking.scheduled_at) < 24;
-    await refundClient(booking, booking.price_usd, 'creator_cancel');
+    const refunded = await refundClient(booking, booking.price_usd, 'creator_cancel');
     await recordStrike(booking.creator_id as string, booking.id, late ? 'late_cancellation' : 'cancellation');
     await supabaseAdmin
       .from('bookings')
       .update({ status: 'cancelled', cancelled_by: user.id, cancelled_at: new Date().toISOString() })
       .eq('id', booking.id);
-    await notify(
-      booking.client_id,
-      'booking_cancelled_by_creator',
-      'Your creator had to cancel',
-      'Full refund issued automatically. Want us to rematch you with another great creator for the same slot? Open the booking to choose.',
-      { booking_id: booking.id },
-    );
+    if (refunded) {
+      await notify(
+        booking.client_id,
+        'booking_cancelled_by_creator',
+        'Your creator had to cancel',
+        'Full refund issued automatically. Want us to rematch you with another great creator for the same slot? Open the booking to choose.',
+        { booking_id: booking.id },
+      );
+    }
+    // refunded === false: the ledger write failed. refundClient() already
+    // raised a refund_ledger_failed admin alert — the client is not told
+    // a refund was issued until the ledger confirms it actually moved.
     return {
       cancelled_by: 'creator',
       refundUsd: booking.price_usd,
@@ -322,13 +327,19 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
       if (role === 'client') {
         // Creator no-show: full refund; strike (higher severity — standing
         // can jump straight to suspension); rematch or free cancel offered.
-        await refundClient(booking, booking.price_usd, 'creator_no_show');
+        const refunded = await refundClient(booking, booking.price_usd, 'creator_no_show');
         if (booking.creator_id) await recordStrike(booking.creator_id, booking.id, 'no_show');
         await supabaseAdmin
           .from('bookings')
           .update({ status: 'no_show', no_show_reported_by: user.id })
           .eq('id', booking.id);
-        await notify(user.id, 'refund_processed', 'Full refund on its way', 'Sorry about the no-show. Your full refund is processing, and we can rematch you — open the booking to choose.', { booking_id: booking.id });
+        if (refunded) {
+          await notify(user.id, 'refund_processed', 'Full refund on its way', 'Sorry about the no-show. Your full refund is processing, and we can rematch you — open the booking to choose.', { booking_id: booking.id });
+        }
+        // refunded === false: the ledger write failed. refundClient()
+        // already raised a refund_ledger_failed admin alert — the client
+        // is not told a refund is processing until the ledger confirms it
+        // actually moved.
         return {
           reported: 'creator_no_show',
           refundUsd: booking.price_usd,
