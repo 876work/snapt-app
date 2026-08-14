@@ -106,8 +106,74 @@ export function offerSettings(result: SaveResult): void {
   ]);
 }
 
+/**
+ * THE CACHE COPY HAS TO GO AWAY AGAIN.
+ *
+ * downloadTo writes a full-size copy of the file into the cache directory,
+ * and nothing ever removed it. Saving a delivery therefore cost the phone
+ * TWICE the file: once in the photo library, where the client wanted it, and
+ * once here forever. On a video delivery that is hundreds of megabytes per
+ * tap, and the client has no way to see it, let alone clear it.
+ *
+ * Two different lifetimes, because the two paths genuinely differ:
+ *
+ *  - SAVING can delete immediately. saveToLibraryAsync has finished copying
+ *    into the library before it resolves, so our copy is already redundant.
+ *
+ *  - SHARING cannot. expo-sharing hands the target app a URI and resolves as
+ *    the sheet closes — WhatsApp may still be reading when we get control
+ *    back. Deleting there would break sharing to fix a cache leak. Those
+ *    copies age out on the next download instead.
+ *
+ * The sweep also collects the partial file an interrupted download can leave
+ * behind on Android (documented on File.downloadFileAsync).
+ */
+const CACHE_GRACE_MS = 10 * 60 * 1000;
+
+/** Only ever files this module wrote — photoFilename always names them 'Snapt…'. */
+function isOurCacheFile(name: string): boolean {
+  return name.startsWith('Snapt-') || name.startsWith('Snapt.');
+}
+
+/** Delete one cache copy. Never throws: cleanup must not fail the operation. */
+async function discardCached(uri: string): Promise<void> {
+  try {
+    const FS = (await import('expo-file-system')) as Record<string, any>;
+    const file = new FS.File(uri);
+    if (file.exists) file.delete();
+  } catch {
+    // A leftover temp file is a much smaller problem than turning someone's
+    // successful save into an error.
+  }
+}
+
+/** Remove our aged-out cache copies. `keepUri` is never touched. */
+async function sweepDownloadCache(keepUri?: string): Promise<void> {
+  try {
+    const FS = (await import('expo-file-system')) as Record<string, any>;
+    const now = Date.now();
+    for (const entry of FS.Paths.cache.list()) {
+      if (!(entry instanceof FS.File)) continue;
+      if (!isOurCacheFile(entry.name)) continue;
+      if (keepUri && entry.uri === keepUri) continue;
+      // Unknown age (null) counts as brand new: never delete what we cannot
+      // date, or a file still being shared could vanish mid-read.
+      if (now - (entry.lastModified ?? now) < CACHE_GRACE_MS) continue;
+      try {
+        entry.delete();
+      } catch {
+        // Busy or already gone — the next sweep gets it.
+      }
+    }
+  } catch {
+    // A cache sweep must never break the download it runs before.
+  }
+}
+
 export async function downloadTo(url: string, filename: string): Promise<string> {
   const FS = (await import('expo-file-system')) as Record<string, any>;
+  // Collect what earlier saves and shares left behind BEFORE adding to it.
+  await sweepDownloadCache();
   // Destination is a FILE, not a directory. Handing over a directory lets the
   // library name the file from the response headers — and an R2 presigned GET
   // sends no Content-Disposition, so the name (and, more dangerously, the
@@ -181,6 +247,11 @@ export async function saveToPhotos(opts: {
       kind: 'save',
       message: "Downloaded, but your photo library refused it. Check you have storage space free.",
     };
+  } finally {
+    // Either the library took its own copy or it refused the file. Ours is
+    // dead weight in both cases — and on a refusal caused by a full phone,
+    // keeping it would be actively making the reported problem worse.
+    await discardCached(localUri);
   }
 }
 
@@ -252,5 +323,9 @@ export async function shareFile(opts: {
     // nothing alarming.
     captureHandledError(err, `shareFile:share:${opts.context}`);
     return { ok: false, kind: 'save', message: "Couldn't open the share sheet." };
+  } finally {
+    // Everything EXCEPT the file just handed over — the target app may still
+    // be reading that one. It ages out on the next download.
+    void sweepDownloadCache(localUri);
   }
 }
