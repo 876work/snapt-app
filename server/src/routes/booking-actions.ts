@@ -128,7 +128,7 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
 
       // Service fee is non-refundable at every tier (Don, 2026-07-27):
       // refund covers the session cost minus the late charge only.
-      await refundClient(booking, quote.refundUsd, `client_cancel_${quote.tier}`);
+      const refunded = await refundClient(booking, quote.refundUsd, `client_cancel_${quote.tier}`);
       await recordFee(booking, 'cancellation_fee', booking.price_usd - quote.refundUsd, {
         tier: quote.tier,
         charge_rate: quote.chargeRate,
@@ -146,14 +146,20 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
         await notify(user.id, 'fee_charged', 'Cancellation fee applied', `A late-cancellation charge of {amount} applied per the ${quote.tier} notice tier.`, { booking_id: booking.id }, { amount: quote.chargeUsd });
       }
       if (quote.refundUsd > 0) {
-        await notify(
-          user.id,
-          'refund_processed',
-          'Cancellation confirmed',
-          'Your booking is cancelled. Refund on its way: {amount} to your original payment method within 5–10 business days.',
-          { booking_id: booking.id },
-          { amount: quote.refundUsd },
-        );
+        if (refunded) {
+          await notify(
+            user.id,
+            'refund_processed',
+            'Cancellation confirmed',
+            'Your booking is cancelled. Refund on its way: {amount} to your original payment method within 5–10 business days.',
+            { booking_id: booking.id },
+            { amount: quote.refundUsd },
+          );
+        }
+        // refunded === false: the ledger write failed. refundClient()
+        // already raised a refund_ledger_failed admin alert — the client
+        // is not told a refund is on its way until the ledger confirms it
+        // actually moved.
       } else {
         // under-24h tier charges the session in full and refundClient()
         // no-ops — promising "refund on its way" here would be false. The

@@ -67,13 +67,20 @@ export async function carryChargeToRematch(
   });
 }
 
-/** Refund `amountUsd` to the client — via Stripe when possible, always ledgered. */
+/**
+ * Refund `amountUsd` to the client — via Stripe when possible, always
+ * ledgered. Returns whether the ledger write can be trusted: `true` when
+ * there was nothing to ledger (amountUsd <= 0) or the insert succeeded,
+ * `false` when it failed. Callers must gate any "refund on its way" message
+ * on this — otherwise a failed write here is a client told a refund is
+ * coming with no record of it anywhere.
+ */
 export async function refundClient(
   booking: BookingRow,
   amountUsd: number,
   reason: string,
-): Promise<void> {
-  if (amountUsd <= 0) return;
+): Promise<boolean> {
+  if (amountUsd <= 0) return true;
   let stripeRefundId: string | null = null;
   if (stripe) {
     const intentId = await paymentIntentIdFor(booking.id);
@@ -100,9 +107,23 @@ export async function refundClient(
     // moved. A failed ledger write here means the client is refunded and
     // nothing in the system knows it: a reconciliation gap that was
     // previously invisible everywhere, the same silent-catch class as the
-    // unlogged webhook insert failure.
+    // unlogged webhook insert failure. Loud AND queued for a human — a log
+    // line alone is exactly what let the last one sit unnoticed.
     console.error('[refund] ledger insert FAILED', booking.id, reason, stripeRefundId, ledgerErr.message);
+    await supabaseAdmin.from('admin_alerts').insert({
+      alert_type: 'refund_ledger_failed',
+      booking_id: booking.id,
+      detail: {
+        user_id: booking.client_id,
+        amount_usd: amountUsd,
+        reason,
+        stripe_refund_id: stripeRefundId,
+        error: ledgerErr.message,
+      },
+    });
+    return false;
   }
+  return true;
 }
 
 /** Ledger a fee kept by the platform (cancellation / reschedule / no-show). */
