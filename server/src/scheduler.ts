@@ -81,10 +81,26 @@ async function retentionDaily(): Promise<void> {
     .select('value')
     .eq('key', 'retention_last_run_day')
     .maybeSingle();
-  if (data?.value === today) return;
+  /**
+   * ONCE PER DAY — which it was not.
+   *
+   * The write below used to be JSON.stringify(today). `value` is jsonb and
+   * supabase-js JSON-encodes what it is handed, so stringifying first stored
+   * a string with the quote characters INSIDE it: "2026-08-14", twelve
+   * characters. This comparison then measured it against the bare ten-
+   * character date, never matched, and never returned early — so the daily
+   * job ran on every five-minute tick instead. Invisible while dry-run made
+   * every run a no-op; 288 deletion passes a day once it is not.
+   *
+   * The read stays tolerant of the quoted form because rows written the old
+   * way are still in production, and the guard has to work on the very next
+   * tick rather than after someone remembers to clean the row by hand.
+   */
+  const lastRun = typeof data?.value === 'string' ? data.value.replace(/^"+|"+$/g, '') : null;
+  if (lastRun === today) return;
   await supabaseAdmin
     .from('app_config')
-    .upsert({ key: 'retention_last_run_day', value: JSON.stringify(today), description: 'Retention job: last run day (set by the scheduler)' });
+    .upsert({ key: 'retention_last_run_day', value: today, description: 'Retention job: last run day (set by the scheduler)' });
   const result = await runRetention();
   console.log(
     `[retention] dry_run=${result.dry_run} scanned=${result.scanned} eligible=${result.eligible.length} deleted=${result.deleted} errors=${result.errors.length} held=${result.held.length} warnings=${result.warnings_sent}`,

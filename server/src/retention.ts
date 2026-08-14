@@ -210,9 +210,38 @@ async function sendExpiryWarnings(dryRun: boolean, deliverableDays: number): Pro
   return sent;
 }
 
+/**
+ * Is the kill switch actually OFF?
+ *
+ * Deletion is enabled by an explicit false and by nothing else. A missing
+ * row, a true, a typo, an empty string — all keep the job in dry run,
+ * because the cost of reading this wrong in the permissive direction is
+ * permanently deleted client footage.
+ *
+ * The string form is accepted because it is reachable, not hypothetical:
+ * values reach this jsonb column through supabase-js, which JSON-encodes
+ * whatever it is handed, so a write that passes a STRING stores a quoted
+ * string and reads back as one. The same mechanism is what broke the daily
+ * guard in scheduler.ts. A flag that says "false" in every sense a human
+ * would recognise must not silently mean "still dry running".
+ */
+function retentionIsLive(value: unknown): boolean {
+  return value === false || value === 'false' || value === '"false"';
+}
+
 export async function runRetention(opts?: { dryRun?: boolean }): Promise<RetentionRunResult> {
   const config = await getConfig();
-  const dryRun = opts?.dryRun ?? config['retention_dry_run'] !== false;
+  const rawDryRun = config['retention_dry_run'];
+  const dryRun = opts?.dryRun ?? !retentionIsLive(rawDryRun);
+  // Says WHY, not just what. "[retention] dry_run=true" on its own cannot
+  // distinguish a flag that is still set from a flag that was flipped and is
+  // being read as the wrong type, which is exactly the question asked when
+  // the database says false and the job still logs true.
+  if (dryRun && opts?.dryRun === undefined) {
+    console.log(
+      `[retention] dry run ACTIVE — app_config.retention_dry_run read as ${JSON.stringify(rawDryRun)} (${typeof rawDryRun}); deletion needs exactly false`,
+    );
+  }
   const cfg = {
     raw: await configNumber('retention_raw_days', 30),
     deliverable: await configNumber('retention_deliverable_days', 365),
