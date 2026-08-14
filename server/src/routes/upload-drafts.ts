@@ -128,7 +128,19 @@ export function registerUploadDraftRoutes(app: FastifyInstance) {
 
     const safeName = filename.replace(/[^\w.\-]/g, '_');
     const path = `${draftId}/${Date.now()}-${safeName}`;
-    return createUploadTarget('raw-footage', path, content_type ?? 'application/octet-stream');
+    try {
+      return await createUploadTarget('raw-footage', path, content_type ?? 'application/octet-stream');
+    } catch (err) {
+      // Uncaught, this became a framework 500 whose `error` field is the
+      // HTTP status text — context-free words the app then showed verbatim.
+      // The real reason (R2 auth, storage quota, network) belongs in the
+      // server log; the phone gets a sentence that cannot be misread as
+      // being about the phone.
+      request.log.error({ err, draftId }, 'upload-draft presign: storage refused an upload URL');
+      return reply.code(502).send({
+        error: "The upload service couldn't accept this file just now — nothing is wrong with your phone. Try again in a minute.",
+      });
+    }
   });
 
   app.post<{
@@ -159,7 +171,16 @@ export function registerUploadDraftRoutes(app: FastifyInstance) {
       })
       .select('id, created_at')
       .single();
-    if (error) return reply.code(500).send({ error: error.message });
+    if (error) {
+      // error.message here is raw Postgres/PostgREST text. Sent to the app,
+      // a database "No space left on device" reads as the PHONE being full —
+      // a message about the wrong machine. Log the real error; say something
+      // honest and unmistakable to the client.
+      request.log.error({ err: error, draftId, storage_path }, 'upload-draft register: insert failed');
+      return reply.code(500).send({
+        error: "Uploaded, but the order service couldn't record it — nothing is wrong with your phone. Try again in a minute.",
+      });
+    }
     return reply.code(201).send({ media: data });
   });
 

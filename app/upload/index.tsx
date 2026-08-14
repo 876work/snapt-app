@@ -22,11 +22,24 @@ import { colors, insetBottom } from '../../lib/theme';
  */
 const UPLOAD_CONCURRENCY = 3;
 
+/**
+ * Every size on this screen renders through here. The per-file values are
+ * stored at one decimal, but SUMMING them reintroduces binary float tails —
+ * 4.3 + 4.3 is 8.600000000000001, and that string went straight onto the
+ * screen as "8.6000000000000001MB of 1.5GB".
+ */
+const fmtSize = (mb: number) =>
+  mb >= 1000 ? `${(mb / 1000).toFixed(1)}GB` : `${Math.round(mb * 10) / 10}MB`;
+
 export default function UploadFootage() {
   const router = useRouter();
   const { files, note, draftId, setNote, addPicked, removeFile, setFileStatus, setDraftId, adoptDraftFiles } =
     useUpload();
   const [rejected, setRejected] = React.useState<RejectedFile[]>([]);
+  // The picker copies every selected asset into the app's cache before we
+  // ever see a uri, so a phone that is truly out of storage fails HERE —
+  // and used to fail as an unhandled rejection, showing nothing at all.
+  const [pickError, setPickError] = React.useState<string | null>(null);
   // Files restored from an earlier visit, until the client says keep or
   // start over. Never silently folded into what looks like a fresh order.
   const [restored, setRestored] = React.useState<number>(0);
@@ -118,13 +131,27 @@ export default function UploadFootage() {
   // than after payment, so the transfer overlaps package and style.
   const pick = async () => {
     setRejected([]);
+    setPickError(null);
     const ImagePicker = await import('expo-image-picker');
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images', 'videos'],
-      allowsMultipleSelection: true,
-      selectionLimit: MAX_FILES,
-      quality: 1,
-    });
+    let result: Awaited<ReturnType<typeof ImagePicker.launchImageLibraryAsync>>;
+    try {
+      result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images', 'videos'],
+        allowsMultipleSelection: true,
+        selectionLimit: MAX_FILES,
+        quality: 1,
+      });
+    } catch (err) {
+      // The real reason goes to Sentry; the message here is the one honest
+      // use of "storage" on this screen, because copying into the cache is
+      // the only step that actually needs free space on the phone.
+      const { captureHandledError } = await import('../../lib/sentry');
+      captureHandledError(err, 'upload:pick');
+      setPickError(
+        "Couldn't load that selection from your phone. If its storage is almost full, free some space and try again — otherwise just try again.",
+      );
+      return;
+    }
     if (result.canceled) return;
     const before = useUpload.getState().files.map((f) => f.id);
     const bad = addPicked(
@@ -216,7 +243,7 @@ export default function UploadFootage() {
           : `${r.name} — would exceed the ${MAX_TOTAL_GB}GB total`;
   const atLimit = files.length >= MAX_FILES;
   const totalMb = files.reduce((s, f) => s + f.sizeMb, 0);
-  const usage = totalMb >= 1000 ? `${(totalMb / 1000).toFixed(1)}GB` : `${totalMb}MB`;
+  const usage = fmtSize(totalMb);
 
   return (
     <View style={styles.root}>
@@ -288,6 +315,12 @@ export default function UploadFootage() {
             {usage} of {MAX_TOTAL_GB}GB
           </Text>
         </View>
+        {pickError && (
+          <View style={styles.rejectCard}>
+            <Text style={styles.rejectTitle}>Nothing was added</Text>
+            <Text style={styles.rejectLine}>{pickError}</Text>
+          </View>
+        )}
         {rejected.length > 0 && (
           <View style={styles.rejectCard}>
             <Text style={styles.rejectTitle}>
@@ -354,9 +387,7 @@ export default function UploadFootage() {
               </View>
               {f.sizeMb > 0 && (
                 <View style={styles.sizeBadge}>
-                  <Text style={styles.sizeBadgeLabel}>
-                    {f.sizeMb >= 1000 ? `${(f.sizeMb / 1000).toFixed(1)}GB` : `${f.sizeMb}MB`}
-                  </Text>
+                  <Text style={styles.sizeBadgeLabel}>{fmtSize(f.sizeMb)}</Text>
                 </View>
               )}
             </View>
