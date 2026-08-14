@@ -51,10 +51,10 @@ order by created_at;
 --       ledgered). "Refund on its way" is false for these rows — the body
 --       is replaced with the no-refund copy, word-for-word the same copy
 --       the fixed server now sends for this case.
---    RETURNING shows the after-state of every repaired row; the repair
---    column says which case each row took.
+--    One atomic UPDATE — no begin/commit wrapper, because the editor
+--    displays only the last statement's result and a commit would hide
+--    the RETURNING rows. The repair column says which case each row took.
 -- ============================================================
-begin;
 with cfg as (
   select coalesce(
     (select (value #>> '{}')::numeric from app_config where key = 'xcd_per_usd'),
@@ -103,7 +103,6 @@ returning n.id, n.user_id, n.trigger_type,
                then 'amount: ' || rendered.amount_text
                else 'no-refund copy' end as repair,
           n.body;
-commit;
 
 -- If inventory (B) shows broken "Booking rescheduled" rows too, the same
 -- repair applies with the reschedule fee as the source amount (direction:
