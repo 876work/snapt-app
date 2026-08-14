@@ -145,13 +145,27 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
       if (quote.chargeUsd > 0) {
         await notify(user.id, 'fee_charged', 'Cancellation fee applied', `A late-cancellation charge of {amount} applied per the ${quote.tier} notice tier.`, { booking_id: booking.id }, { amount: quote.chargeUsd });
       }
-      await notify(
-        user.id,
-        'refund_processed',
-        'Cancellation confirmed',
-        'Your booking is cancelled. Refund on its way: {amount} to your original payment method within 5–10 business days.',
-        { booking_id: booking.id },
-      );
+      if (quote.refundUsd > 0) {
+        await notify(
+          user.id,
+          'refund_processed',
+          'Cancellation confirmed',
+          'Your booking is cancelled. Refund on its way: {amount} to your original payment method within 5–10 business days.',
+          { booking_id: booking.id },
+          { amount: quote.refundUsd },
+        );
+      } else {
+        // under-24h tier charges the session in full and refundClient()
+        // no-ops — promising "refund on its way" here would be false. The
+        // charge itself was already notified with its amount just above.
+        await notify(
+          user.id,
+          'refund_processed',
+          'Cancellation confirmed',
+          'Your booking is cancelled. Under the less-than-24-hour notice tier the session cost is charged in full, so no refund is due.',
+          { booking_id: booking.id },
+        );
+      }
       return { cancelled_by: 'client', ...quote };
     }
 
@@ -257,6 +271,9 @@ export function registerBookingActionRoutes(app: FastifyInstance) {
         'Booking rescheduled',
         quote.free ? 'Your new time is locked in — no charge.' : 'Your new time is locked in. A {amount} reschedule charge applied.',
         { booking_id: booking.id },
+        // The token appears exactly when the paid-branch copy is chosen, so
+        // the amount must be passed on the same condition.
+        quote.free ? {} : { amount: quote.feeUsd },
       );
       if (!quote.free && quote.feeUsd > 0) {
         await notify(user.id, 'fee_charged', 'Reschedule fee applied', 'A {amount} reschedule charge applied (24–48h window).', { booking_id: booking.id }, { amount: quote.feeUsd });

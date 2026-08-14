@@ -116,6 +116,33 @@ const MONEY_MOVEMENT: Record<string, MoneyDirection> = {
 /** Payouts print the USD ledger figure first — see money.ts for why. */
 const PAYOUT_TRIGGERS = new Set(['payout_paid']);
 
+/**
+ * A LEFTOVER TOKEN MUST NEVER REACH A USER.
+ *
+ * A `{token}` that survives substitution means the copy references an amount
+ * the caller never passed — the substitution loop can only replace keys it
+ * was given, so an omitted `amounts` argument used to sail through silently.
+ * That exact gap put the literal text "Refund on its way: {amount}" into a
+ * real inbox on 2026-08-14.
+ *
+ * Outside production a broken caller now throws (caught below and logged as
+ * a notify failure — no row is written, so the bug cannot be shipped
+ * unnoticed past a dev run). In production the token is stripped instead:
+ * clipped copy beats template internals, and beats losing a money
+ * notification entirely.
+ */
+const RAW_TOKEN = /\{[a-z][a-z0-9_]*\}/g;
+// Render stamps RENDER into every service's env (no NODE_ENV is set there).
+const IS_PRODUCTION = process.env.RENDER != null || process.env.NODE_ENV === 'production';
+
+export function stripRawTokens(text: string): string {
+  return text
+    .replace(RAW_TOKEN, '')
+    .replace(/ {2,}/g, ' ')
+    .replace(/ ([.,:;!?])/g, '$1')
+    .trim();
+}
+
 export async function notify(
   userId: string,
   trigger: keyof typeof TRIGGERS | string,
@@ -180,6 +207,21 @@ export async function notify(
         renderedTitle = renderedTitle.replace(token, text);
         renderedBody = renderedBody.replace(token, text);
       }
+    }
+
+    // Unconditional — the broken case is precisely a tokened template with
+    // NO amounts passed, which never enters the loop above.
+    const leftover = `${renderedTitle} ${renderedBody}`.match(RAW_TOKEN);
+    if (leftover) {
+      const missing = [...new Set(leftover)].join(', ');
+      console.error(
+        `[notify] UNSUBSTITUTED TOKEN in "${trigger}": ${missing} — amounts argument provided keys [${tokens.join(', ')}]`,
+      );
+      if (!IS_PRODUCTION) {
+        throw new Error(`notify(${trigger}): template references ${missing} but the amounts argument does not supply it`);
+      }
+      renderedTitle = stripRawTokens(renderedTitle);
+      renderedBody = stripRawTokens(renderedBody);
     }
 
     // WRITE FIRST. The row is the record; delivery is best-effort on top of
