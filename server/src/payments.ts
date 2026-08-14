@@ -86,7 +86,7 @@ export async function refundClient(
       stripeRefundId = refund.id;
     }
   }
-  await supabaseAdmin.from('transactions').insert({
+  const { error: ledgerErr } = await supabaseAdmin.from('transactions').insert({
     booking_id: booking.id,
     user_id: booking.client_id,
     type: 'refund',
@@ -95,6 +95,14 @@ export async function refundClient(
     stripe_refund_id: stripeRefundId,
     fees: { reason },
   });
+  if (ledgerErr) {
+    // The Stripe refund (if one fired above) already succeeded — the money
+    // moved. A failed ledger write here means the client is refunded and
+    // nothing in the system knows it: a reconciliation gap that was
+    // previously invisible everywhere, the same silent-catch class as the
+    // unlogged webhook insert failure.
+    console.error('[refund] ledger insert FAILED', booking.id, reason, stripeRefundId, ledgerErr.message);
+  }
 }
 
 /** Ledger a fee kept by the platform (cancellation / reschedule / no-show). */
