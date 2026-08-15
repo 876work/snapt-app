@@ -22,7 +22,10 @@ import {
   type RecordedVoiceNote,
 } from './VoiceRecorderButton';
 import { PendingVoiceNote, VoiceNoteBubble } from './VoiceNoteBubble';
+import { useVoiceSends, type PendingVoiceSend } from '../../lib/voicePlayback';
 import { apiBase, authHeaders } from '../../lib/api';
+
+const EMPTY_PENDING: PendingVoiceSend[] = [];
 import { CreatorAvatar } from '../ui/CreatorAvatar';
 import { colors, insetBottom } from '../../lib/theme';
 import { STATUS_TONE, threadStatus, threadSubject } from '../../lib/threadStatus';
@@ -131,19 +134,23 @@ export function ChatThread({
   const [historyFailed, setHistoryFailed] = React.useState(false);
   const [reloadKey, setReloadKey] = React.useState(0);
   const [live, setLive] = React.useState(true);
-  // Voice notes leaving this phone. A row lives here from record-release
-  // until the confirmed message replaces it (or Delete removes it) — an
-  // upload in flight or a failed send is always VISIBLE, never a note that
-  // quietly looks sent.
-  const [pendingVoice, setPendingVoice] = React.useState<
-    { tempId: string; uri: string; durationSec: number; status: 'uploading' | 'failed'; error?: string }[]
-  >([]);
+  // Voice notes leaving this phone. Rows live in a MODULE-level store from
+  // record-release until the confirmed message replaces them (or Delete
+  // removes them) — an upload in flight or a failed send stays visible
+  // across navigating away and back, never a note that quietly looks sent
+  // (or quietly disappears with the screen).
+  const pendingVoice = useVoiceSends((s) => s.pendingByBooking[bookingId]) ?? EMPTY_PENDING;
+  const upsertPending = useVoiceSends((s) => s.upsertPending);
+  const removePending = useVoiceSends((s) => s.removePending);
+  const markFailed = useVoiceSends((s) => s.markFailed);
   const [recordingHold, setRecordingHold] = React.useState(false);
   const [trayOpen, setTrayOpen] = React.useState(false);
   const [sheetOpen, setSheetOpen] = React.useState(false);
   // A hold-recording ended by a call or backgrounding, awaiting the
   // explicit send/discard decision (spec: never silently lose a partial).
-  const [interrupted, setInterrupted] = React.useState<RecordedVoiceNote | null>(null);
+  // Module-level for the same reason as pending sends.
+  const interrupted = useVoiceSends((s) => s.interruptedByBooking[bookingId]) ?? null;
+  const setInterruptedFor = useVoiceSends((s) => s.setInterrupted);
 
   React.useEffect(() => {
     if (!chatEnabled || !bookingId) return;
@@ -255,14 +262,16 @@ export function ChatThread({
   const sendVoice = React.useCallback(
     async (rec: { uri: string; durationSec: number }, existingTempId?: string) => {
       const tempId = existingTempId ?? `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      setPendingVoice((prev) => [
-        ...prev.filter((p) => p.tempId !== tempId),
-        { tempId, uri: rec.uri, durationSec: rec.durationSec, status: 'uploading' as const },
-      ]);
+      upsertPending(bookingId, {
+        tempId,
+        uri: rec.uri,
+        durationSec: rec.durationSec,
+        status: 'uploading',
+      });
       const result = await sendVoiceNote(bookingId, rec.uri, rec.durationSec);
       if (result.ok) {
         const m = result.message;
-        setPendingVoice((prev) => prev.filter((p) => p.tempId !== tempId));
+        removePending(bookingId, tempId);
         setMessages((prev) =>
           (prev ?? []).some((p) => p.id === m.id)
             ? prev
@@ -282,12 +291,10 @@ export function ChatThread({
         // Sent — playback now streams from storage; the cache copy is done.
         void deleteRecordingFile(rec.uri);
       } else {
-        setPendingVoice((prev) =>
-          prev.map((p) => (p.tempId === tempId ? { ...p, status: 'failed' as const, error: result.error } : p)),
-        );
+        markFailed(bookingId, tempId, result.error);
       }
     },
-    [bookingId],
+    [bookingId, upsertPending, removePending, markFailed],
   );
 
   const handleRecorded = React.useCallback(
@@ -295,14 +302,22 @@ export function ChatThread({
       if (rec.interrupted) {
         // A call or backgrounding cut this off — the partial recording is
         // kept and the user decides. Never silently lost, never auto-sent.
-        setInterrupted(rec);
+        setInterruptedFor(bookingId, rec);
         setSheetOpen(true);
       } else {
         void sendVoice(rec);
       }
     },
-    [sendVoice],
+    [sendVoice, bookingId, setInterruptedFor],
   );
+
+  // An interruption stored while this thread was previously open (or while
+  // navigating) re-surfaces its send/discard sheet on return — the decision
+  // is deferred, never dropped.
+  React.useEffect(() => {
+    if (interrupted && !sheetOpen) setSheetOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interrupted]);
 
   if (threadState === 'loading') {
     return (
@@ -413,7 +428,7 @@ export function ChatThread({
                     error={p.error}
                     onRetry={() => void sendVoice({ uri: p.uri, durationSec: p.durationSec }, p.tempId)}
                     onDelete={() => {
-                      setPendingVoice((prev) => prev.filter((x) => x.tempId !== p.tempId));
+                      removePending(bookingId, p.tempId);
                       void deleteRecordingFile(p.uri);
                     }}
                   />
@@ -555,7 +570,7 @@ export function ChatThread({
             pending={interrupted}
             onClose={() => {
               setSheetOpen(false);
-              setInterrupted(null);
+              setInterruptedFor(bookingId, null);
             }}
             onSend={(rec) => void sendVoice(rec)}
           />

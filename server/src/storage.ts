@@ -51,11 +51,15 @@ export async function createUploadTarget(
   path: string,
   contentType: string,
   /**
-   * When provided, the EXACT byte count is folded into the signature —
-   * a PUT with any other Content-Length fails at R2 with 403, so a
-   * declared size cap (e.g. voice notes' 20 MB) is enforced by storage,
-   * not by trusting the client twice. The Supabase local driver cannot
-   * sign a length; that gap is local-dev only.
+   * When provided, the EXACT byte count AND the content type are folded
+   * into the signature (SignedHeaders: content-length;content-type;host —
+   * verified against the SDK, which marks content-type unsignable by
+   * default; the explicit signableHeaders below overrides that). A PUT
+   * with any other length or type fails at R2 with 403, so a declared cap
+   * (e.g. voice notes' 20 MB / audio-only) is enforced by storage, not by
+   * trusting the client twice. The three original call sites pass no
+   * length and keep their exact previous behavior (type advisory only).
+   * The Supabase local driver cannot sign either; that gap is local-only.
    */
   contentLength?: number,
 ): Promise<UploadTarget> {
@@ -73,7 +77,12 @@ export async function createUploadTarget(
         ContentType: contentType,
         ...(contentLength != null ? { ContentLength: contentLength } : {}),
       }),
-      { expiresIn: 3600 },
+      {
+        expiresIn: 3600,
+        ...(contentLength != null
+          ? { signableHeaders: new Set(['content-type', 'content-length']) }
+          : {}),
+      },
     );
     return { upload_url: url, storage_path: path, driver: 'r2' };
   }

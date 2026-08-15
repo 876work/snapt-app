@@ -31,6 +31,9 @@ alter table messages add constraint messages_kind_check
 -- Shape rule: text rows carry no audio fields; voice rows must have a path
 -- under their own booking and a sane duration (hard cap is 120s in the app;
 -- 130 leaves headroom for clock skew, not for longer recordings).
+-- The explicit `is not null` matters: CHECK constraints PASS on NULL, so
+-- without it a voice row with NULL duration_seconds would satisfy the
+-- BETWEEN via three-valued logic and slip through.
 alter table messages add constraint messages_voice_shape_check
   check (
     (kind = 'text' and audio_path is null and duration_seconds is null)
@@ -38,6 +41,15 @@ alter table messages add constraint messages_voice_shape_check
       kind = 'voice'
       and audio_path is not null
       and audio_path like booking_id::text || '/%'
+      and duration_seconds is not null
       and duration_seconds between 1 and 130
     )
   );
+
+-- Local stack only: the Supabase-storage fallback driver needs a real
+-- bucket ('voice' is a key prefix on R2 in production). Same precedent as
+-- raw-footage/deliverables (phase3) and portfolio (20260729120000);
+-- without it every local voice upload 500s as "Bucket not found".
+insert into storage.buckets (id, name, public)
+  values ('voice', 'voice', false)
+  on conflict (id) do nothing;

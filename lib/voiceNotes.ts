@@ -37,6 +37,10 @@ function put(
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
     xhr.setRequestHeader('Content-Type', contentType);
+    // A 20 MB ceiling means the slowest legitimate upload still finishes
+    // inside two minutes on a bad connection; without this, a stalled
+    // socket span an "uploading" bubble forever with no failure state.
+    xhr.timeout = 120_000;
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && e.total > 0) onProgress?.(e.loaded / e.total);
     };
@@ -47,6 +51,7 @@ function put(
         body: typeof xhr.responseText === 'string' ? xhr.responseText.slice(0, 400) : undefined,
       });
     xhr.onerror = () => resolve({ ok: false, status: 0 });
+    xhr.ontimeout = () => resolve({ ok: false, status: 0 });
     xhr.send(blob);
   });
 }
@@ -124,16 +129,33 @@ export async function sendVoiceNote(
     return { ok: false, stage: 'upload', error: 'Not sent — connection lost. Tap to retry.' };
   }
 
-  const message = await sendVoiceMessage(bookingId, target.storage_path, durationSeconds);
-  if (!message) {
-    // Bytes are in storage but the row insert was refused (connection, RLS,
-    // signed-out). Retry re-runs the pipeline; the orphaned object is
-    // harmless — nothing references it.
-    captureHandledError(new Error('voice message insert refused'), 'voiceNotes:insert');
-    return { ok: false, stage: 'insert', error: 'Not sent — check your connection, then tap retry.' };
+  const inserted = await sendVoiceMessage(bookingId, target.storage_path, durationSeconds);
+  if (!inserted.message) {
+    // Bytes are in storage but the row insert was refused. The REAL cause
+    // reaches Sentry, and the bubble's words match the failure class: an
+    // RLS/constraint refusal is permanent (the thread became unavailable —
+    // account switched off, booking state changed), and telling that user
+    // to "check your connection" sends them retrying a 20 MB pipeline that
+    // can never succeed. The orphaned object is harmless — nothing
+    // references it.
+    captureHandledError(
+      new Error(`voice insert refused: ${inserted.errorCode ?? '?'} ${inserted.errorMessage ?? ''}`),
+      'voiceNotes:insert',
+    );
+    // 42501 = insufficient_privilege (RLS), 23514 = check violation,
+    // signed_out = no session. Everything else is treated as transient.
+    const permanent =
+      inserted.errorCode === '42501' || inserted.errorCode === '23514' || inserted.errorCode === 'signed_out';
+    return {
+      ok: false,
+      stage: 'insert',
+      error: permanent
+        ? "Couldn't send — this conversation can't receive messages right now."
+        : 'Not sent — check your connection, then tap retry.',
+    };
   }
   onProgress?.(1);
-  return { ok: true, message };
+  return { ok: true, message: inserted.message };
 }
 
 /**

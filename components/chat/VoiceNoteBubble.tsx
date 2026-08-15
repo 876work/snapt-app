@@ -139,6 +139,24 @@ export function VoiceNoteBubble({
       try {
         player = createAudioPlayer({ uri: url }, { updateInterval: 250 });
         player.addListener('playbackStatusUpdate', (status) => {
+          // Load and playback failures arrive HERE, asynchronously — an
+          // expired URL, a missing object or a dropped connection never
+          // throws from play(). Ignoring status.error rendered every such
+          // failure as an eternal silent "playing" state with the retry
+          // unreachable — the failure-looks-like-success class, again.
+          if (status.error) {
+            captureHandledError(new Error(`voice playback: ${status.error}`), 'voiceBubble:status-error');
+            try {
+              playerRef.current?.remove();
+            } catch {
+              /* already dead — replacing it regardless */
+            }
+            playerRef.current = null;
+            release(messageId);
+            setPosition(0);
+            setState('error');
+            return;
+          }
           setPosition(status.currentTime);
           if (status.didJustFinish) {
             setPosition(0);
@@ -157,11 +175,14 @@ export function VoiceNoteBubble({
     try {
       // Speaker playback, audible in silent mode (a tapped play IS intent).
       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
-      claim(messageId, stopToPause);
       player.play();
+      // Claim only once playback actually started — a failed play must not
+      // evict whoever is legitimately holding the floor.
+      claim(messageId, stopToPause);
       setState('playing');
     } catch (err) {
       captureHandledError(err, 'voiceBubble:play');
+      release(messageId);
       setState('error');
     }
   };

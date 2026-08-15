@@ -274,10 +274,12 @@ export function registerMessageRoutes(app: FastifyInstance): void {
         return reply.code(404).send({ error: 'Not found' });
       }
       const path = request.query.path;
-      // The prefix pin is the access control: a participant can only sign
-      // keys under a booking they belong to, which are exactly the keys
-      // their readable message rows reference.
-      if (!path || !path.startsWith(`${bookingId}/`) || path.includes('..')) {
+      // typeof guard: a duplicated ?path= arrives as an array and calling
+      // startsWith on it was an unhandled 500. The prefix pin is the access
+      // control: a participant can only sign keys under a booking they
+      // belong to, which are exactly the keys their readable message rows
+      // reference.
+      if (typeof path !== 'string' || !path.startsWith(`${bookingId}/`) || path.includes('..')) {
         return reply.code(400).send({ error: 'path must belong to this conversation.' });
       }
       const url = await createDownloadUrl('voice', path);

@@ -50,7 +50,9 @@
           ]
         }
       ],
-      "blockedPermissions": []
+      "blockedPermissions": [
+        "android.permission.READ_MEDIA_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"

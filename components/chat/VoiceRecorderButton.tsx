@@ -116,14 +116,34 @@ function useVoiceRecording(onRecorded: (rec: RecordedVoiceNote) => void) {
   const [recording, setRecording] = React.useState(false);
   const recordingRef = React.useRef(false);
   const stoppingRef = React.useRef(false);
+  const startingRef = React.useRef(false);
   const startedAtRef = React.useRef(0);
+  /**
+   * The user's CURRENT intent to be recording. Set by the gesture/button
+   * BEFORE start() is called; cleared by every finish(), including ones
+   * that arrive while start() is still awaiting the permission dialog or
+   * the audio session. start() re-checks it after those awaits — without
+   * this, a release that beat the (up to seconds long, on first use with
+   * the OS permission dialog) start latency was swallowed by the
+   * not-recording guard, and the mic came up hot with nobody holding it,
+   * recording the room until the 2-minute cap auto-sent it.
+   */
+  const wantRef = React.useRef(false);
 
   const start = React.useCallback(async (): Promise<boolean> => {
-    if (recordingRef.current) return false;
-    if (!(await ensureMicPermission())) return false;
+    if (recordingRef.current || startingRef.current) return false;
+    startingRef.current = true;
     try {
+      if (!(await ensureMicPermission())) return false;
+      if (!wantRef.current) return false; // released while the dialog was up
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await recorder.prepareToRecordAsync();
+      if (!wantRef.current) {
+        // The hold ended (or the sheet closed) while we were preparing.
+        // Never record with nobody watching.
+        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
+        return false;
+      }
       recorder.record();
       startedAtRef.current = Date.now();
       stoppingRef.current = false;
@@ -134,11 +154,16 @@ function useVoiceRecording(onRecorded: (rec: RecordedVoiceNote) => void) {
       captureHandledError(err, 'voiceRecorder:start');
       Alert.alert('Recording failed', 'Couldn’t start recording — try again.');
       return false;
+    } finally {
+      startingRef.current = false;
     }
   }, [recorder]);
 
   const finish = React.useCallback(
     async (mode: 'send' | 'cancel' | 'interrupt') => {
+      // Clear intent FIRST: a finish landing mid-start is how the start()
+      // guards above learn the gesture is over.
+      wantRef.current = false;
       if (!recordingRef.current || stoppingRef.current) return;
       stoppingRef.current = true;
       recordingRef.current = false;
@@ -186,7 +211,7 @@ function useVoiceRecording(onRecorded: (rec: RecordedVoiceNote) => void) {
     return () => sub.remove();
   }, [recording, finish]);
 
-  return { recording, elapsedSec, start, finish };
+  return { recording, elapsedSec, start, finish, wantRef };
 }
 
 function formatClock(totalSec: number): string {
@@ -231,19 +256,32 @@ export function VoiceRecorderButton({
   onRecorded: (rec: RecordedVoiceNote) => void;
   onRecordingChange?: (recording: boolean) => void;
 }) {
-  const { recording, elapsedSec, start, finish } = useVoiceRecording(onRecorded);
+  const { recording, elapsedSec, start, finish, wantRef } = useVoiceRecording(onRecorded);
   const [cancelArmed, setCancelArmed] = React.useState(false);
   const cancelArmedRef = React.useRef(false);
+  // The PanResponder below is created ONCE; anything it reads must come
+  // through refs or it is frozen at mount-time values. `disabled` used to be
+  // captured directly — a mic greyed out by a mid-session thread change
+  // still recorded, and a re-enabled one stayed dead.
+  const disabledRef = React.useRef(!!disabled);
+  disabledRef.current = !!disabled;
+  const startRef = React.useRef(start);
+  startRef.current = start;
+  const finishRef = React.useRef(finish);
+  finishRef.current = finish;
 
   React.useEffect(() => onRecordingChange?.(recording), [recording, onRecordingChange]);
 
   const pan = React.useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => !disabled,
+      onStartShouldSetPanResponder: () => !disabledRef.current,
       onPanResponderGrant: () => {
         cancelArmedRef.current = false;
         setCancelArmed(false);
-        void start();
+        // Intent first, then start — a release during start()'s awaits
+        // clears the intent and start() aborts instead of going hot.
+        wantRef.current = true;
+        void startRef.current();
       },
       onPanResponderMove: (_e, g) => {
         const armed = g.dx < CANCEL_DRAG_PX;
@@ -253,12 +291,12 @@ export function VoiceRecorderButton({
         }
       },
       onPanResponderRelease: () => {
-        void finish(cancelArmedRef.current ? 'cancel' : 'send');
+        void finishRef.current(cancelArmedRef.current ? 'cancel' : 'send');
       },
       // The system stole the gesture (navigation, incoming call sheet):
       // treat as interruption, not silent loss.
       onPanResponderTerminate: () => {
-        void finish('interrupt');
+        void finishRef.current('interrupt');
       },
     }),
   ).current;
@@ -308,12 +346,26 @@ export function VoiceRecordSheet({
   pending?: RecordedVoiceNote | null;
 }) {
   const [done, setDone] = React.useState<RecordedVoiceNote | null>(null);
-  const onRecorded = React.useCallback((rec: RecordedVoiceNote) => setDone(rec), []);
-  const { recording, elapsedSec, start, finish } = useVoiceRecording(onRecorded);
+  // Guards the closed-mid-start ghost: if the sheet was dismissed while
+  // start() was still awaiting, the recording that finishes later must be
+  // discarded, not stashed to ambush the next open as "Voice note ready".
+  const visibleRef = React.useRef(visible);
+  visibleRef.current = visible;
+  const onRecorded = React.useCallback((rec: RecordedVoiceNote) => {
+    if (!visibleRef.current) {
+      void deleteRecordingFile(rec.uri);
+      return;
+    }
+    setDone(rec);
+  }, []);
+  const { recording, elapsedSec, start, finish, wantRef } = useVoiceRecording(onRecorded);
   const settled = pending ?? done;
 
   const discard = async () => {
-    if (recording) await finish('cancel');
+    // finish() unconditionally: it clears the recording INTENT too, so a
+    // start() still in flight aborts instead of leaving a hot mic behind a
+    // closed sheet.
+    await finish('cancel');
     if (settled) await deleteRecordingFile(settled.uri);
     setDone(null);
     onClose();
@@ -367,7 +419,16 @@ export function VoiceRecordSheet({
                 </Pressable>
                 <Pressable
                   style={[styles.sheetPrimary, recording && styles.sheetStop]}
-                  onPress={() => (recording ? void finish('send') : void start())}
+                  onPress={() => {
+                    if (recording) {
+                      void finish('send');
+                    } else {
+                      // Intent before start — same race guard as the
+                      // composer hold (Cancel clears it via finish()).
+                      wantRef.current = true;
+                      void start();
+                    }
+                  }}
                 >
                   <Text style={[styles.sheetPrimaryLabel, recording && { color: '#fff' }]}>
                     {recording ? 'Stop' : 'Start recording'}

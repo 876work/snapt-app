@@ -46,6 +46,69 @@ export const useVoicePlayback = create<VoicePlaybackState>((set, get) => ({
   },
 }));
 
+/**
+ * 3. PENDING SENDS, module-level so they outlive the thread screen.
+ *    A failed upload's "Not sent + Retry + Delete" bubble and an
+ *    interrupted recording's send/discard decision must survive
+ *    navigating away and back — component state silently discarded
+ *    them, which is exactly the "never silently lose it" rule broken.
+ *    (App-kill still loses in-flight state, same as a typed draft;
+ *    the recording file itself sits in cache either way.)
+ */
+export interface PendingVoiceSend {
+  tempId: string;
+  uri: string;
+  durationSec: number;
+  status: 'uploading' | 'failed';
+  error?: string;
+}
+export interface InterruptedRecording {
+  uri: string;
+  durationSec: number;
+  interrupted?: boolean;
+}
+
+interface VoiceSendState {
+  pendingByBooking: Record<string, PendingVoiceSend[]>;
+  interruptedByBooking: Record<string, InterruptedRecording | null>;
+  upsertPending: (bookingId: string, note: PendingVoiceSend) => void;
+  removePending: (bookingId: string, tempId: string) => void;
+  markFailed: (bookingId: string, tempId: string, error: string) => void;
+  setInterrupted: (bookingId: string, rec: InterruptedRecording | null) => void;
+}
+
+export const useVoiceSends = create<VoiceSendState>((set) => ({
+  pendingByBooking: {},
+  interruptedByBooking: {},
+  upsertPending: (bookingId, note) =>
+    set((s) => ({
+      pendingByBooking: {
+        ...s.pendingByBooking,
+        [bookingId]: [...(s.pendingByBooking[bookingId] ?? []).filter((p) => p.tempId !== note.tempId), note],
+      },
+    })),
+  removePending: (bookingId, tempId) =>
+    set((s) => ({
+      pendingByBooking: {
+        ...s.pendingByBooking,
+        [bookingId]: (s.pendingByBooking[bookingId] ?? []).filter((p) => p.tempId !== tempId),
+      },
+    })),
+  markFailed: (bookingId, tempId, error) =>
+    set((s) => ({
+      pendingByBooking: {
+        ...s.pendingByBooking,
+        [bookingId]: (s.pendingByBooking[bookingId] ?? []).map((p) =>
+          p.tempId === tempId ? { ...p, status: 'failed' as const, error } : p,
+        ),
+      },
+    })),
+  setInterrupted: (bookingId, rec) =>
+    set((s) => ({
+      interruptedByBooking: { ...s.interruptedByBooking, [bookingId]: rec },
+    })),
+}));
+
 const PLAYED_KEY = 'voice_note_played_v1';
 let playedCache: Set<string> | null = null;
 

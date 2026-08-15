@@ -96,10 +96,10 @@ export async function sendVoiceMessage(
   bookingId: string,
   audioPath: string,
   durationSeconds: number,
-): Promise<ChatMessage | null> {
-  if (!supabase) return null;
+): Promise<{ message: ChatMessage | null; errorCode?: string; errorMessage?: string }> {
+  if (!supabase) return { message: null, errorMessage: 'no supabase client' };
   const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) return null;
+  if (!auth.user) return { message: null, errorCode: 'signed_out', errorMessage: 'no authenticated user' };
   const { data, error } = await supabase
     .from('messages')
     .insert({
@@ -112,9 +112,12 @@ export async function sendVoiceMessage(
     })
     .select()
     .single();
-  if (error) return null;
+  // The error travels UP, never gets swallowed here: an RLS refusal (the
+  // thread became unavailable) and a dropped connection need different
+  // words on the bubble, and Sentry needs the real cause either way.
+  if (error) return { message: null, errorCode: error.code, errorMessage: error.message };
   pingNotify(bookingId);
-  return data as ChatMessage;
+  return { message: data as ChatMessage };
 }
 
 /**
