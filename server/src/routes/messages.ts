@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
 import { notify } from '../notify.js';
+import { createDownloadUrl, createUploadTarget } from '../storage.js';
 
 /**
  * The Messages tab: a list view onto the SAME per-booking threads that
@@ -15,6 +17,14 @@ import { notify } from '../notify.js';
  */
 
 const CLOSED_DAYS = 7;
+
+// Voice notes: exactly the container/codec family the recorder produces
+// (AAC in an MPEG-4 container). Spec-fixed allowlist — anything else is
+// refused at presign time with the reason, before a URL exists.
+const VOICE_MIME = new Set(['audio/m4a', 'audio/mp4', 'audio/aac']);
+const MAX_VOICE_BYTES = 20 * 1024 * 1024;
+/** App hard-caps recording at 120s; 130 tolerates rounding, not longer notes. */
+const MAX_VOICE_SECONDS = 130;
 
 interface ThreadRow {
   booking_id: string;
@@ -175,6 +185,105 @@ export function registerMessageRoutes(app: FastifyInstance): void {
       );
     return { read: true };
   });
+
+  /**
+   * Mint a presigned PUT for a voice note.
+   *
+   * The message row itself is inserted client-side under the SAME RLS as a
+   * text message — this endpoint only controls the bytes. Enforcement is
+   * real, not advisory: content type AND exact byte length are folded into
+   * the R2 signature, so a client that lies about either gets a 403 from
+   * storage, not a quietly-oversized object.
+   *
+   * Access mirrors the thread gate the RLS insert will apply anyway
+   * (participant, creator attached, not pending), plus the CLOSED_DAYS rule
+   * the composer enforces for text — a closed thread refuses new bytes here
+   * for the same reason it hides the composer.
+   */
+  app.post<{
+    Params: { bookingId: string };
+    Body: { content_type?: string; size_bytes?: number; duration_seconds?: number };
+  }>('/v1/messages/:bookingId/voice/upload-url', async (request, reply) => {
+    const user = requireUser(request);
+    const bookingId = request.params.bookingId;
+    const { data: booking } = await supabaseAdmin
+      .from('bookings')
+      .select('client_id, creator_id, status, delivered_at')
+      .eq('id', bookingId)
+      .maybeSingle();
+    if (!booking || (booking.client_id !== user.id && booking.creator_id !== user.id)) {
+      return reply.code(404).send({ error: 'Not found' });
+    }
+    if (!booking.creator_id || booking.status === 'pending') {
+      return reply.code(404).send({ error: 'Not found' });
+    }
+    const closed =
+      booking.status === 'completed' &&
+      !!booking.delivered_at &&
+      Date.now() - new Date(booking.delivered_at).getTime() > CLOSED_DAYS * 86_400_000;
+    if (closed) {
+      return reply.code(409).send({
+        error: "This conversation is closed — new messages can't be sent here.",
+      });
+    }
+
+    const { content_type, size_bytes, duration_seconds } = request.body ?? {};
+    if (!content_type || !VOICE_MIME.has(content_type)) {
+      return reply.code(415).send({
+        error: `Voice notes must be audio/m4a, audio/mp4 or audio/aac — got ${content_type || 'no content type'}.`,
+      });
+    }
+    if (!Number.isInteger(size_bytes) || (size_bytes as number) <= 0) {
+      return reply.code(400).send({ error: 'size_bytes (exact byte count) is required.' });
+    }
+    if ((size_bytes as number) > MAX_VOICE_BYTES) {
+      const mb = Math.round(((size_bytes as number) / 1024 / 1024) * 10) / 10;
+      return reply.code(413).send({ error: `That voice note is ${mb} MB — the limit is 20 MB.` });
+    }
+    if (
+      duration_seconds != null &&
+      (!Number.isFinite(duration_seconds) || duration_seconds < 1 || duration_seconds > MAX_VOICE_SECONDS)
+    ) {
+      return reply.code(400).send({ error: 'duration_seconds must be between 1 and 130.' });
+    }
+
+    // Server-minted key under the booking's own prefix — the DB CHECK
+    // constraint and the playback endpoint both re-assert this shape.
+    const path = `${bookingId}/${Date.now()}-${randomUUID().slice(0, 8)}.m4a`;
+    const target = await createUploadTarget('voice', path, content_type, size_bytes as number);
+    return target;
+  });
+
+  /**
+   * Presigned GET for playback, minted at fetch time — URLs are never
+   * stored (they expire in an hour; the DB holds only the storage path).
+   * Participants can replay notes on closed threads: reading history stays
+   * open even where sending is shut, same as text.
+   */
+  app.get<{ Params: { bookingId: string }; Querystring: { path?: string } }>(
+    '/v1/messages/:bookingId/voice/url',
+    async (request, reply) => {
+      const user = requireUser(request);
+      const bookingId = request.params.bookingId;
+      const { data: booking } = await supabaseAdmin
+        .from('bookings')
+        .select('client_id, creator_id')
+        .eq('id', bookingId)
+        .maybeSingle();
+      if (!booking || (booking.client_id !== user.id && booking.creator_id !== user.id)) {
+        return reply.code(404).send({ error: 'Not found' });
+      }
+      const path = request.query.path;
+      // The prefix pin is the access control: a participant can only sign
+      // keys under a booking they belong to, which are exactly the keys
+      // their readable message rows reference.
+      if (!path || !path.startsWith(`${bookingId}/`) || path.includes('..')) {
+        return reply.code(400).send({ error: 'path must belong to this conversation.' });
+      }
+      const url = await createDownloadUrl('voice', path);
+      return { url };
+    },
+  );
 
   /**
    * Fan out a chat notification to the OTHER participant.

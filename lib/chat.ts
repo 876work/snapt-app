@@ -10,7 +10,19 @@ export interface ChatMessage {
   sender_id: string;
   body: string;
   created_at: string;
+  /** 'text' rows predate the column; treat undefined/null as 'text'. */
+  kind?: 'text' | 'voice' | null;
+  /** Storage path (no bucket prefix) — present only on kind='voice'. */
+  audio_path?: string | null;
+  duration_seconds?: number | null;
 }
+
+/**
+ * Voice rows still carry a body — this literal — so the thread-list preview,
+ * the push preview and build-16 bubbles (which predate the player and render
+ * body text) all degrade to something honest instead of a blank line.
+ */
+export const VOICE_NOTE_BODY = '🎤 Voice note';
 
 export const chatEnabled = supabaseConfigured;
 
@@ -34,24 +46,17 @@ export async function fetchMessages(bookingId: string): Promise<ChatMessage[] | 
   return (data as ChatMessage[]) ?? [];
 }
 
-export async function sendMessage(bookingId: string, body: string): Promise<ChatMessage | null> {
-  if (!supabase) return null;
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) return null;
-  const { data, error } = await supabase
-    .from('messages')
-    .insert({ booking_id: bookingId, sender_id: auth.user.id, body })
-    .select()
-    .single();
-  if (error) return null;
-  // Tell the server so the other participant gets a notification. Chat
-  // writes bypass the API entirely (RLS, direct to Supabase), so without
-  // this ping a message is the one event in the app that never reaches
-  // anyone who isn't already looking at the thread.
-  //
-  // Deliberately not awaited and never able to throw: the message is
-  // already saved and on its way over Realtime. A notification failure must
-  // not make a sent message look unsent.
+/**
+ * Tell the server so the other participant gets a notification. Chat
+ * writes bypass the API entirely (RLS, direct to Supabase), so without
+ * this ping a message is the one event in the app that never reaches
+ * anyone who isn't already looking at the thread.
+ *
+ * Deliberately not awaited and never able to throw: the message is
+ * already saved and on its way over Realtime. A notification failure must
+ * not make a sent message look unsent.
+ */
+function pingNotify(bookingId: string): void {
   void (async () => {
     try {
       const { apiBase, authHeaders } = await import('./api');
@@ -64,6 +69,51 @@ export async function sendMessage(bookingId: string, body: string): Promise<Chat
       /* best effort */
     }
   })();
+}
+
+export async function sendMessage(bookingId: string, body: string): Promise<ChatMessage | null> {
+  if (!supabase) return null;
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) return null;
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({ booking_id: bookingId, sender_id: auth.user.id, body })
+    .select()
+    .single();
+  if (error) return null;
+  pingNotify(bookingId);
+  return data as ChatMessage;
+}
+
+/**
+ * Insert the voice-note message row — called only AFTER the audio bytes are
+ * safely in storage (the row references them; a row without bytes is a
+ * bubble that can never play). Same RLS as text: participants only, creator
+ * attached, not pending, both accounts active. The recipient's notification
+ * previews VOICE_NOTE_BODY via the same ping.
+ */
+export async function sendVoiceMessage(
+  bookingId: string,
+  audioPath: string,
+  durationSeconds: number,
+): Promise<ChatMessage | null> {
+  if (!supabase) return null;
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) return null;
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({
+      booking_id: bookingId,
+      sender_id: auth.user.id,
+      body: VOICE_NOTE_BODY,
+      kind: 'voice',
+      audio_path: audioPath,
+      duration_seconds: Math.max(1, Math.round(durationSeconds)),
+    })
+    .select()
+    .single();
+  if (error) return null;
+  pingNotify(bookingId);
   return data as ChatMessage;
 }
 

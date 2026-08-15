@@ -5,10 +5,16 @@ import { supabaseAdmin } from './supabase.js';
 // Locally, Supabase Storage private buckets provide the same signed-URL
 // shape so the pipeline is exercisable end-to-end before Phase 7.
 // Buckets/prefixes: 'raw-footage' (creator/editor side only),
-// 'deliverables' (client-visible after delivery), and 'portfolio'
-// (creator portfolio images, public only after moderation approval).
+// 'deliverables' (client-visible after delivery), 'portfolio'
+// (creator portfolio images, public only after moderation approval), and
+// 'voice' (chat voice notes, participants only, small .m4a files).
+//
+// NOTE for retention: 'voice' keys are referenced by messages.audio_path,
+// not booking_media, so retention.ts and the draft sweep never touch them.
+// Voice notes currently have no retention window — a deliberate open
+// decision, not an accident (see the voice-notes report, 2026-08-15).
 
-export type MediaBucket = 'raw-footage' | 'deliverables' | 'portfolio';
+export type MediaBucket = 'raw-footage' | 'deliverables' | 'portfolio' | 'voice';
 
 export interface UploadTarget {
   /** Where the client should PUT/POST the file. */
@@ -44,6 +50,14 @@ export async function createUploadTarget(
   bucket: MediaBucket,
   path: string,
   contentType: string,
+  /**
+   * When provided, the EXACT byte count is folded into the signature —
+   * a PUT with any other Content-Length fails at R2 with 403, so a
+   * declared size cap (e.g. voice notes' 20 MB) is enforced by storage,
+   * not by trusting the client twice. The Supabase local driver cannot
+   * sign a length; that gap is local-dev only.
+   */
+  contentLength?: number,
 ): Promise<UploadTarget> {
   if (r2Configured) {
     const [{ PutObjectCommand }, { getSignedUrl }] = await Promise.all([
@@ -57,6 +71,7 @@ export async function createUploadTarget(
         Bucket: process.env.R2_BUCKET as string,
         Key: `${bucket}/${path}`,
         ContentType: contentType,
+        ...(contentLength != null ? { ContentLength: contentLength } : {}),
       }),
       { expiresIn: 3600 },
     );

@@ -50,10 +50,7 @@
           ]
         }
       ],
-      "blockedPermissions": [
-        "android.permission.RECORD_AUDIO",
-        "android.permission.READ_MEDIA_AUDIO"
-      ]
+      "blockedPermissions": []
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -74,6 +71,12 @@
         {
           "savePhotosPermission": "Snapt saves your delivered photos and videos to your photo library.",
           "photosPermission": "Snapt uses your photo library to save and manage your delivered content."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Snapt uses the microphone to record voice notes in chat."
         }
       ],
       "expo-notifications",

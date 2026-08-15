@@ -2,6 +2,7 @@ import React from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -13,6 +14,14 @@ import { KeyboardScrollView } from '../ui/KeyboardScrollView';
 import { Text, TextInput } from '../../lib/text';
 import Svg, { Path } from 'react-native-svg';
 import { chatEnabled, fetchMessages, sendMessage, subscribeToMessages } from '../../lib/chat';
+import { sendVoiceNote } from '../../lib/voiceNotes';
+import {
+  VoiceRecorderButton,
+  VoiceRecordSheet,
+  deleteRecordingFile,
+  type RecordedVoiceNote,
+} from './VoiceRecorderButton';
+import { PendingVoiceNote, VoiceNoteBubble } from './VoiceNoteBubble';
 import { apiBase, authHeaders } from '../../lib/api';
 import { CreatorAvatar } from '../ui/CreatorAvatar';
 import { colors, insetBottom } from '../../lib/theme';
@@ -106,7 +115,15 @@ export function ChatThread({
   );
 
   const [messages, setMessages] = React.useState<
-    { id: string; body: string; mine: boolean; created_at: string }[] | null
+    {
+      id: string;
+      body: string;
+      mine: boolean;
+      created_at: string;
+      kind?: 'text' | 'voice' | null;
+      audio_path?: string | null;
+      duration_seconds?: number | null;
+    }[] | null
   >(null);
   const [draft, setDraft] = React.useState('');
   const [sending, setSending] = React.useState(false);
@@ -114,6 +131,19 @@ export function ChatThread({
   const [historyFailed, setHistoryFailed] = React.useState(false);
   const [reloadKey, setReloadKey] = React.useState(0);
   const [live, setLive] = React.useState(true);
+  // Voice notes leaving this phone. A row lives here from record-release
+  // until the confirmed message replaces it (or Delete removes it) — an
+  // upload in flight or a failed send is always VISIBLE, never a note that
+  // quietly looks sent.
+  const [pendingVoice, setPendingVoice] = React.useState<
+    { tempId: string; uri: string; durationSec: number; status: 'uploading' | 'failed'; error?: string }[]
+  >([]);
+  const [recordingHold, setRecordingHold] = React.useState(false);
+  const [trayOpen, setTrayOpen] = React.useState(false);
+  const [sheetOpen, setSheetOpen] = React.useState(false);
+  // A hold-recording ended by a call or backgrounding, awaiting the
+  // explicit send/discard decision (spec: never silently lose a partial).
+  const [interrupted, setInterrupted] = React.useState<RecordedVoiceNote | null>(null);
 
   React.useEffect(() => {
     if (!chatEnabled || !bookingId) return;
@@ -122,8 +152,22 @@ export function ChatThread({
     import('../../lib/supabase').then(({ supabase }) => {
       supabase?.auth.getUser().then(({ data }) => {
         uid = data.user?.id ?? null;
-        const row = (m: { id: string; body: string; sender_id: string; created_at: string }) => ({
-          id: m.id, body: m.body, mine: m.sender_id === uid, created_at: m.created_at,
+        const row = (m: {
+          id: string;
+          body: string;
+          sender_id: string;
+          created_at: string;
+          kind?: 'text' | 'voice' | null;
+          audio_path?: string | null;
+          duration_seconds?: number | null;
+        }) => ({
+          id: m.id,
+          body: m.body,
+          mine: m.sender_id === uid,
+          created_at: m.created_at,
+          kind: m.kind ?? 'text',
+          audio_path: m.audio_path ?? null,
+          duration_seconds: m.duration_seconds ?? null,
         });
         fetchMessages(bookingId).then((msgs) => {
           // null means the read failed. Showing an empty thread here would
@@ -139,7 +183,11 @@ export function ChatThread({
         unsub = subscribeToMessages(
           bookingId,
           (m) => {
-            setMessages((prev) => [...(prev ?? []), row(m)]);
+            // Id-deduped: a voice send appends its confirmed row directly,
+            // and the realtime echo of that same insert must not double it.
+            setMessages((prev) =>
+              (prev ?? []).some((p) => p.id === m.id) ? prev : [...(prev ?? []), row(m)],
+            );
             // A message arriving while the thread is open is read the instant
             // it renders — don't let it sit in the unread count behind it.
             if (m.sender_id !== uid) markRead();
@@ -170,10 +218,11 @@ export function ChatThread({
   }, [bookingId, markRead, reloadKey]);
 
   React.useEffect(() => {
-    // New message, either direction — keep the latest line in view.
+    // New message, either direction (pending voice bubbles included) —
+    // keep the latest line in view.
     const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
     return () => clearTimeout(t);
-  }, [messages?.length]);
+  }, [messages?.length, pendingVoice.length]);
 
   // The composer is cleared only once the row is confirmed written. It used
   // to clear first and discard sendMessage's null return, so a send with no
@@ -196,6 +245,64 @@ export function ChatThread({
       setSendError("Not sent — check your connection, then tap send again.");
     }
   };
+
+  /**
+   * Voice send: optimistic bubble → upload+insert via lib/voiceNotes → on
+   * success the confirmed row replaces the pending one (the realtime echo
+   * is id-deduped above); on failure the bubble turns into Not sent with
+   * Retry + Delete. `existingTempId` makes Retry reuse the same bubble.
+   */
+  const sendVoice = React.useCallback(
+    async (rec: { uri: string; durationSec: number }, existingTempId?: string) => {
+      const tempId = existingTempId ?? `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      setPendingVoice((prev) => [
+        ...prev.filter((p) => p.tempId !== tempId),
+        { tempId, uri: rec.uri, durationSec: rec.durationSec, status: 'uploading' as const },
+      ]);
+      const result = await sendVoiceNote(bookingId, rec.uri, rec.durationSec);
+      if (result.ok) {
+        const m = result.message;
+        setPendingVoice((prev) => prev.filter((p) => p.tempId !== tempId));
+        setMessages((prev) =>
+          (prev ?? []).some((p) => p.id === m.id)
+            ? prev
+            : [
+                ...(prev ?? []),
+                {
+                  id: m.id,
+                  body: m.body,
+                  mine: true,
+                  created_at: m.created_at,
+                  kind: 'voice' as const,
+                  audio_path: m.audio_path ?? null,
+                  duration_seconds: m.duration_seconds ?? null,
+                },
+              ],
+        );
+        // Sent — playback now streams from storage; the cache copy is done.
+        void deleteRecordingFile(rec.uri);
+      } else {
+        setPendingVoice((prev) =>
+          prev.map((p) => (p.tempId === tempId ? { ...p, status: 'failed' as const, error: result.error } : p)),
+        );
+      }
+    },
+    [bookingId],
+  );
+
+  const handleRecorded = React.useCallback(
+    (rec: RecordedVoiceNote) => {
+      if (rec.interrupted) {
+        // A call or backgrounding cut this off — the partial recording is
+        // kept and the user decides. Never silently lost, never auto-sent.
+        setInterrupted(rec);
+        setSheetOpen(true);
+      } else {
+        void sendVoice(rec);
+      }
+    },
+    [sendVoice],
+  );
 
   if (threadState === 'loading') {
     return (
@@ -247,7 +354,7 @@ export function ChatThread({
               <Text style={styles.retryLabel}>Try again</Text>
             </Pressable>
           </View>
-        ) : messages.length === 0 ? (
+        ) : messages.length === 0 && pendingVoice.length === 0 ? (
           /* This was one grey line in a screenful of nothing. An empty thread
              is the one place with no content of its own, so it answers the
              three questions you would otherwise leave to find out: who this
@@ -279,13 +386,41 @@ export function ChatThread({
             )}
           </View>
         ) : (
-          messages.map((m) => (
-            <View key={m.id} style={[styles.msgRow, m.mine && { justifyContent: 'flex-end' }]}>
-              <View style={[styles.bubble, m.mine && styles.bubbleMine]}>
-                <Text style={styles.bubbleText}>{m.body}</Text>
+          <>
+            {messages.map((m) => (
+              <View key={m.id} style={[styles.msgRow, m.mine && { justifyContent: 'flex-end' }]}>
+                <View style={[styles.bubble, m.mine && styles.bubbleMine]}>
+                  {m.kind === 'voice' && m.audio_path ? (
+                    <VoiceNoteBubble
+                      bookingId={bookingId}
+                      messageId={m.id}
+                      audioPath={m.audio_path}
+                      durationSeconds={m.duration_seconds ?? 0}
+                      mine={m.mine}
+                    />
+                  ) : (
+                    <Text style={styles.bubbleText}>{m.body}</Text>
+                  )}
+                </View>
               </View>
-            </View>
-          ))
+            ))}
+            {pendingVoice.map((p) => (
+              <View key={p.tempId} style={[styles.msgRow, { justifyContent: 'flex-end' }]}>
+                <View style={[styles.bubble, styles.bubbleMine]}>
+                  <PendingVoiceNote
+                    durationSeconds={p.durationSec}
+                    status={p.status}
+                    error={p.error}
+                    onRetry={() => void sendVoice({ uri: p.uri, durationSec: p.durationSec }, p.tempId)}
+                    onDelete={() => {
+                      setPendingVoice((prev) => prev.filter((x) => x.tempId !== p.tempId));
+                      void deleteRecordingFile(p.uri);
+                    }}
+                  />
+                </View>
+              </View>
+            ))}
+          </>
         )}
       </KeyboardScrollView>
 
@@ -323,37 +458,107 @@ export function ChatThread({
             </View>
           )}
           <View style={styles.inputRow}>
-            <TextInput
-              placeholder={
-                thread.other_disabled
-                  ? 'This account is switched off'
-                  : `Message ${thread.other_name.split(' ')[0]}…`
-              }
-              placeholderTextColor="#9A9A9A"
-              style={styles.input}
-              value={draft}
-              onChangeText={(t) => {
-                setDraft(t);
-                if (sendError) setSendError(null);
-              }}
-              onSubmitEditing={send}
-              returnKeyType="send"
-              editable={!sending && !thread.other_disabled}
-            />
-            <Pressable
-              onPress={send}
-              style={styles.send}
-              disabled={!draft.trim() || sending || thread.other_disabled}
-            >
-              {sending ? (
-                <ActivityIndicator size="small" color={colors.ink} />
-              ) : (
+            {!recordingHold && (
+              <Pressable
+                onPress={() => setTrayOpen(true)}
+                disabled={thread.other_disabled}
+                style={styles.trayButton}
+                accessibilityLabel="Add an attachment"
+              >
                 <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-                  <Path d="M4 12L20 4l-6 16-3-7-7-1z" stroke={colors.ink} strokeWidth={1.8} strokeLinejoin="round" />
+                  <Path
+                    d="M12 5v14M5 12h14"
+                    stroke={thread.other_disabled ? '#B9B9B9' : colors.grey}
+                    strokeWidth={1.8}
+                    strokeLinecap="round"
+                  />
                 </Svg>
-              )}
-            </Pressable>
+              </Pressable>
+            )}
+            {!recordingHold && (
+              <TextInput
+                placeholder={
+                  thread.other_disabled
+                    ? 'This account is switched off'
+                    : `Message ${thread.other_name.split(' ')[0]}…`
+                }
+                placeholderTextColor="#9A9A9A"
+                style={styles.input}
+                value={draft}
+                onChangeText={(t) => {
+                  setDraft(t);
+                  if (sendError) setSendError(null);
+                }}
+                onSubmitEditing={send}
+                returnKeyType="send"
+                editable={!sending && !thread.other_disabled}
+              />
+            )}
+            {draft.trim() ? (
+              <Pressable
+                onPress={send}
+                style={styles.send}
+                disabled={!draft.trim() || sending || thread.other_disabled}
+              >
+                {sending ? (
+                  <ActivityIndicator size="small" color={colors.ink} />
+                ) : (
+                  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                    <Path d="M4 12L20 4l-6 16-3-7-7-1z" stroke={colors.ink} strokeWidth={1.8} strokeLinejoin="round" />
+                  </Svg>
+                )}
+              </Pressable>
+            ) : (
+              /* Empty composer: the send arrow gives way to the mic. Same
+                 gating as text — a switched-off counterparty disables both. */
+              <VoiceRecorderButton
+                disabled={thread.other_disabled || sending}
+                onRecorded={handleRecorded}
+                onRecordingChange={setRecordingHold}
+              />
+            )}
           </View>
+          {/* Attachment tray — one tile today (voice note); the thread
+              redesign adds more without touching the recorder. */}
+          <Modal
+            visible={trayOpen}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setTrayOpen(false)}
+          >
+            <Pressable style={styles.trayBackdrop} onPress={() => setTrayOpen(false)}>
+              <Pressable style={styles.traySheet} onPress={() => undefined}>
+                <Pressable
+                  style={styles.trayTile}
+                  onPress={() => {
+                    setTrayOpen(false);
+                    setSheetOpen(true);
+                  }}
+                >
+                  <View style={styles.trayTileIcon}>
+                    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+                      <Path
+                        d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zM5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"
+                        stroke={colors.ink}
+                        strokeWidth={1.7}
+                        strokeLinecap="round"
+                      />
+                    </Svg>
+                  </View>
+                  <Text style={styles.trayTileLabel}>Voice note</Text>
+                </Pressable>
+              </Pressable>
+            </Pressable>
+          </Modal>
+          <VoiceRecordSheet
+            visible={sheetOpen}
+            pending={interrupted}
+            onClose={() => {
+              setSheetOpen(false);
+              setInterrupted(null);
+            }}
+            onSend={(rec) => void sendVoice(rec)}
+          />
         </View>
       )}
     </Frame>
@@ -480,6 +685,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  trayButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: -6,
+  },
+  trayBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(20,18,12,0.35)',
+    justifyContent: 'flex-end',
+    padding: 16,
+  },
+  traySheet: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 14,
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: Math.max(insetBottom, 12),
+  },
+  trayTile: { alignItems: 'center', gap: 6, width: 76 },
+  trayTileIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: colors.yellowSoft,
+    borderWidth: 1,
+    borderColor: colors.yellowSoftBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trayTileLabel: { fontSize: 12, fontWeight: '700', color: colors.ink },
   closedNote: {
     marginHorizontal: 14,
     marginBottom: Math.max(insetBottom, 14),
