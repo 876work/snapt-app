@@ -14,6 +14,37 @@ import {
   type RejectedFile,
 } from '../../lib/store/upload';
 import { colors, insetBottom } from '../../lib/theme';
+import { extensionForContentType, extensionFromName } from '../../lib/mediaExtension';
+
+/**
+ * The extension for a picked asset whose `fileName` iOS did not supply.
+ *
+ * Three sources, most trustworthy first — and none of them a guess about the
+ * media KIND, which is the mistake being fixed:
+ *
+ *  1. the picker's own mime type, which is what the server validates against
+ *     its allowlist and what the download path will later believe;
+ *  2. the extension on the local picker URI, which is a real file on disk;
+ *  3. the asset's declared type, which distinguishes video from image even
+ *     when nothing else survived. `livePhoto`/`pairedVideo` are treated as
+ *     images: the still is what gets uploaded.
+ *
+ * Only if all three say nothing does this fall back to 'jpg' — and by then
+ * the server's ACCEPTED_MIME check is the backstop, because a file whose
+ * content type is unknown is refused at presign time anyway.
+ */
+function fallbackExtension(asset: {
+  uri?: string | null;
+  mimeType?: string | null;
+  type?: string | null;
+}): string {
+  return (
+    extensionForContentType(asset.mimeType) ??
+    // The URI can carry a query string; strip it before reading the suffix.
+    extensionFromName((asset.uri ?? '').split('?')[0]) ??
+    (asset.type === 'video' ? 'mp4' : 'jpg')
+  );
+}
 
 /**
  * How many files move at once. Serial wastes a connection that can carry
@@ -157,7 +188,13 @@ export default function UploadFootage() {
     const bad = addPicked(
       result.assets.map((a, i) => ({
         uri: a.uri,
-        name: a.fileName ?? `upload-${Date.now()}-${i}.jpg`,
+        // The fallback name's extension is DERIVED, never assumed. iOS
+        // routinely returns a null fileName for videos, and the old
+        // hardcoded `.jpg` here is what made those videos impossible to save
+        // back to a photo library later — iOS picks image-vs-video from the
+        // extension, so video bytes called .jpg take the image branch and
+        // are refused. See lib/mediaExtension.
+        name: a.fileName ?? `upload-${Date.now()}-${i}.${fallbackExtension(a)}`,
         mimeType: a.mimeType ?? undefined,
         sizeMb: Math.round(((a.fileSize ?? 0) / 1048576) * 10) / 10,
       })),

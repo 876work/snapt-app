@@ -1,5 +1,6 @@
 import { Alert, Linking } from 'react-native';
 import { captureHandledError } from './sentry';
+import { resolveExtension } from './mediaExtension';
 
 /**
  * SAVE A REMOTE FILE TO THE CAMERA ROLL.
@@ -40,17 +41,21 @@ export type SaveFailure =
 
 export type SaveResult = { ok: true } | { ok: false; kind: SaveFailure; message: string };
 
-/** Extensions the photo library can actually make sense of. */
+/**
+ * Extensions the photo library can actually make sense of.
+ *
+ * This used to trust the FILENAME first and only consult the content type
+ * when the name had no extension at all. That is backwards, and it is what
+ * made videos unsaveable: the uploader's fallback name was a hardcoded
+ * `.jpg`, so a QuickTime file arrived here called `.jpg` with
+ * `content_type: video/quicktime`, the name won, and iOS took the image
+ * branch on video bytes and refused it.
+ *
+ * The rule now lives in lib/mediaExtension and is the same one on both
+ * sides of the pipeline: CONTENT TYPE WINS when the two disagree.
+ */
 function extensionFor(name: string, contentType?: string | null): string {
-  const fromName = /\.([a-z0-9]{2,5})$/i.exec(name)?.[1]?.toLowerCase();
-  if (fromName && fromName !== 'jpeg') return fromName;
-  if (fromName === 'jpeg') return 'jpg';
-  const t = (contentType ?? '').toLowerCase();
-  if (t.includes('png')) return 'png';
-  if (t.includes('heic')) return 'heic';
-  if (t.includes('mp4')) return 'mp4';
-  if (t.includes('mov') || t.includes('quicktime')) return 'mov';
-  return 'jpg';
+  return resolveExtension(name, contentType);
 }
 
 /**
