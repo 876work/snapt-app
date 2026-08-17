@@ -30,7 +30,13 @@ import { captureHandledError } from './sentry';
  *     rendered thumbnail was never evidence the URL still worked.
  */
 
-export type SaveFailure = 'permission' | 'permission_blocked' | 'download' | 'save';
+export type SaveFailure =
+  | 'permission'
+  | 'permission_blocked'
+  | 'download'
+  /** The phone is genuinely full — established, never assumed. */
+  | 'storage'
+  | 'save';
 
 export type SaveResult = { ok: true } | { ok: false; kind: SaveFailure; message: string };
 
@@ -95,6 +101,40 @@ async function ensurePermission(): Promise<SaveResult | null> {
       ? 'Snapt needs permission to add photos to save this file. Tap download again and choose Allow.'
       : 'Snapt needs permission to add photos to your library. Turn it on in Settings to save this file.',
   };
+}
+
+/**
+ * IS THE PHONE ACTUALLY FULL?
+ *
+ * Asked, never assumed. The old copy asserted "check you have storage space
+ * free" for every possible write failure, which is precisely how a hard
+ * deprecation error read as a full phone to the person holding it.
+ *
+ * Two independent signals, cheapest first: an explicit out-of-space error
+ * from the OS, then a real free-space reading compared against the file we
+ * are trying to hand over. Anything that cannot be established returns
+ * false, so the caller says something honest instead of guessing again.
+ *
+ * Runs inside the catch, before the `finally` discards the cache copy, so
+ * the file is still there to measure.
+ */
+async function outOfSpace(err: unknown, localUri: string): Promise<boolean> {
+  const e = err as { code?: unknown; message?: unknown } | null;
+  const text = `${String(e?.code ?? '')} ${String(e?.message ?? '')}`.toLowerCase();
+  if (/enospc|no space left|out of space|not enough space|insufficient (disk )?space/.test(text)) {
+    return true;
+  }
+  try {
+    const FS = (await import('expo-file-system')) as Record<string, any>;
+    const free = FS.Paths.availableDiskSpace;
+    const size = new FS.File(localUri).size;
+    if (typeof free === 'number' && typeof size === 'number' && size > 0 && free < size) {
+      return true;
+    }
+  } catch {
+    // No reading available — say nothing about storage rather than invent it.
+  }
+  return false;
 }
 
 /** Offered only once the OS will no longer ask — same rule as camera capture. */
@@ -235,17 +275,49 @@ export async function saveToPhotos(opts: {
   }
 
   try {
-    const MediaLibrary = await import('expo-media-library');
-    await MediaLibrary.saveToLibraryAsync(localUri);
+    /**
+     * IMPORTED FROM '/legacy' DELIBERATELY — this import path IS the bug fix.
+     *
+     * expo-media-library 57 moved to a class-based API, and its ROOT export
+     * re-exports a set of legacy shims that throw unconditionally
+     * (`export * from './legacyWarnings'`, src/index.ts:161):
+     *
+     *     export async function saveToLibraryAsync(localUri: string) {
+     *       throw errorOnLegacyMethodUse('saveToLibraryAsync');
+     *     }
+     *
+     * So the previous root import never reached the native module at all.
+     * EVERY save on every screen failed 100% of the time, and the catch
+     * below dressed that deprecation error up as a full phone.
+     *
+     * getPermissionsAsync/requestPermissionsAsync are NOT shims — they
+     * survive in the new API with the same signature, which is why the
+     * permission prompt kept working and disguised how total this was.
+     *
+     * The legacy NATIVE module is still compiled into the binary, so this
+     * reaches real code on the existing build with no rebuild.
+     */
+    const { saveToLibraryAsync } = await import('expo-media-library/legacy');
+    await saveToLibraryAsync(localUri);
     return { ok: true };
   } catch (err) {
     // The write itself failed — a genuinely different problem from a failed
     // download, and one that used to wear the same message.
     captureHandledError(err, `saveToPhotos:write:${opts.context}`);
+    if (await outOfSpace(err, localUri)) {
+      return {
+        ok: false,
+        kind: 'storage',
+        message: 'Your phone is out of storage, so there was nowhere to put this file. Free some space and try again.',
+      };
+    }
+    // NO INVENTED CAUSE. We know the library refused it and we do not know
+    // why, so that is exactly what this says — the reason is already on its
+    // way to Sentry above.
     return {
       ok: false,
       kind: 'save',
-      message: "Downloaded, but your photo library refused it. Check you have storage space free.",
+      message: "Downloaded, but your photo library wouldn't accept this file. The reason has been reported — try again, and tell us if it keeps happening.",
     };
   } finally {
     // Either the library took its own copy or it refused the file. Ours is
