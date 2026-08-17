@@ -159,10 +159,52 @@ export function VoiceNoteBubble({
           }
           setPosition(status.currentTime);
           if (status.didJustFinish) {
+            /**
+             * PAUSE BEFORE REWINDING — this ordering is the whole fix.
+             *
+             * Reaching the end does not clear ExoPlayer's `playWhenReady`:
+             * STATE_ENDED keeps the intent to play, and expo-audio's
+             * seekTo() is a bare `player.seekTo(ms)` with no guard
+             * (Playable.kt:31). So rewinding a FINISHED player moved it
+             * back into a playable state with the play intent still set,
+             * and the note started over — while this handler had already
+             * set the UI to idle, so the button showed Play over audio that
+             * was really running and Pause became unreachable.
+             *
+             * pause() clears playWhenReady, so the seek lands on a player
+             * that is genuinely stopped at zero. Harmless on iOS, where
+             * AVPlayer's rate is already 0 at the end.
+             */
+            try {
+              playerRef.current?.pause();
+            } catch (err) {
+              captureHandledError(err, 'voiceBubble:pause-at-end');
+            }
+            void playerRef.current?.seekTo(0).catch((err: unknown) => {
+              captureHandledError(err, 'voiceBubble:rewind-at-end');
+            });
             setPosition(0);
-            void player?.seekTo(0).catch(() => undefined);
             release(messageId);
             setState('idle');
+            return;
+          }
+          /**
+           * THE CONTROL FOLLOWS REAL PLAYBACK, not what we intended.
+           *
+           * `state` used to be set only from our own call sites, so once it
+           * disagreed with the player nothing could bring the two back
+           * together. Reading it back from the status is what stops the
+           * button and the audio diverging again.
+           *
+           * Gated on a settled player: while loading or buffering the
+           * reported `playing` flag is intent rather than fact
+           * (AudioPlayer.kt:199 returns intendedPlayingState mid-buffer),
+           * and acting on it would flicker the button at every start.
+           */
+          if (status.isLoaded && !status.isBuffering) {
+            setState((prev) =>
+              prev === 'loading' || prev === 'error' ? prev : status.playing ? 'playing' : 'idle',
+            );
           }
         });
         playerRef.current = player;

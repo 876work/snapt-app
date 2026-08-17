@@ -1,7 +1,9 @@
 import React from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
+  type KeyboardEvent,
   Modal,
   Platform,
   Pressable,
@@ -24,11 +26,59 @@ import {
 import { PendingVoiceNote, VoiceNoteBubble } from './VoiceNoteBubble';
 import { useVoiceSends, type PendingVoiceSend } from '../../lib/voicePlayback';
 import { apiBase, authHeaders } from '../../lib/api';
+import { captureHandledError } from '../../lib/sentry';
 
 const EMPTY_PENDING: PendingVoiceSend[] = [];
 import { CreatorAvatar } from '../ui/CreatorAvatar';
 import { colors, insetBottom } from '../../lib/theme';
 import { STATUS_TONE, threadStatus, threadSubject } from '../../lib/threadStatus';
+
+/**
+ * ANDROID KEYBOARD INSET — deliberately scoped to this screen.
+ *
+ * Android has been edge-to-edge since SDK 54, so the window no longer
+ * shrinks when the IME opens: the system delivers an inset instead of
+ * resizing, and the app-wide KeyboardAvoidingView in app/_layout passes
+ * `behavior={undefined}` on Android, which does nothing at all. The composer
+ * is a pinned sibling BELOW the scroller, so KeyboardScrollView cannot reach
+ * it either — that only scrolls the focused field inside the scroller, and
+ * the composer is not in it. Net result: the composer sat under the
+ * keyboard and the typing was invisible.
+ *
+ * Returns 0 on iOS, always. app/_layout's `behavior="padding"` already
+ * works there, and a second shift stacked on top would double-lift the
+ * composer. Fixing this in the root layout would move every screen in the
+ * app at once, which is exactly what must not happen here.
+ *
+ * The FULL reported IME height is used on purpose. On edge-to-edge Android
+ * that height spans the navigation-bar strip the keyboard draws over, so
+ * subtracting the safe-area inset risks UNDER-lifting and reproducing the
+ * bug; over-lifting only leaves a slightly larger gap.
+ */
+function useAndroidKeyboardInset(): number {
+  const [height, setHeight] = React.useState(0);
+  React.useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    let shown: { remove: () => void } | undefined;
+    let hidden: { remove: () => void } | undefined;
+    try {
+      shown = Keyboard.addListener('keyboardDidShow', (e: KeyboardEvent) => {
+        setHeight(e.endCoordinates?.height ?? 0);
+      });
+      hidden = Keyboard.addListener('keyboardDidHide', () => setHeight(0));
+    } catch (err) {
+      // Never silent: a thread that cannot track the keyboard IS the bug
+      // being fixed here, so a failure has to be visible rather than quietly
+      // restore the old broken behaviour.
+      captureHandledError(err, 'chatThread:keyboard-listener');
+    }
+    return () => {
+      shown?.remove();
+      hidden?.remove();
+    };
+  }, []);
+  return height;
+}
 
 /**
  * THE ONE CHAT IMPLEMENTATION.
@@ -129,6 +179,8 @@ export function ChatThread({
     }[] | null
   >(null);
   const [draft, setDraft] = React.useState('');
+  // 0 on iOS — see the hook. Applied to the frame, nowhere else.
+  const androidKeyboard = useAndroidKeyboardInset();
   const [sending, setSending] = React.useState(false);
   const [sendError, setSendError] = React.useState<string | null>(null);
   const [historyFailed, setHistoryFailed] = React.useState(false);
@@ -343,10 +395,19 @@ export function ChatThread({
   // A Modal renders in its own native hierarchy, so the app-wide
   // KeyboardAvoidingView in app/_layout does not reach it — the sheet needs
   // its own or the composer stays behind the keyboard.
+  //
+  // On Android BOTH modes need the inset below: `behavior={undefined}` is a
+  // no-op there, in the sheet and in the full screen alike. Padding a
+  // flex:1 root shrinks the area its children lay out in, which is exactly
+  // the window-resize the platform stopped doing — the scroller gives up
+  // the height and the composer rides above the keyboard. On iOS
+  // androidKeyboard is always 0, so this is literally styles.root and
+  // nothing there changes.
+  const frameStyle = androidKeyboard > 0 ? [styles.root, { paddingBottom: androidKeyboard }] : styles.root;
   const frameProps =
     mode === 'sheet'
-      ? { behavior: Platform.OS === 'ios' ? ('padding' as const) : undefined, style: styles.root }
-      : { style: styles.root };
+      ? { behavior: Platform.OS === 'ios' ? ('padding' as const) : undefined, style: frameStyle }
+      : { style: frameStyle };
 
   return (
     <Frame {...frameProps}>
