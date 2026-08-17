@@ -101,8 +101,20 @@ export function VoiceNoteBubble({
   React.useEffect(
     () => () => {
       // Unmount: stop and free the native player, release the floor.
+      //
+      // PAUSE FIRST. remove() does NOT stop playback on either platform —
+      // Android runs `players.remove(player.id)` and iOS
+      // `registry.remove(player)`, both of which only unregister. Leaving
+      // this out meant a note unmounted mid-playback kept sounding with its
+      // handle already thrown away, so nothing could ever stop it again.
+      const player = playerRef.current;
       try {
-        playerRef.current?.remove();
+        player?.pause();
+      } catch (err) {
+        captureHandledError(err, 'voiceBubble:unmount-pause');
+      }
+      try {
+        player?.remove();
       } catch (err) {
         captureHandledError(err, 'voiceBubble:release');
       }
@@ -112,12 +124,29 @@ export function VoiceNoteBubble({
     [messageId, release],
   );
 
-  const stopToPause = React.useCallback(() => {
-    try {
-      playerRef.current?.pause();
-    } catch (err) {
-      captureHandledError(err, 'voiceBubble:pause');
+  /**
+   * Stop THIS note and reset it — the callback the one-note rule invokes on
+   * everyone else when a new note starts.
+   *
+   * It rewinds as well as pausing, so a note interrupted by another starts
+   * from the beginning rather than resuming mid-sentence, and the button
+   * returns to Play with an empty progress bar. Safe in this order for the
+   * same reason as end-of-playback: pause() clears playWhenReady first, so
+   * the seek cannot resurrect playback.
+   */
+  const stopAndReset = React.useCallback(() => {
+    const player = playerRef.current;
+    if (player) {
+      try {
+        player.pause();
+      } catch (err) {
+        captureHandledError(err, 'voiceBubble:stop-pause');
+      }
+      void player.seekTo(0).catch((err: unknown) => {
+        captureHandledError(err, 'voiceBubble:stop-rewind');
+      });
     }
+    setPosition(0);
     setState('idle');
   }, []);
 
@@ -146,10 +175,18 @@ export function VoiceNoteBubble({
           // unreachable — the failure-looks-like-success class, again.
           if (status.error) {
             captureHandledError(new Error(`voice playback: ${status.error}`), 'voiceBubble:status-error');
+            // Same rule as unmount: remove() only unregisters, so a player
+            // that errored while still sounding has to be paused explicitly
+            // or it plays on with nothing holding it.
+            try {
+              playerRef.current?.pause();
+            } catch (err) {
+              captureHandledError(err, 'voiceBubble:error-pause');
+            }
             try {
               playerRef.current?.remove();
-            } catch {
-              /* already dead — replacing it regardless */
+            } catch (err) {
+              captureHandledError(err, 'voiceBubble:error-remove');
             }
             playerRef.current = null;
             release(messageId);
@@ -220,7 +257,7 @@ export function VoiceNoteBubble({
       player.play();
       // Claim only once playback actually started — a failed play must not
       // evict whoever is legitimately holding the floor.
-      claim(messageId, stopToPause);
+      claim(messageId, stopAndReset);
       setState('playing');
     } catch (err) {
       captureHandledError(err, 'voiceBubble:play');
@@ -231,7 +268,7 @@ export function VoiceNoteBubble({
 
   const toggle = () => {
     if (state === 'playing') {
-      stopToPause();
+      stopAndReset();
       release(messageId);
     } else if (state !== 'loading') {
       void play();

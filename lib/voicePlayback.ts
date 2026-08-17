@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { captureHandledError } from './sentry';
 
 /**
  * Two small pieces of chat-audio state that outlive any one bubble:
@@ -17,32 +18,57 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface VoicePlaybackState {
   playingId: string | null;
-  /** Stops whatever is currently playing, then records the new claimant. */
+  /** Registers this note's stop callback, then stops every OTHER live note. */
   claim: (id: string, stop: () => void) => void;
-  /** Only clears if `id` still holds the floor (a later claim already replaced it). */
+  /** Unregisters `id`; clears the floor only if it still holds it. */
   release: (id: string) => void;
 }
 
-let currentStop: (() => void) | null = null;
+/**
+ * EVERY note with a live player, keyed by message id — not one callback.
+ *
+ * This used to be a single module-level `currentStop`, and that is what let
+ * two notes play at once. It held exactly ONE handle on "the note that is
+ * sounding", so anything that nulled it disarmed the stop entirely and a
+ * later claim had nothing to call:
+ *
+ *   - `release()` nulls it, and it is called from unmount, from the
+ *     status-error path, from toggle and at end-of-playback;
+ *   - and crucially, expo-audio's `remove()` does NOT stop playback on
+ *     either platform — Android does `players.remove(player.id)`, iOS does
+ *     `registry.remove(player)`. Both merely unregister.
+ *
+ * So the unmount and error paths — `remove()` immediately followed by
+ * `release()` — could leave a note still audible while simultaneously
+ * throwing away the only means of stopping it. After that, starting any
+ * other note stopped nothing, on both platforms.
+ *
+ * A registry fixes the class, not just the instance: a claim stops every
+ * other registered note rather than trusting one handle to have survived.
+ * Stopping an already-stopped note is a harmless no-op, so over-stopping is
+ * the safe direction.
+ */
+const stops = new Map<string, () => void>();
 
-export const useVoicePlayback = create<VoicePlaybackState>((set, get) => ({
+export const useVoicePlayback = create<VoicePlaybackState>((set) => ({
   playingId: null,
   claim: (id, stop) => {
-    if (get().playingId !== id && currentStop) {
+    stops.set(id, stop);
+    for (const [otherId, stopOther] of stops) {
+      if (otherId === id) continue;
       try {
-        currentStop();
-      } catch {
-        // A dead player's stop() failing must not block the new one.
+        stopOther();
+      } catch (err) {
+        // One dead player must not prevent the rest being stopped, but it is
+        // never swallowed — a stop that cannot run is how this bug sounded.
+        captureHandledError(err, 'voicePlayback:stop-other');
       }
     }
-    currentStop = stop;
     set({ playingId: id });
   },
   release: (id) => {
-    if (get().playingId === id) {
-      currentStop = null;
-      set({ playingId: null });
-    }
+    stops.delete(id);
+    set((s) => (s.playingId === id ? { playingId: null } : s));
   },
 }));
 
