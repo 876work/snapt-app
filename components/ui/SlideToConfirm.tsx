@@ -10,6 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../lib/theme';
+import { haptic } from '../../lib/haptics';
 
 const KNOB = 48;
 const H = 58;
@@ -49,12 +50,6 @@ export function SlideToConfirm({ label, onConfirm, disabled, value, valueLabel }
   const complete = React.useCallback(async () => {
     if (lockRef.current) return;
     lockRef.current = true;
-    // The latch: the moment the slide is committed and can no longer be
-    // taken back. Fire-and-forget — a device without a taptic engine, or one
-    // with system haptics disabled, must not delay or fail the confirmation.
-    import('expo-haptics')
-      .then((H) => H.impactAsync(H.ImpactFeedbackStyle.Medium))
-      .catch(() => undefined);
     setBusy(true);
     let ok = true;
     try {
@@ -72,11 +67,27 @@ export function SlideToConfirm({ label, onConfirm, disabled, value, valueLabel }
     }
   }, [onConfirm, done, x]);
 
+  /**
+   * THE POINT OF NO RETURN, felt before it is taken.
+   *
+   * The tick fires as the knob CROSSES the commit threshold mid-drag, not
+   * when the action completes — the whole value of it is that the user can
+   * still slide back. Latched, so a thumb resting on the boundary cannot
+   * buzz repeatedly; the latch releases when they retreat below it.
+   */
+  const crossed = useSharedValue(false);
   const pan = Gesture.Pan()
     .enabled(!disabled)
     .onChange((e) => {
       if (done.value) return;
       x.value = Math.min(Math.max(x.value + e.changeX, 0), max);
+      const past = x.value > max * 0.92;
+      if (past && !crossed.value) {
+        crossed.value = true;
+        runOnJS(haptic)('light');
+      } else if (!past && crossed.value) {
+        crossed.value = false;
+      }
     })
     .onEnd(() => {
       if (done.value) return;
@@ -86,6 +97,7 @@ export function SlideToConfirm({ label, onConfirm, disabled, value, valueLabel }
         x.value = withSpring(max);
         runOnJS(complete)();
       } else {
+        crossed.value = false;
         x.value = withSpring(0);
       }
     });

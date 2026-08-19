@@ -32,6 +32,7 @@ const EMPTY_PENDING: PendingVoiceSend[] = [];
 import { CreatorAvatar } from '../ui/CreatorAvatar';
 import { colors, insetBottom } from '../../lib/theme';
 import { STATUS_TONE, threadStatus, threadSubject } from '../../lib/threadStatus';
+import { haptic } from '../../lib/haptics';
 
 /**
  * ANDROID KEYBOARD INSET — deliberately scoped to this screen.
@@ -302,6 +303,7 @@ export function ChatThread({
       setDraft(''); // Realtime echo appends it; no optimistic row needed.
     } else {
       setSendError("Not sent — check your connection, then tap send again.");
+      haptic('error'); // the words are still in the box, but they did not go
     }
   };
 
@@ -341,9 +343,11 @@ export function ChatThread({
               ],
         );
         // Sent — playback now streams from storage; the cache copy is done.
+        haptic('success');
         void deleteRecordingFile(rec.uri);
       } else {
         markFailed(bookingId, tempId, result.error);
+        haptic('error');
       }
     },
     [bookingId, upsertPending, removePending, markFailed],

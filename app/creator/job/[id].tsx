@@ -18,6 +18,7 @@ import { RemoteJob } from '../../../components/creator/RemoteJob';
 import { DeliverPanel, useUploadBatch } from '../../../components/creator/DeliverUploader';
 import { formatMoney, NO_SHOW_GRACE_MINUTES } from '../../../lib/constants/business';
 import { colors, insetBottom } from '../../../lib/theme';
+import { haptic } from '../../../lib/haptics';
 
 // Creator job flow: offer → accepted → on the way → check-in (safety code)
 // → session in progress → footage upload → submitted.
@@ -104,6 +105,26 @@ export default function CreatorJob() {
   }, [job?.expiresAt]);
   const [nowMs, setNowMs] = React.useState(() => Date.now());
   const offerRemainMs = offerExpiresAtMs != null ? offerExpiresAtMs - nowMs : null;
+  /**
+   * One warning as the window drops under two minutes — the same instant the
+   * card turns red, for a creator who is not looking at the screen. Latched
+   * by a ref so the 1s tick cannot fire it again every second, and never on
+   * an offer that was ALREADY inside two minutes when it was opened: that is
+   * not a threshold being crossed, it is where the offer started.
+   */
+  const urgentBuzzed = React.useRef<boolean | null>(null);
+  React.useEffect(() => {
+    if (stage !== 'offer' || offerRemainMs == null || offerRemainMs <= 0) return;
+    const urgent = offerRemainMs < URGENT_REMAINING_MS;
+    if (urgentBuzzed.current === null) {
+      urgentBuzzed.current = urgent; // first observation sets the baseline
+      return;
+    }
+    if (urgent && !urgentBuzzed.current) {
+      urgentBuzzed.current = true;
+      haptic('warning');
+    }
+  }, [stage, offerRemainMs]);
   const offerExpired = stage === 'offer' && offerRemainMs != null && offerRemainMs <= 0;
   React.useEffect(() => {
     if (stage !== 'offer' || offerExpiresAtMs == null || offerExpired) return;
@@ -406,7 +427,10 @@ export default function CreatorJob() {
       }
       return true;
     });
-    if (ok) next('accepted');
+    if (ok) {
+      haptic('success'); // the job is theirs
+      next('accepted');
+    }
     return ok; // false unlocks the slider for a retry
   };
 
@@ -425,8 +449,10 @@ export default function CreatorJob() {
       const r = await api.verifySafetyCodeApi(job.id, code);
       if (r && 'error' in r) {
         setActionError(r.error); // wrong code
+        haptic('error');
         return false;
       }
+      haptic('success'); // code accepted, the session is live
       return true;
     }).then((ok) => ok && next('session'));
 
@@ -442,6 +468,7 @@ export default function CreatorJob() {
       }
       setOpenRevision(null);
       finalsBatch.reset();
+      haptic('success'); // the revision reached the client
       return true;
     });
 
@@ -455,6 +482,7 @@ export default function CreatorJob() {
       }
       setDeliveredNow(true);
       finalsBatch.reset();
+      haptic('success'); // the client has their edit
       return true;
     });
 
@@ -472,6 +500,7 @@ export default function CreatorJob() {
     });
     if (ok) {
       rawBatch.reset();
+      haptic('success'); // session complete, payout triggered
       next('submitted');
     }
     return ok; // false unlocks the slider for a retry

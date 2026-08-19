@@ -8,6 +8,7 @@ import type { JobOffer } from '../../lib/store/creator';
 import { EDIT_STYLES, REMOTE_PACKAGES } from '../../lib/store/upload';
 import { colors } from '../../lib/theme';
 import { offerSettings, photoFilename, saveToPhotos } from '../../lib/saveToPhotos';
+import { haptic } from '../../lib/haptics';
 
 /**
  * A remote edit order is a DESK job, and this is its screen: what was
@@ -149,6 +150,7 @@ export function RemoteJob({
       }
       setOpenRevision(null);
       batch.reset();
+      haptic('success'); // the revision reached the client
       return true;
     }
     const r = await api.deliverApi(job.id);
@@ -158,6 +160,7 @@ export function RemoteJob({
     }
     setDelivered(true);
     batch.reset();
+    haptic('success'); // the client has their edit
     return true;
   };
 

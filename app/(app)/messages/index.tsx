@@ -7,6 +7,7 @@ import { colors, spacing, insetTop, navPillClearance } from '../../../lib/theme'
 import { STATUS_TONE, threadStatus, threadSubject } from '../../../lib/threadStatus';
 import { navShrinkOnScroll } from '../../../lib/navShrink';
 import { apiBase, authHeaders } from '../../../lib/api';
+import { haptic } from '../../../lib/haptics';
 
 /**
  * The Messages tab: every real conversation thread the user is party to,
@@ -86,7 +87,18 @@ export default function Messages() {
         onScroll={navShrinkOnScroll}
         scrollEventThrottle={32}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.yellowDark} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={false}
+            // The pull is the user's own gesture reaching its trigger —
+            // the same 'you got there' tick the slider gives.
+            onRefresh={() => {
+              haptic('light');
+              load();
+            }}
+            tintColor={colors.yellowDark}
+          />
+        }
       >
         {loading ? (
           <View style={styles.centre}>

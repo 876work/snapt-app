@@ -15,6 +15,7 @@ import {
   USD_PROCESSING_NOTE,
 } from '../../../../lib/constants/business';
 import { colors, spacing, insetBottom } from '../../../../lib/theme';
+import { haptic } from '../../../../lib/haptics';
 
 export default function CancelConfirm() {
   const router = useRouter();
@@ -24,6 +25,29 @@ export default function CancelConfirm() {
   const booking = bookings.find((b) => b.id === id);
   const creator = creatorById(booking?.creatorId ?? null);
   const [error, setError] = React.useState<string | null>(null);
+
+  // Hoisted ABOVE the early return so the warning effect below is a hook on
+  // every render — these stay the single definition, read again further down
+  // for the banner itself. (A hook after a conditional return crashes the
+  // moment the condition flips; this file's sibling already paid for that.)
+  const remote = booking?.type === 'remote';
+  // Never accepted (offer window still open / no editor): full refund
+  // including the service fee (Don, 2026-07-27). Confirmed bookings keep
+  // the tier rules with the fee non-refundable.
+  const neverAccepted = booking?.status === 'pending' || remote;
+  const h = booking ? hoursUntil(booking.scheduledAt) : 0;
+  const tier = cancelTierForHoursUntil(h);
+  const free = neverAccepted || tier === 'over48h';
+
+  /**
+   * A CHARGE THE USER HAS NOT AGREED TO YET. The banner appears the moment
+   * this screen opens, and it is the whole reason to read before sliding —
+   * so it gets one warning tick, on the tier changing to a charging one, not
+   * on every re-render. Never on the free tier: nothing to warn about.
+   */
+  React.useEffect(() => {
+    if (booking && !free) haptic('warning');
+  }, [booking, free]);
 
   if (!booking) return null;
 
@@ -46,19 +70,11 @@ export default function CancelConfirm() {
   // server-side at time of action (handoff §8). The 8% service fee is
   // non-refundable at every tier (Don, 2026-07-27); the charge rate applies
   // to the session cost only.
-  const remote = booking.type === 'remote';
-  // Never accepted (offer window still open / no editor): full refund
-  // including the service fee (Don, 2026-07-27). Confirmed bookings keep
-  // the tier rules with the fee non-refundable.
-  const neverAccepted = booking.status === 'pending' || remote;
-  const h = hoursUntil(booking.scheduledAt);
-  const tier = cancelTierForHoursUntil(h);
   const info = CANCEL_TIERS[tier];
   const serviceFee = booking.priceUsd * CLIENT_SERVICE_FEE_RATE;
   const charge = neverAccepted ? 0 : booking.priceUsd * info.chargeRate;
   const refund = neverAccepted ? booking.priceUsd + serviceFee : booking.priceUsd - charge;
 
-  const free = neverAccepted || tier === 'over48h';
   const noticeLabel = h >= 48 ? `${Math.round(h / 24)} days' notice` : `${Math.max(Math.round(h), 0)} hrs' notice`;
   const when = new Date(booking.scheduledAt);
 

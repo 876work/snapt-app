@@ -11,6 +11,7 @@ import { navShrinkOnScroll } from '../../lib/navShrink';
 import { apiBase, authHeaders } from '../../lib/api';
 import { isCreatorTarget, resolveTarget, withFrom } from '../../lib/notificationTarget';
 import { useAuth } from '../../lib/store';
+import { haptic } from '../../lib/haptics';
 
 /**
  * The notification inbox.
@@ -282,7 +283,18 @@ export default function Inbox() {
         contentContainerStyle={styles.body}
         onScroll={navShrinkOnScroll}
         scrollEventThrottle={16}
-        refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.yellowDark} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={false}
+            // The pull is the user's own gesture reaching its trigger —
+            // the same 'you got there' tick the slider gives.
+            onRefresh={() => {
+              haptic('light');
+              load();
+            }}
+            tintColor={colors.yellowDark}
+          />
+        }
       >
         <View style={styles.searchWrap}>
           <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">

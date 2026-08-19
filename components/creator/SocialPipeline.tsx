@@ -6,6 +6,7 @@ import { Button } from '../ui/Button';
 import type { SelectionState } from '../../lib/api';
 import { BatchFileList, DeliverPanel, useUploadBatch } from './DeliverUploader';
 import { colors } from '../../lib/theme';
+import { haptic } from '../../lib/haptics';
 
 /**
  * The creator's post-session flow for a Social bundle job. Replaces the raw
@@ -101,6 +102,7 @@ export function SocialPipeline({
     }
     setDelivered(true);
     finalBatch.reset();
+    haptic('success'); // the client has their edit
     return true;
   };
 

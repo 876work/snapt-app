@@ -2,6 +2,7 @@ import { Linking, Platform } from 'react-native';
 import { handleURLCallback, initPaymentSheet, presentPaymentSheet } from '@stripe/stripe-react-native';
 import { apiBase, authHeaders } from './api';
 import { colors } from './theme';
+import { haptic } from './haptics';
 
 /**
  * Stripe's canonical return URL for this app. Must match the scheme declared
@@ -236,15 +237,14 @@ export async function checkoutBooking(
   onStage('');
   const { error } = await presentPaymentSheet();
   if (!error) {
-    // Payment taken. Fire-and-forget for the same reason as the slider.
-    import('expo-haptics')
-      .then((H) => H.notificationAsync(H.NotificationFeedbackType.Success))
-      .catch(() => undefined);
+    haptic('success'); // payment taken
   }
   if (error) {
     // Sheet closed or declined. NOTHING was created — no booking, no offer,
     // no notification — so there is nothing to abandon or clean up.
     const cancelled = error.code === 'Canceled';
+    // Declined or failed — NOT a dismissed sheet, which the user chose.
+    if (!cancelled) haptic('error');
     return {
       ok: false,
       reason: cancelled ? 'cancelled' : 'failed',
@@ -312,13 +312,12 @@ export async function payForSelectionExtras(params: {
   if (init.error) return { ok: false, reason: 'unavailable', message: init.error.message };
   const { error } = await presentPaymentSheet();
   if (!error) {
-    // Payment taken. Fire-and-forget for the same reason as the slider.
-    import('expo-haptics')
-      .then((H) => H.notificationAsync(H.NotificationFeedbackType.Success))
-      .catch(() => undefined);
+    haptic('success'); // payment taken
   }
   if (error) {
     const cancelled = error.code === 'Canceled';
+    // Declined or failed — NOT a dismissed sheet, which the user chose.
+    if (!cancelled) haptic('error');
     return {
       ok: false,
       reason: cancelled ? 'cancelled' : 'failed',
@@ -362,15 +361,14 @@ export async function payForBooking(bookingId: string, clientName?: string): Pro
 
   const { error } = await presentPaymentSheet();
   if (!error) {
-    // Payment taken. Fire-and-forget for the same reason as the slider.
-    import('expo-haptics')
-      .then((H) => H.notificationAsync(H.NotificationFeedbackType.Success))
-      .catch(() => undefined);
+    haptic('success'); // payment taken
   }
   if (error) {
     // 'Canceled' = user dismissed the sheet (including after a decline they
     // chose not to retry). Anything else is a real failure.
     const cancelled = error.code === 'Canceled';
+    // Declined or failed — NOT a dismissed sheet, which the user chose.
+    if (!cancelled) haptic('error');
     return {
       ok: false,
       reason: cancelled ? 'cancelled' : 'failed',

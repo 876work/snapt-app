@@ -15,6 +15,7 @@ import { Text } from '../../lib/text';
 import { colors } from '../../lib/theme';
 import { captureHandledError } from '../../lib/sentry';
 import { MAX_VOICE_SECONDS } from '../../lib/voiceNotes';
+import { haptic } from '../../lib/haptics';
 
 /**
  * Recording half of voice notes — deliberately self-contained so the thread
@@ -149,6 +150,7 @@ function useVoiceRecording(onRecorded: (rec: RecordedVoiceNote) => void) {
       stoppingRef.current = false;
       recordingRef.current = true;
       setRecording(true);
+      haptic('medium'); // the mic is live — felt, not just seen
       return true;
     } catch (err) {
       captureHandledError(err, 'voiceRecorder:start');
@@ -183,6 +185,7 @@ function useVoiceRecording(onRecorded: (rec: RecordedVoiceNote) => void) {
         captureHandledError(err, 'voiceRecorder:audio-mode-reset');
       }
       setRecording(false);
+      haptic('medium'); // the mic is off, whatever happens to the file next
       if (mode === 'cancel' || !uri || durationSec < 1) {
         // Slide-to-cancel and sub-second taps discard: nothing uploads.
         await deleteRecordingFile(uri);

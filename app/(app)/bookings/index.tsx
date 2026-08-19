@@ -9,6 +9,7 @@ import { formatMoney } from '../../../lib/constants/business';
 import { Booking, BookingStatus } from '../../../lib/mock/data';
 import { colors, spacing, insetTop, navPillClearance } from '../../../lib/theme';
 import { navShrinkOnScroll } from '../../../lib/navShrink';
+import { haptic } from '../../../lib/haptics';
 
 /**
  * THREE TABS, because this list is not one kind of thing.
@@ -135,7 +136,18 @@ export default function Bookings() {
         scrollEventThrottle={32}
         contentContainerStyle={styles.body}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.yellowDark} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={false}
+            // The pull is the user's own gesture reaching its trigger —
+            // the same 'you got there' tick the slider gives.
+            onRefresh={() => {
+              haptic('light');
+              load();
+            }}
+            tintColor={colors.yellowDark}
+          />
+        }
       >
         <Text style={styles.title}>Bookings</Text>
         {loaded && !error && bookings.length > 0 && (
