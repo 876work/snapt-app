@@ -17,6 +17,10 @@ export interface JobOffer {
   countdown?: string;
   /** ISO expiry of the live offer window (API mode) — drives a ticking countdown. */
   expiresAt?: string;
+  /** Booked start (ISO) and length. Booked end = start + duration; drives the
+   *  session timer. `when` is a formatted string and cannot be measured. */
+  scheduledAt?: string | null;
+  durationHours?: number | null;
   type: 'in-person' | 'remote';
   /** Exact meeting pin (API mode) — drives the job-detail map. */
   meetingLat?: number | null;

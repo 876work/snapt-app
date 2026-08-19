@@ -52,6 +52,8 @@ export function bookingToOffer(b: ServerBookingListItem): JobOffer {
     title: b.occasion ? `${b.occasion} session` : 'Remote edit order',
     occasion: b.occasion ?? 'Portraits',
     payUsd: creatorPayUsd(b),
+    scheduledAt: b.scheduled_at,
+    durationHours: b.duration_hours,
     when: b.scheduled_at
       ? `${new Date(b.scheduled_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${new Date(b.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} · ${b.duration_hours} hrs`
       : 'Remote · deliver in-app',

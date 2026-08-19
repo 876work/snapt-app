@@ -49,6 +49,19 @@ function formatKm(km: number): string {
 /** Red-countdown threshold: under two minutes to respond. */
 const URGENT_REMAINING_MS = 2 * 60_000;
 
+/**
+ * Always HH:MM:SS. A session clock is read at a glance mid-shoot, so the
+ * shape must never change under the creator — 00:09:12 stays the same width
+ * as 01:09:12, and the digits never shift column as the hour rolls over.
+ */
+function formatClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = String(Math.floor(total / 3600)).padStart(2, '0');
+  const m = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
+  const sec = String(total % 60).padStart(2, '0');
+  return `${h}:${m}:${sec}`;
+}
+
 export default function CreatorJob() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -111,6 +124,86 @@ export default function CreatorJob() {
   }, [job?.expiresAt, offerExpiresAtMs]);
 
   /**
+   * SESSION TIMER — both ends are the server's, neither is this screen's.
+   *
+   * Elapsed counts from `session_active_at`: the moment the server accepted
+   * the safety code and the session legally began. That timestamp is written
+   * by the server in the same call this screen's own "Verify code" action
+   * makes, and is read back from GET /v1/bookings/:id/session — a route the
+   * creator is explicitly authorised on (only `safety_code` is withheld from
+   * them). Nothing here is captured at mount: a screen reopened an hour into
+   * a session shows the true elapsed time, not one hour less.
+   *
+   * The polling exists for one narrow race — the local stage flips the
+   * instant the verify call returns, so a slow write could leave
+   * session_active_at briefly null. It stops the moment the value arrives.
+   */
+  const [sessionStartIso, setSessionStartIso] = React.useState<string | null>(null);
+  const [sessionProbed, setSessionProbed] = React.useState(false);
+  React.useEffect(() => {
+    if (stage !== 'session' || !apiConfigured || sessionStartIso) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const load = async () => {
+      try {
+        const { fetchSessionApi } = await import('../../../lib/api');
+        const st = await fetchSessionApi(String(id));
+        if (cancelled) return;
+        if (st?.session_active_at) setSessionStartIso(st.session_active_at);
+        setSessionProbed(true);
+      } catch (err) {
+        if (cancelled) return;
+        setSessionProbed(true);
+        // No elapsed count rather than a guessed one — but never in silence:
+        // this failing means the creator is mid-shoot with no clock.
+        const { captureHandledError } = await import('../../../lib/sentry');
+        captureHandledError(err, 'creator_job:session_timer_fetch');
+      }
+    };
+    load();
+    timer = setInterval(load, 10_000);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [stage, id, sessionStartIso]);
+
+  const sessionStartMs = React.useMemo(() => {
+    if (!sessionStartIso) return null;
+    const parsed = Date.parse(sessionStartIso);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [sessionStartIso]);
+  React.useEffect(() => {
+    if (sessionStartIso && sessionStartMs == null) {
+      import('../../../lib/sentry').then(({ captureHandledError }) =>
+        captureHandledError(
+          new Error(`unparseable session_active_at: ${sessionStartIso}`),
+          'creator_job:session_start_parse',
+        ),
+      );
+    }
+  }, [sessionStartIso, sessionStartMs]);
+
+  /** Booked end = booked start + booked length, both as sold on the booking. */
+  const bookedEndMs = React.useMemo(() => {
+    const startIso = job?.scheduledAt;
+    const hours = job?.durationHours;
+    if (!startIso || hours == null || !Number.isFinite(hours)) return null;
+    const start = Date.parse(startIso);
+    return Number.isFinite(start) ? start + hours * 3_600_000 : null;
+  }, [job?.scheduledAt, job?.durationHours]);
+
+  // A tick of its own, deliberately separate from the offer countdown's:
+  // the two clocks run at different stages and must not share a lifetime.
+  const [sessionNowMs, setSessionNowMs] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    if (stage !== 'session') return;
+    setSessionNowMs(Date.now());
+    const t = setInterval(() => setSessionNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [stage]);
+
+    /**
    * DISTANCE — from STORED data only, never live GPS (no location permission
    * exists in this build, and this screen must not become the reason one
    * does). The creator's base_area name (their own profile) is matched
@@ -611,6 +704,55 @@ export default function CreatorJob() {
           </>
         )}
 
+        {/* SESSION CLOCK. Elapsed from the server's session_active_at,
+            remaining against the booked end. Running over is normal — the
+            card says so in yellow and keeps counting; it never turns red,
+            never stops, and never gates the wrap-up button below. */}
+        {stage === 'session' && (sessionStartMs != null || bookedEndMs != null) && (
+          <View style={styles.timerCard}>
+            <View style={styles.timerRow}>
+              {sessionStartMs != null && (
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.timerLabel}>ELAPSED</Text>
+                  <Text style={styles.timerValue}>
+                    {formatClock(sessionNowMs - sessionStartMs)}
+                  </Text>
+                </View>
+              )}
+              {bookedEndMs != null &&
+                (bookedEndMs - sessionNowMs > 0 ? (
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.timerLabel}>REMAINING</Text>
+                    <Text style={styles.timerValue}>
+                      {formatClock(bookedEndMs - sessionNowMs)}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.timerLabel, styles.timerLabelOver]}>OVERTIME</Text>
+                    <Text style={[styles.timerValue, styles.timerValueOver]}>
+                      +{formatClock(sessionNowMs - bookedEndMs)}
+                    </Text>
+                  </View>
+                ))}
+            </View>
+            {bookedEndMs != null && (
+              <Text style={styles.timerEnds}>
+                {bookedEndMs - sessionNowMs > 0 ? 'Ends' : 'Was booked to end'}{' '}
+                {new Date(bookedEndMs).toLocaleTimeString(undefined, {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })}
+              </Text>
+            )}
+            {sessionStartMs == null && sessionProbed && (
+              <Text style={styles.timerEnds}>
+                Elapsed time isn't available for this session.
+              </Text>
+            )}
+          </View>
+        )}
+
         {stage === 'session' && (
           <View style={styles.successCard}>
             <View style={[styles.successIcon, { backgroundColor: '#EAF8F0' }]}>
@@ -829,6 +971,36 @@ const styles = StyleSheet.create({
   },
   expiredTitle: { fontSize: 15, fontWeight: '800', color: colors.ink },
   expiredBody: { fontSize: 12.5, color: colors.grey, lineHeight: 19, marginTop: 6 },
+  timerCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  timerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  timerLabel: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.7,
+    color: colors.greyWarm,
+  },
+  // Overtime is normal, not an error: yellow, never red.
+  timerLabelOver: { color: colors.yellowDark },
+  timerValue: {
+    fontSize: 25,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+    color: colors.ink,
+    marginTop: 3,
+    fontVariant: ['tabular-nums'],
+  },
+  timerValueOver: { color: colors.yellowDark },
+  timerEnds: { fontSize: 12, color: colors.grey, marginTop: 12 },
   distRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, paddingHorizontal: 2 },
   distText: { fontSize: 12, fontWeight: '600', color: colors.greyWarm },
   warnCard: {
