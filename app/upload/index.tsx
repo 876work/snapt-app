@@ -116,28 +116,69 @@ export default function UploadFootage() {
       if (!file.uri) return;
       const controller = new AbortController();
       aborts.current.set(file.id, controller);
-      setFileStatus(file.id, { status: 'uploading', progress: 0, error: undefined });
-      const { uploadDraftFile } = await import('../../lib/rawUpload');
-      const r = await uploadDraftFile(
-        draft,
+      /**
+       * PREPARE BEFORE TRANSFER — client source video is compressed on the
+       * phone first (lib/videoCompress: 1080p H.264, skip-under-8MB,
+       * original on failure or no gain). 'preparing' is its own visible
+       * stage with the encoder's real progress; the finishing-phase honesty
+       * shipped earlier stays intact because the upload bar still starts
+       * at zero on the bytes that actually travel.
+       */
+      setFileStatus(file.id, { status: 'preparing', progress: 0, error: undefined, notice: undefined });
+      const { prepareVideoForUpload, discardPrepared } = await import('../../lib/videoCompress');
+      const prepared = await prepareVideoForUpload(
         {
           uri: file.uri,
-          name: file.name ?? 'upload.jpg',
+          name: file.name,
           mimeType: file.mimeType,
           sizeBytes: Math.round(file.sizeMb * 1048576),
         },
-        (fraction) =>
-          setFileStatus(
-            file.id,
-            // All bytes handed to the network = 'finishing', not done: R2's
-            // ack and the register call are still ahead, and that tail is
-            // exactly where the dead-"100%" window lived.
-            fraction != null && fraction >= 1
-              ? { progress: 1, status: 'finishing' }
-              : { progress: fraction },
-          ),
-        controller.signal,
+        {
+          signal: controller.signal,
+          onProgress: (fraction) => setFileStatus(file.id, { progress: fraction }),
+        },
       );
+      if (prepared.aborted) {
+        // The user removed the file mid-prepare — same silent exit as a
+        // cancelled transfer; the temp (if any) is already discarded.
+        aborts.current.delete(file.id);
+        return;
+      }
+      if (prepared.fallbackNote) {
+        // Compression failed; the ORIGINAL is uploading. Visible, non-fatal.
+        setFileStatus(file.id, { notice: prepared.fallbackNote });
+      }
+      setFileStatus(file.id, { status: 'uploading', progress: 0, error: undefined });
+      const { uploadDraftFile } = await import('../../lib/rawUpload');
+      let r: Awaited<ReturnType<typeof uploadDraftFile>>;
+      try {
+        r = await uploadDraftFile(
+          draft,
+          {
+            uri: prepared.uri,
+            name: file.name ?? 'upload.jpg',
+            mimeType: file.mimeType,
+            // The size of what is actually being sent — the presign's cap
+            // check and the progress denominator both want THIS file.
+            sizeBytes: prepared.sizeBytes,
+          },
+          (fraction) =>
+            setFileStatus(
+              file.id,
+              // All bytes handed to the network = 'finishing', not done: R2's
+              // ack and the register call are still ahead, and that tail is
+              // exactly where the dead-"100%" window lived.
+              fraction != null && fraction >= 1
+                ? { progress: 1, status: 'finishing' }
+                : { progress: fraction },
+            ),
+          controller.signal,
+        );
+      } finally {
+        // The temp encode is dead weight the moment the attempt ends —
+        // success, failure or abort. A no-op when the original was sent.
+        void discardPrepared(prepared.uri, file.uri);
+      }
       aborts.current.delete(file.id);
       // A cancel is the client's own doing — the row is already gone from
       // the store, and showing it as "failed" would invite a retry of a
@@ -279,9 +320,14 @@ export default function UploadFootage() {
   // 'finishing' counts as in-flight everywhere a decision hangs on it — a
   // file is not ready until the server has the row.
   const uploading = files.filter(
-    (f) => f.status === 'uploading' || f.status === 'queued' || f.status === 'finishing',
+    (f) =>
+      f.status === 'uploading' ||
+      f.status === 'queued' ||
+      f.status === 'finishing' ||
+      f.status === 'preparing',
   ).length;
   const failed = files.filter((f) => f.status === 'failed').length;
+  const noticed = files.filter((f) => f.notice).length;
 
   const rejectLine = (r: RejectedFile) =>
     r.reason === 'count'
@@ -403,6 +449,23 @@ export default function UploadFootage() {
 
               {/* Per-file state, over its own thumbnail — one file failing
                   says nothing about the other fourteen. */}
+              {f.status === 'preparing' && (
+                <View style={styles.thumbOverlay}>
+                  {/* The encoder reports real progress on both platforms —
+                      shown as its own labeled stage, never mistakable for
+                      transfer progress. */}
+                  <View style={styles.thumbBarTrack}>
+                    {f.progress != null && (
+                      <View style={[styles.thumbBarFill, { width: `${Math.round(f.progress * 100)}%` }]} />
+                    )}
+                  </View>
+                  <Text style={styles.thumbPct}>
+                    {f.progress != null && f.progress > 0
+                      ? `Preparing ${Math.min(99, Math.round(f.progress * 100))}%`
+                      : 'Preparing…'}
+                  </Text>
+                </View>
+              )}
               {(f.status === 'uploading' || f.status === 'finishing') && (
                 <View style={styles.thumbOverlay}>
                   {/* progress == null means the true total is unknowable for
@@ -461,6 +524,14 @@ export default function UploadFootage() {
           <Text style={styles.failedNote}>
             {failed} {failed === 1 ? 'file' : 'files'} didn't upload — tap a marked thumbnail to
             retry it. The ones that finished are kept.
+          </Text>
+        )}
+        {noticed > 0 && (
+          /* Non-fatal and says so: the upload SUCCEEDED, the optimization
+             didn't. Grey, not red — this must never read as a failure. */
+          <Text style={styles.noticeNote}>
+            {noticed} {noticed === 1 ? 'file' : 'files'} couldn't be optimized for upload, so the
+            original {noticed === 1 ? 'is' : 'are'} being sent at full size.
           </Text>
         )}
 
@@ -621,6 +692,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#159A57',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  noticeNote: {
+    fontSize: 12,
+    color: colors.greyWarm,
+    fontWeight: '600',
+    marginTop: 10,
+    lineHeight: 17,
   },
   failedNote: {
     fontSize: 12,

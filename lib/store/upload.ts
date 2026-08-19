@@ -16,10 +16,13 @@ export interface UploadFile {
    *  'finishing' = every byte handed to the network, but the file is not yet
    *  confirmed usable (R2's ack + our register call are still outstanding) —
    *  the phase that used to display as a dead "100%". */
-  status?: 'queued' | 'uploading' | 'finishing' | 'done' | 'failed';
+  status?: 'queued' | 'preparing' | 'uploading' | 'finishing' | 'done' | 'failed';
   /** 0–1, or null when the true total is unknowable (see rawUpload's put). */
   progress?: number | null;
   error?: string;
+  /** Non-fatal, user-visible: e.g. compression failed and the original went
+   *  up instead. Distinct from `error` — the upload itself succeeded. */
+  notice?: string;
   /** booking_media row id once registered — needed to delete it server-side. */
   mediaId?: string;
 }
