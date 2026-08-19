@@ -9,6 +9,7 @@ import { formatMoney, USD_PROCESSING_NOTE } from '../../../lib/constants/busines
 import { colors, spacing, insetBottom } from '../../../lib/theme';
 import { navShrinkOnScroll } from '../../../lib/navShrink';
 import { KeyboardScrollView } from '../../../components/ui/KeyboardScrollView';
+import { unlock } from '../../../lib/biometrics';
 
 /**
  * Real charge/refund history — moved here from the old Wallet tab, same
@@ -26,6 +27,28 @@ const MOCK_TXNS = [
 ];
 
 export default function PaymentsAndReceipts() {
+  /**
+   * ALWAYS ON for this screen, same rule and same ladder as cash-out
+   * (lib/biometrics): payment history is worth a prompt every time. It fails
+   * open at every step — 'gate' only holds the FIRST paint so receipts are
+   * not on screen behind the OS dialog; no outcome refuses to render.
+   */
+  const [gate, setGate] = React.useState<'checking' | 'open'>('checking');
+  const [unverified, setUnverified] = React.useState(false);
+  React.useEffect(() => {
+    let cancelled = false;
+    unlock('Unlock your payments').then((outcome) => {
+      if (cancelled) return;
+      // 'blocked' counts too: the OS refused and will not ask again, so the
+      // screen opened without confirming who this is either way.
+      setUnverified(outcome === 'bypassed' || outcome === 'blocked');
+      setGate('open');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const { currency } = useAuth();
   const [txns, setTxns] = React.useState<typeof MOCK_TXNS>([]);
   const [txnsState, setTxnsState] = React.useState<'loading' | 'ready' | 'error' | 'mock'>('loading');
@@ -87,10 +110,26 @@ export default function PaymentsAndReceipts() {
     }, [loadTxns]),
   );
 
+  // Holds the FIRST paint only — never a refusal (see lib/biometrics).
+  if (gate === 'checking') {
+    return (
+      <View style={styles.root}>
+        <ScreenHeader title="Payments & receipts" />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.root}>
       <ScreenHeader title="Payments & receipts" />
       <KeyboardScrollView onScroll={navShrinkOnScroll} scrollEventThrottle={32} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        {unverified && (
+          /* Let through without confirming identity — say so rather than
+             pretend the check passed. */
+          <Text style={styles.unverifiedNote}>
+            Opened without verification — your device couldn't confirm it was you.
+          </Text>
+        )}
         {txnsState === 'mock' && (
           <Text style={styles.mockNote}>Illustrative data — no server connected.</Text>
         )}
@@ -156,6 +195,13 @@ export default function PaymentsAndReceipts() {
 }
 
 const styles = StyleSheet.create({
+  unverifiedNote: {
+    fontSize: 11.5,
+    color: colors.greyWarm,
+    lineHeight: 16,
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
   rowHighlight: {
     backgroundColor: '#FFFBEF',
     borderLeftWidth: 3,

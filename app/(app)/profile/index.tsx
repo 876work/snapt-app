@@ -471,7 +471,23 @@ export default function Profile() {
         >
           <Text style={styles.logout}>Log out</Text>
         </Pressable>
-        <Pressable onPress={() => setDeleteOpen(true)}>
+        <Pressable
+          onPress={() => {
+            /**
+             * Same ladder as cash-out and the app lock (lib/biometrics),
+             * prompted at the moment of intent rather than gating a whole
+             * screen — this is an action, not a page. FAILS OPEN like every
+             * other use: the sheet opens on any outcome, because the real
+             * protections are the slide, the server's own guards (unfinished
+             * bookings, unpaid earnings) and the 30-day grace period — this
+             * only raises the cost of a casual grab of an unattended phone.
+             */
+            import('../../../lib/biometrics').then(async (B) => {
+              await B.unlock("Confirm it's you before deleting this account");
+              setDeleteOpen(true);
+            });
+          }}
+        >
           <Text style={styles.deleteLink}>Delete account</Text>
         </Pressable>
         <View style={{ height: 130 }} />
