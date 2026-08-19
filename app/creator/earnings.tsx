@@ -4,11 +4,8 @@ import { Text } from '../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { useAuth } from '../../lib/store';
-import {
-  CREATOR_PLATFORM_FEE_RATE,
-  CREATOR_PROMO_FEE_RATE,
-  formatMoney,
-} from '../../lib/constants/business';
+import { formatMoney } from '../../lib/constants/business';
+import type { CreatorFeeRate } from '../../lib/api';
 import { colors } from '../../lib/theme';
 import { navShrinkOnScroll } from '../../lib/navShrink';
 
@@ -44,6 +41,8 @@ export default function CreatorEarnings() {
   const [real, setReal] = React.useState<{
     rows: PayoutRow[];
     totals: { pending: number; available: number; paid_out: number };
+    /** This creator's own rate, from the server. null = we don't know it. */
+    fee: CreatorFeeRate | null;
   } | null>(null);
   React.useEffect(() => {
     import('../../lib/api').then(({ apiConfigured, fetchEarnings }) => {
@@ -52,6 +51,7 @@ export default function CreatorEarnings() {
         if (!data) return;
         setReal({
           totals: data.totals,
+          fee: data.fee ?? null,
           rows: data.payouts.map((p) => ({
             id: p.id,
             title: `Booking ${p.booking_id.slice(0, 8)}`,
@@ -72,6 +72,13 @@ export default function CreatorEarnings() {
   }, []);
 
   const rows = real?.rows ?? [];
+  // The creator's OWN rate. null until it arrives, and null forever in mock
+  // mode or after a failed fetch — the card says so rather than inventing a
+  // number, because a wrong fee on a money screen is worse than no fee.
+  const fee = real?.fee ?? null;
+  // Trailing zeros trimmed, so 0.325 prints "32.5%" rather than rounding to
+  // a rate nobody is actually on.
+  const pct = (r: number) => `${+(r * 100).toFixed(2)}%`;
   const pending = real?.totals.pending ?? 0;
   const available = real?.totals.available ?? 0;
   const paidOut = real?.totals.paid_out ?? 0;
@@ -121,23 +128,38 @@ export default function CreatorEarnings() {
           </View>
         </View>
 
-        {/* Platform fee — promo shown with strikethrough per §5 */}
+        {/* Platform fee — THIS creator's rate, resolved by the server. The
+            promo treatment (strikethrough + chip) appears only for a creator
+            who actually has a promo rate; it used to render for everyone. */}
         <View style={styles.feeCard}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
             <View style={{ minWidth: 0 }}>
               <Text style={styles.statLabel}>Your platform fee</Text>
               <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
-                <Text style={styles.feeStd}>{(CREATOR_PLATFORM_FEE_RATE * 100).toFixed(0)}%</Text>
-                <Text style={styles.feePromo}>{(CREATOR_PROMO_FEE_RATE * 100).toFixed(0)}%</Text>
+                {fee == null ? (
+                  <Text style={styles.feeUnknown}>—</Text>
+                ) : fee.is_promo && fee.standard_rate != null ? (
+                  <>
+                    <Text style={styles.feeStd}>{pct(fee.standard_rate)}</Text>
+                    <Text style={styles.feePromo}>{pct(fee.rate)}</Text>
+                  </>
+                ) : (
+                  <Text style={styles.feeRate}>{pct(fee.rate)}</Text>
+                )}
               </View>
             </View>
-            <View style={styles.promoChip}>
-              <Text style={styles.promoLabel}>Limited-time rate</Text>
-            </View>
+            {fee?.is_promo ? (
+              <View style={styles.promoChip}>
+                <Text style={styles.promoLabel}>Limited-time rate</Text>
+              </View>
+            ) : null}
           </View>
           <Text style={styles.feeNote}>
-            You're keeping more of every job while this promo rate is active — normally{' '}
-            {(CREATOR_PLATFORM_FEE_RATE * 100).toFixed(0)}%.
+            {fee == null
+              ? "We couldn't load your rate just now — reopen this screen to see it. Every amount above is already after the fee."
+              : fee.is_promo && fee.standard_rate != null
+                ? `You're keeping more of every job while this promo rate is active — normally ${pct(fee.standard_rate)}.`
+                : 'Taken out of each job before your payout. Every amount above is what you keep.'}
           </Text>
         </View>
 
@@ -230,6 +252,10 @@ const styles = StyleSheet.create({
   },
   feeStd: { fontSize: 14, textDecorationLine: 'line-through', color: '#B0AAA1', fontWeight: '600' },
   feePromo: { fontSize: 17, fontWeight: '700', letterSpacing: -0.2, color: '#159A57' },
+  // Standard rate: same weight as the promo figure, neutral colour — the
+  // green is the promo's signal and must not read as one when there is none.
+  feeRate: { fontSize: 17, fontWeight: '700', letterSpacing: -0.2, color: colors.ink },
+  feeUnknown: { fontSize: 17, fontWeight: '700', letterSpacing: -0.2, color: colors.greyLight },
   promoChip: { backgroundColor: '#E6F7EE', borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 },
   promoLabel: { fontSize: 10.5, fontWeight: '800', color: '#159A57', letterSpacing: 0.3 },
   feeNote: { fontSize: 11.5, color: colors.grey, marginTop: 10, lineHeight: 17 },

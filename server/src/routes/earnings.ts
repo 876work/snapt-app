@@ -3,7 +3,8 @@ import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
 import { notify } from '../notify.js';
 import { encryptField } from '../crypto.js';
-import { enabledPayoutMethods, payoutMethodNotes } from '../config.js';
+import { enabledPayoutMethods, getConfig, payoutMethodNotes } from '../config.js';
+import { feeRateFor } from '../payments.js';
 import { METHOD_FIELDS, PAYOUT_METHODS, methodName } from '../payout-methods.js';
 
 // Creator earnings: Pending (held, inside the 7-day dispute window) →
@@ -161,6 +162,26 @@ export function registerEarningsRoutes(app: FastifyInstance) {
       Math.round(
         rows.filter((r) => r.status === status).reduce((s, r) => s + Number(r.amount_usd), 0) * 100,
       ) / 100;
+
+    /**
+     * THIS CREATOR'S OWN FEE RATE, so the earnings screen can print it
+     * instead of a constant baked into the app. The app used to render a
+     * hardcoded 32% struck through against a hardcoded 20% "limited-time
+     * rate" for EVERY creator — wrong for anyone on the standard rate, and
+     * stale for everyone the moment an admin edits the rate in the portal.
+     *
+     * Sent only here, on the creator's own earnings, and only to them:
+     * creator_platform_fee_rate and creator_promo_fee_rate stay out of the
+     * public /v1/config, and no client-facing endpoint carries either.
+     *
+     * `standard` rides along ONLY for a creator who is actually on a promo —
+     * it is the rate that would otherwise be theirs, and the strikethrough
+     * comparison (§5) has nothing to compare against without it. A
+     * standard-rate creator is sent one number, their own.
+     */
+    const { rate, isPromo } = await feeRateFor(user.id);
+    const config = await getConfig();
+    const standard = (config['creator_platform_fee_rate'] as number) ?? 0.32;
     return {
       payouts: rows,
       totals: {
@@ -168,6 +189,7 @@ export function registerEarningsRoutes(app: FastifyInstance) {
         available: sum('available'),
         paid_out: sum('paid_out'),
       },
+      fee: { rate, is_promo: isPromo, ...(isPromo ? { standard_rate: standard } : {}) },
     };
   });
 

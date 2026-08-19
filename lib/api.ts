@@ -815,9 +815,24 @@ export async function fetchMyDeliveries(): Promise<{
   return request('/v1/creator/deliveries');
 }
 
+/**
+ * The signed-in creator's own fee rate, resolved server-side.
+ *
+ * `standard_rate` is present only when `is_promo` — it is the rate that
+ * would otherwise apply to this creator, and drives the §5 strikethrough.
+ * Absent for a standard-rate creator, who has only one rate to show.
+ */
+export interface CreatorFeeRate {
+  rate: number;
+  is_promo: boolean;
+  standard_rate?: number;
+}
+
 export async function fetchEarnings(): Promise<{
   payouts: EarningsPayout[];
   totals: { pending: number; available: number; paid_out: number };
+  /** Optional: absent from a server older than this field. */
+  fee?: CreatorFeeRate;
 } | null> {
   return request(`/v1/creator/earnings`);
 }
