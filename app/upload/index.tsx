@@ -126,7 +126,16 @@ export default function UploadFootage() {
           mimeType: file.mimeType,
           sizeBytes: Math.round(file.sizeMb * 1048576),
         },
-        (fraction) => setFileStatus(file.id, { progress: fraction }),
+        (fraction) =>
+          setFileStatus(
+            file.id,
+            // All bytes handed to the network = 'finishing', not done: R2's
+            // ack and the register call are still ahead, and that tail is
+            // exactly where the dead-"100%" window lived.
+            fraction != null && fraction >= 1
+              ? { progress: 1, status: 'finishing' }
+              : { progress: fraction },
+          ),
         controller.signal,
       );
       aborts.current.delete(file.id);
@@ -267,7 +276,11 @@ export default function UploadFootage() {
     setDiscarding(false);
   };
 
-  const uploading = files.filter((f) => f.status === 'uploading' || f.status === 'queued').length;
+  // 'finishing' counts as in-flight everywhere a decision hangs on it — a
+  // file is not ready until the server has the row.
+  const uploading = files.filter(
+    (f) => f.status === 'uploading' || f.status === 'queued' || f.status === 'finishing',
+  ).length;
   const failed = files.filter((f) => f.status === 'failed').length;
 
   const rejectLine = (r: RejectedFile) =>
@@ -390,7 +403,7 @@ export default function UploadFootage() {
 
               {/* Per-file state, over its own thumbnail — one file failing
                   says nothing about the other fourteen. */}
-              {f.status === 'uploading' && (
+              {(f.status === 'uploading' || f.status === 'finishing') && (
                 <View style={styles.thumbOverlay}>
                   {/* progress == null means the true total is unknowable for
                       this file — an empty track and an ellipsis, never a
@@ -401,7 +414,13 @@ export default function UploadFootage() {
                     )}
                   </View>
                   <Text style={styles.thumbPct}>
-                    {f.progress != null ? `${Math.round(f.progress * 100)}%` : 'Uploading…'}
+                    {f.status === 'finishing'
+                      ? 'Finishing…'
+                      : f.progress != null
+                        ? // 99 is the byte-phase ceiling: 100 is a claim about
+                          // the FILE, and only the register call can make it.
+                          `${Math.min(99, Math.round(f.progress * 100))}%`
+                        : 'Uploading…'}
                   </Text>
                 </View>
               )}

@@ -74,7 +74,13 @@ export default function RemoteOrderSummary() {
    * only stopped at the last step, because a paid order the editor cannot
    * work from is worse than a wait.
    */
-  const pending = files.filter((f) => f.status === 'uploading' || f.status === 'queued').length;
+  const pending = files.filter(
+    (f) => f.status === 'uploading' || f.status === 'queued' || f.status === 'finishing',
+  ).length;
+  // Bytes all sent, confirmation outstanding — the phase the button must
+  // explain rather than sit silently disabled through.
+  const finishing = files.filter((f) => f.status === 'finishing').length;
+  const stillSending = pending - finishing;
   const failedCount = files.filter((f) => f.status === 'failed').length;
   const blocked = pending > 0 || failedCount > 0;
 
@@ -273,8 +279,10 @@ export default function RemoteOrderSummary() {
                   </Text>
                   {f.status === 'failed' ? (
                     <Text style={styles.uploadFailed}>{f.error ?? 'failed'}</Text>
+                  ) : f.status === 'finishing' ? (
+                    <Text style={styles.uploadPct}>finishing…</Text>
                   ) : f.status === 'uploading' ? (
-                    <Text style={styles.uploadPct}>{Math.round((f.progress ?? 0) * 100)}%</Text>
+                    <Text style={styles.uploadPct}>{Math.min(99, Math.round((f.progress ?? 0) * 100))}%</Text>
                   ) : (
                     <Text style={styles.uploadPct}>waiting</Text>
                   )}
@@ -283,7 +291,12 @@ export default function RemoteOrderSummary() {
             <Text style={styles.uploadHint}>
               {failedCount > 0
                 ? `${failedCount} ${failedCount === 1 ? 'file' : 'files'} didn't upload. Go back and retry ${failedCount === 1 ? 'it' : 'them'} — we won't take payment for an order your editor can't work from.`
-                : `Still sending ${pending} ${pending === 1 ? 'file' : 'files'}. Payment opens the moment they're in.`}
+                : stillSending > 0
+                  ? `Still sending ${stillSending} ${stillSending === 1 ? 'file' : 'files'}. Payment opens the moment they're in.`
+                  : // Everything is transferred; the server just hasn't
+                    // confirmed the rows yet. Distinct copy, because "still
+                    // sending" over a full bar reads as a hang.
+                    `${finishing === 1 ? 'Your file is' : 'All files are'} uploaded — confirming with the server. Payment opens the moment ${finishing === 1 ? "it's" : "they're"} confirmed.`}
             </Text>
           </View>
         )}
@@ -299,9 +312,11 @@ export default function RemoteOrderSummary() {
           title={
             busy
               ? 'Working…'
-              : pending > 0
-                ? `Waiting for ${pending} ${pending === 1 ? 'file' : 'files'}…`
-                : failedCount > 0
+              : finishing > 0 && stillSending === 0
+                ? 'Confirming upload…'
+                : pending > 0
+                  ? `Waiting for ${pending} ${pending === 1 ? 'file' : 'files'}…`
+                  : failedCount > 0
                   ? `${failedCount} ${failedCount === 1 ? 'file needs' : 'files need'} a retry`
                   : 'Continue to payment'
           }

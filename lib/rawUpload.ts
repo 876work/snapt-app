@@ -20,6 +20,41 @@ export interface RawUploadResult {
   error?: string;
 }
 
+/**
+ * ONE REQUEST TO OUR SERVER, WITH A DEADLINE.
+ *
+ * React Native's Android client sets NO network timeouts at all —
+ * OkHttpClientProvider.kt builds okhttp with connect/read/write all 0
+ * ("No timeouts by default"), so a fetch against a sleeping Render instance
+ * waits forever. That is exactly the reported shape: bytes in R2, bar at
+ * 100%, and the register call hanging with nothing on screen moving.
+ *
+ * 75s: comfortably past a normal cold start (20–60s) so a waking server
+ * still succeeds, but bounded — past it the caller shows a real error with
+ * a retry instead of an indefinite nothing.
+ */
+const SERVER_CALL_TIMEOUT_MS = 75_000;
+
+async function fetchWithDeadline(
+  url: string,
+  init: RequestInit,
+  tag: string,
+): Promise<Response | 'timeout'> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SERVER_CALL_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (controller.signal.aborted) {
+      captureHandledError(new Error(`${tag} timed out after ${SERVER_CALL_TIMEOUT_MS}ms`), tag);
+      return 'timeout';
+    }
+    throw err; // a real network failure — the caller's catch owns it
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function put(
   url: string,
   blob: Blob,
@@ -139,15 +174,22 @@ export async function uploadDraftFile(
 
   let target: { upload_url: string; storage_path: string };
   try {
-    const res = await fetch(`${apiBase}/v1/upload-drafts/${draftId}/upload-url`, {
-      method: 'POST',
-      headers: await authHeaders(),
-      body: JSON.stringify({
-        filename: file.name,
-        content_type: contentType,
-        size_bytes: file.sizeBytes,
-      }),
-    });
+    const res = await fetchWithDeadline(
+      `${apiBase}/v1/upload-drafts/${draftId}/upload-url`,
+      {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({
+          filename: file.name,
+          content_type: contentType,
+          size_bytes: file.sizeBytes,
+        }),
+      },
+      'rawUpload:draft:presign-timeout',
+    );
+    if (res === 'timeout') {
+      return { ok: false, error: 'The server is taking too long to answer — it may be waking up. Tap to retry.' };
+    }
     const json = (await res.json().catch(() => null)) as
       | { upload_url?: string; storage_path?: string; error?: string }
       | null;
@@ -189,11 +231,23 @@ export async function uploadDraftFile(
   // Registered = claimable by checkout. An object with no row is invisible
   // to the claim and gets swept, so this step is what makes the upload real.
   try {
-    const res = await fetch(`${apiBase}/v1/upload-drafts/${draftId}/media`, {
-      method: 'POST',
-      headers: await authHeaders(),
-      body: JSON.stringify({ storage_path: target.storage_path, content_type: contentType }),
-    });
+    const res = await fetchWithDeadline(
+      `${apiBase}/v1/upload-drafts/${draftId}/media`,
+      {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({ storage_path: target.storage_path, content_type: contentType }),
+      },
+      'rawUpload:draft:register-timeout',
+    );
+    if (res === 'timeout') {
+      // The bytes ARE in storage; only the row is missing. Said that way, so
+      // a confirmation stall can never read as the upload itself failing.
+      return {
+        ok: false,
+        error: 'Your file uploaded, but confirming it timed out — the server may be waking up. Tap to retry.',
+      };
+    }
     const json = (await res.json().catch(() => null)) as
       | { media?: { id: string }; error?: string }
       | null;
@@ -226,24 +280,32 @@ export async function uploadBookingFile(
   // 1. Presign. The server validates type and size before handing out a URL.
   let target: { upload_url: string; storage_path: string };
   try {
-    const res = await fetch(`${apiBase}/v1/bookings/${bookingId}/media/upload-url`, {
-      method: 'POST',
-      headers: await authHeaders(),
-      // size_bytes lets the server refuse an oversize file BEFORE handing
-      // out a presigned URL, rather than after a 700MB round trip.
-      body: JSON.stringify({
-        kind,
-        filename: file.name,
-        content_type: contentType,
-        size_bytes: file.sizeBytes,
-      }),
-    });
+    const res = await fetchWithDeadline(
+      `${apiBase}/v1/bookings/${bookingId}/media/upload-url`,
+      {
+        method: 'POST',
+        headers: await authHeaders(),
+        // size_bytes lets the server refuse an oversize file BEFORE handing
+        // out a presigned URL, rather than after a 700MB round trip.
+        body: JSON.stringify({
+          kind,
+          filename: file.name,
+          content_type: contentType,
+          size_bytes: file.sizeBytes,
+        }),
+      },
+      'rawUpload:booking:presign-timeout',
+    );
+    if (res === 'timeout') {
+      return { ok: false, error: 'The server is taking too long to answer — it may be waking up. Tap to retry.' };
+    }
     const json = (await res.json()) as { upload_url?: string; storage_path?: string; error?: string };
     if (!res.ok || !json.upload_url || !json.storage_path) {
       return { ok: false, error: json.error ?? "Couldn't start the upload." };
     }
     target = { upload_url: json.upload_url, storage_path: json.storage_path };
-  } catch {
+  } catch (err) {
+    captureHandledError(err, 'rawUpload:booking:presign-network');
     return { ok: false, error: 'Network error starting the upload.' };
   }
 
@@ -262,16 +324,27 @@ export async function uploadBookingFile(
   // 3. Register. Until this lands the object exists but no creator can see
   // it, so a failure here is a real failure, not a cosmetic one.
   try {
-    const res = await fetch(`${apiBase}/v1/bookings/${bookingId}/media`, {
-      method: 'POST',
-      headers: await authHeaders(),
-      body: JSON.stringify({ kind, storage_path: target.storage_path, content_type: contentType }),
-    });
+    const res = await fetchWithDeadline(
+      `${apiBase}/v1/bookings/${bookingId}/media`,
+      {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({ kind, storage_path: target.storage_path, content_type: contentType }),
+      },
+      'rawUpload:booking:register-timeout',
+    );
+    if (res === 'timeout') {
+      return {
+        ok: false,
+        error: 'Your file uploaded, but confirming it timed out — the server may be waking up. Tap to retry.',
+      };
+    }
     if (!res.ok) {
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       return { ok: false, error: json.error ?? 'Uploaded, but could not attach to the order.' };
     }
-  } catch {
+  } catch (err) {
+    captureHandledError(err, 'rawUpload:booking:register-network');
     return { ok: false, error: 'Uploaded, but could not attach to the order.' };
   }
   onProgress(1);

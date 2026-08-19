@@ -12,8 +12,11 @@ export interface UploadFile {
   uri?: string;
   name?: string;
   mimeType?: string;
-  /** Per-file upload lifecycle. A silent failure on a paid order is a dispute. */
-  status?: 'queued' | 'uploading' | 'done' | 'failed';
+  /** Per-file upload lifecycle. A silent failure on a paid order is a dispute.
+   *  'finishing' = every byte handed to the network, but the file is not yet
+   *  confirmed usable (R2's ack + our register call are still outstanding) —
+   *  the phase that used to display as a dead "100%". */
+  status?: 'queued' | 'uploading' | 'finishing' | 'done' | 'failed';
   /** 0–1, or null when the true total is unknowable (see rawUpload's put). */
   progress?: number | null;
   error?: string;

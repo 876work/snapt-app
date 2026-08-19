@@ -24,7 +24,7 @@ export interface BatchFile {
   name: string;
   mimeType?: string;
   sizeBytes?: number;
-  status: 'queued' | 'uploading' | 'done' | 'failed';
+  status: 'queued' | 'uploading' | 'finishing' | 'done' | 'failed';
   /** 0–1, or null when the true total is unknowable (see rawUpload's put). */
   progress: number | null;
   error?: string;
@@ -72,7 +72,15 @@ export function useUploadBatch(bookingId: string, kind: 'raw' | 'deliverable' | 
         bookingId,
         kind,
         { uri: f.uri, name: f.name, mimeType: f.mimeType, sizeBytes: f.sizeBytes },
-        (fraction) => patch(f.id, { progress: fraction }),
+        (fraction) =>
+          patch(
+            f.id,
+            // Bytes all handed off ≠ done: R2's ack + the register call are
+            // still ahead. Same finishing phase as the client upload screen.
+            fraction != null && fraction >= 1
+              ? { progress: 1, status: 'finishing' }
+              : { progress: fraction },
+          ),
       );
       if (r.ok) {
         patch(f.id, { status: 'done', progress: 1 });
@@ -113,7 +121,8 @@ export function BatchFileList({
               )}
               <Text style={styles.fileName} numberOfLines={1}>{f.name}</Text>
             </View>
-            {f.status === 'uploading' && (
+            {f.status === 'finishing' && <Text style={styles.finishing}>Finishing…</Text>}
+            {(f.status === 'uploading' || f.status === 'finishing') && (
               <View style={styles.barTrack}>
                 {/* Unknown total: an empty track and "Uploading…" beside it.
                     A bar that has to guess would be guessing about someone's
@@ -279,6 +288,7 @@ const styles = StyleSheet.create({
   fileError: { fontSize: 11.5, color: '#A32C2C', fontWeight: '600', marginTop: 3 },
   barTrack: { height: 5, borderRadius: 3, backgroundColor: '#F0EBDF', marginTop: 7, overflow: 'hidden' },
   barFill: { height: '100%', borderRadius: 3, backgroundColor: colors.yellow },
+  finishing: { fontSize: 10.5, fontWeight: '700', color: colors.greyWarm },
   removeBtn: { width: 26, height: 26, borderRadius: 8, backgroundColor: '#F5F3EE', alignItems: 'center', justifyContent: 'center' },
   retryNote: { fontSize: 11.5, color: colors.grey, textAlign: 'center', marginTop: 8 },
   notSentCard: {
