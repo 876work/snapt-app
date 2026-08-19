@@ -357,8 +357,14 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       )
       .eq('vetting_status', 'approved')
       // Same reason as the directory: the featured rail is a client surface.
-      .eq('profiles.status', 'active')
-      .limit(12);
+      .eq('profiles.status', 'active');
+    // NO limit here. Who qualifies depends on published work, which this
+    // query cannot see — a limit at this point cut 13 approved creators to
+    // an ARBITRARY 12 (no ORDER BY, so Postgres chose), and the one dropped
+    // could have been the only one with a portfolio: an empty rail while a
+    // qualifying creator existed. The cap moves BELOW the work filter, after
+    // a deterministic sort. The approved roster is human-vetted and small,
+    // so the unbounded read is fine.
     const ids = (data ?? []).map((c: any) => c.user_id as string);
     if (!ids.length) return { creators: [] };
 
@@ -376,16 +382,39 @@ export function registerCreatorRoutes(app: FastifyInstance) {
       .order('created_at', { ascending: false });
 
     const pathsByCreator = new Map<string, string[]>();
+    // Each creator's newest published shot, for ordering. The shots query is
+    // created_at DESC, so the first row seen per creator is their newest.
+    const newestShotAt = new Map<string, string>();
     for (const shot of shots ?? []) {
       const list = pathsByCreator.get(shot.creator_id as string) ?? [];
       if (list.length < 3) list.push(shot.storage_path as string);
       pathsByCreator.set(shot.creator_id as string, list);
+      if (!newestShotAt.has(shot.creator_id as string)) {
+        newestShotAt.set(shot.creator_id as string, shot.created_at as string);
+      }
     }
+
+    /**
+     * Work filter FIRST, then a deterministic order, then the cap of 12.
+     *
+     * Order: most recently published work first. The rail is a shop window,
+     * so the freshest proof of activity leads, and the order rotates as
+     * creators publish rather than fossilising whoever signed up first.
+     * ISO timestamps compare lexicographically; user_id breaks exact ties so
+     * two calls can never disagree about who holds the twelfth slot.
+     */
+    const featured = (data ?? [])
+      .filter((c: any) => (pathsByCreator.get(c.user_id)?.length ?? 0) > 0)
+      .sort((a: any, b: any) => {
+        const at = newestShotAt.get(a.user_id) ?? '';
+        const bt = newestShotAt.get(b.user_id) ?? '';
+        return bt.localeCompare(at) || String(a.user_id).localeCompare(String(b.user_id));
+      })
+      .slice(0, 12);
 
     const { createDownloadUrl } = await import('../storage.js');
     const creators = await Promise.all(
-      (data ?? [])
-        .filter((c: any) => (pathsByCreator.get(c.user_id)?.length ?? 0) > 0)
+      featured
         .map(async (c: any) => {
           const paths = pathsByCreator.get(c.user_id) ?? [];
           const work = (

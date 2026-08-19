@@ -94,10 +94,9 @@ export function FeaturedRail({
               <Path d="M3.5 7.5A2.5 2.5 0 016 5h2l1.2-1.8h5.6L16 5h2a2.5 2.5 0 012.5 2.5v9A2.5 2.5 0 0118 19H6a2.5 2.5 0 01-2.5-2.5v-9z" stroke={colors.greyLight} strokeWidth={1.7} strokeLinejoin="round" />
               <Circle cx="12" cy="12" r="3.4" stroke={colors.greyLight} strokeWidth={1.7} />
             </Svg>
-            <Text style={styles.emptyTitle}>Creators joining soon</Text>
+            <Text style={styles.emptyTitle}>Creator profiles coming soon</Text>
             <Text style={styles.emptyBody}>
-              We're onboarding photographers across northern Saint Lucia. You can still book — we'll
-              match you with an available creator.
+              You can still book — we'll match you with an available creator.
             </Text>
           </View>
         ) : (
