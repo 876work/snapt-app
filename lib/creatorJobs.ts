@@ -3,6 +3,30 @@ import { CREATOR_PLATFORM_FEE_RATE } from './constants/business';
 import type { ServerBookingListItem } from './api';
 
 /**
+ * What this job pays the creator.
+ *
+ * The server sends `creator_payout_usd` on the creator's own rows, computed
+ * by the very function that writes the payout — so this figure and the money
+ * that lands are the same number, and it already carries a promo fee rate if
+ * the creator has one. The rate itself is deliberately not public, so the app
+ * asks for the answer rather than the inputs.
+ *
+ * The fallback covers mock mode and a server older than the field. It uses
+ * the same BASE the server uses (session + every add-on + social extras), so
+ * it can never be wrong about add-ons the way the old
+ * `session_price_usd × 32%` was — but it can only assume the standard rate.
+ */
+export function creatorPayUsd(b: ServerBookingListItem): number {
+  if (typeof b.creator_payout_usd === 'number') return b.creator_payout_usd;
+  const snap = b.pricing_snapshot ?? {};
+  const base =
+    (snap.session_price_usd ?? b.price_usd) +
+    (snap.addons_usd ?? 0) +
+    (snap.social_extras_usd ?? 0);
+  return Math.round(base * (1 - CREATOR_PLATFORM_FEE_RATE) * 100) / 100;
+}
+
+/**
  * Booking row → the creator's job/offer card.
  *
  * Extracted from the Jobs list so the job DETAIL screen can hydrate itself.
@@ -27,12 +51,7 @@ export function bookingToOffer(b: ServerBookingListItem): JobOffer {
         : null,
     title: b.occasion ? `${b.occasion} session` : 'Remote edit order',
     occasion: b.occasion ?? 'Portraits',
-    payUsd:
-      Math.round(
-        (b.pricing_snapshot?.session_price_usd ?? b.price_usd) *
-          (1 - CREATOR_PLATFORM_FEE_RATE) *
-          100,
-      ) / 100,
+    payUsd: creatorPayUsd(b),
     when: b.scheduled_at
       ? `${new Date(b.scheduled_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${new Date(b.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} · ${b.duration_hours} hrs`
       : 'Remote · deliver in-app',

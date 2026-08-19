@@ -13,6 +13,7 @@ import {
 } from '../config.js';
 import { stripeConfigured } from '../env.js';
 import { expireStaleOffer, offerWindowMs, reassignBooking } from '../offers.js';
+import { creatorPayoutAt, feeRateFor, type BookingRow } from '../payments.js';
 import { notify } from '../notify.js';
 import {
   creatorSlotsForDay,
@@ -100,7 +101,31 @@ export function registerBookingRoutes(app: FastifyInstance) {
     if (error) return reply.code(500).send({ error: error.message });
     // Lazy offer-timeout sweep on read (no cron infra yet).
     const bookings = await Promise.all((data ?? []).map((b) => expireStaleOffer(b)));
-    return { bookings: bookings.filter((b) => b.client_id === user.id || b.creator_id === user.id) };
+    const mine = bookings.filter((b) => b.client_id === user.id || b.creator_id === user.id);
+
+    /**
+     * WHAT THIS JOB PAYS, computed by the same function that writes the
+     * payout row — so the offer card, the history row and the money that
+     * actually lands can never quote different figures. The app used to
+     * derive it from `session_price_usd` and a hardcoded 32%, which both
+     * ignored add-ons and ignored a creator's promo rate.
+     *
+     * Attached ONLY to rows where this user is the creator: a client never
+     * sees the creator's take, and the fee rate itself never leaves the
+     * server — it stays out of /v1/config, which is public and deliberately
+     * does not carry creator_platform_fee_rate or creator_promo_fee_rate.
+     *
+     * The rate is resolved once per request, not per booking.
+     */
+    if (!mine.some((b) => b.creator_id === user.id)) return { bookings: mine };
+    const { rate } = await feeRateFor(user.id);
+    return {
+      bookings: mine.map((b) =>
+        b.creator_id === user.id
+          ? { ...b, creator_payout_usd: creatorPayoutAt(b as BookingRow, rate) }
+          : b,
+      ),
+    };
   });
 
   // Creator accepts the assignment offer — this is what confirms a booking.

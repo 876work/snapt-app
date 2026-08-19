@@ -5,7 +5,8 @@ import { useRouter } from 'expo-router';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { Button } from '../../components/ui/Button';
 import { useAuth } from '../../lib/store';
-import { formatMoney, CREATOR_PLATFORM_FEE_RATE } from '../../lib/constants/business';
+import { formatMoney } from '../../lib/constants/business';
+import { creatorPayUsd } from '../../lib/creatorJobs';
 import { colors, insetBottom } from '../../lib/theme';
 
 /**
@@ -63,10 +64,8 @@ export default function CreatorHistory() {
               weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
             })
           : 'Remote order',
-        payUsd:
-          Math.round(
-            ((b.pricing_snapshot?.session_price_usd ?? b.price_usd) * (1 - CREATOR_PLATFORM_FEE_RATE)) * 100,
-          ) / 100,
+        // Same server-computed figure the job card shows — see creatorPayUsd.
+        payUsd: creatorPayUsd(b),
         status: b.status,
       }));
     setJobs(past);

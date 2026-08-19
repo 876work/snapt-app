@@ -524,11 +524,22 @@ interface ServerBooking {
   pricing_snapshot?: {
     session_price_usd?: number;
     subtotal_usd?: number;
+    /** Every add-on as sold, summed. Part of the creator's payout base. */
+    addons_usd?: number;
+    /** Social selection extras, priced after the client picks. Also in the base. */
+    social_extras_usd?: number;
     /** Remote-edit package tier as sold (e.g. "standard"). */
     remote_tier?: string | null;
     /** USD per addon as sold; rush_usd > 0 means this is a rush order. */
     addons?: { rush_usd?: number; extra_photos_usd?: number; revisions_usd?: number };
   };
+  /**
+   * What this job pays the creator, computed server-side with the creator's
+   * OWN fee rate (promo included) and the same function that writes the
+   * payout row. Present only on rows where the requesting user is the
+   * creator — see /v1/bookings.
+   */
+  creator_payout_usd?: number;
   status: string;
   reschedule_count: number;
   offer_expires_at?: string | null;

@@ -179,31 +179,56 @@ export async function estimateCreatorPayout(
   const who = creatorId ?? booking.creator_id;
   if (!who) return 0;
   const { rate } = await feeRateFor(who);
-  const snapshot = booking.pricing_snapshot;
-  const extrasUsd = Number(snapshot['social_extras_usd'] ?? 0) || 0;
-  return round2(payoutBase(snapshot, booking.price_usd, extrasUsd) * (1 - rate));
-}
-
-/** Payout base: the part of the price a creator earns from, pre-fee. */
-function payoutBase(
-  snapshot: Record<string, unknown>,
-  priceUsd: number,
-  extrasUsd: number,
-): number {
-  const sessionPrice = (snapshot['session_price_usd'] as number) ?? priceUsd;
-  // RUSH IS THE CREATOR'S TO EARN. The fee used to be pure platform margin
-  // (it lives in addons_usd, outside session_price_usd), so "rush" asked a
-  // creator to drop everything for nothing. It now joins the payout base at
-  // the same rate as the session — the same treatment social extras get.
-  const addonsSnap = (snapshot['addons'] ?? {}) as Record<string, unknown>;
-  const rushUsd = Number(addonsSnap['rush_usd'] ?? 0) || 0;
-  return sessionPrice + rushUsd + extrasUsd;
+  return creatorPayoutAt(booking, rate);
 }
 
 /**
- * Write the creator payout for a booking: session price minus the platform
- * fee (promo rate if set), held for payout_hold_days (= the 7-day dispute
- * window, so no payout precedes a filable dispute).
+ * The creator's take at an ALREADY-RESOLVED fee rate.
+ *
+ * For callers holding one creator and many bookings (the jobs list), so the
+ * rate is looked up once instead of per row. `estimateCreatorPayout` is the
+ * same thing with the lookup included — both land on `payoutBase`, so there
+ * is still exactly one definition of the arithmetic.
+ */
+export function creatorPayoutAt(booking: BookingRow, rate: number): number {
+  return round2(payoutBase(booking.pricing_snapshot, booking.price_usd) * (1 - rate));
+}
+
+/**
+ * Payout base: the part of the price a creator earns from, pre-fee.
+ *
+ * THE FULL SUBTOTAL — session price plus every add-on — plus social selection
+ * extras. Rush, extra photos and extra revisions are all creator labour, so
+ * the platform fee applies to the whole of what the client bought rather than
+ * to the session line alone (Don, 2026-08-19). Before this, only rush was in
+ * the base: extra photos and extra revisions were kept 100% by the platform,
+ * on in-person AND remote orders alike.
+ *
+ * The client's 8% service fee is NOT in here and never was — it sits outside
+ * `subtotal_usd` in the snapshot, so what the client pays is untouched by
+ * anything on this path.
+ */
+function payoutBase(
+  snapshot: Record<string, unknown>,
+  priceUsd: number,
+  /**
+   * Social selection extras. Omit to read them from the snapshot; pass them
+   * explicitly where the snapshot in hand may be stale (see the deliver path
+   * in `createPayoutForBooking`).
+   */
+  extrasUsd?: number,
+): number {
+  const sessionPrice = (snapshot['session_price_usd'] as number) ?? priceUsd;
+  const addonsUsd = Number(snapshot['addons_usd'] ?? 0) || 0;
+  const extras = extrasUsd ?? (Number(snapshot['social_extras_usd'] ?? 0) || 0);
+  return sessionPrice + addonsUsd + extras;
+}
+
+/**
+ * Write the creator payout for a booking: the full subtotal (session price +
+ * add-ons + any social extras) minus the platform fee (promo rate if set),
+ * held for payout_hold_days (= the 7-day dispute window, so no payout
+ * precedes a filable dispute).
  *
  * SPLIT-AWARE. A booking whose session was reassigned mid-flight already has
  * a payout row for the creator who started it, written at reassignment time.
