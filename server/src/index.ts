@@ -62,6 +62,13 @@ app.get('/v1/health', async () => ({
   // "did the file land in R2?" is unanswerable from outside.
   storage_driver: process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID &&
     process.env.R2_SECRET_ACCESS_KEY && process.env.R2_BUCKET ? 'r2' : 'supabase',
+  // WHICH COMMIT IS ACTUALLY RUNNING. Render sets RENDER_GIT_COMMIT on every
+  // deploy; without it, "is the deploy live?" had no answer from outside and
+  // two releases in a row shipped against an unverifiable server — each time
+  // the only proof available was a feature that happened to be visible, or
+  // nothing at all. A commit SHA is already public in the repo, so this
+  // discloses nothing; null means the var was absent (local dev).
+  commit: process.env.RENDER_GIT_COMMIT ?? null,
 }));
 
 registerConfigRoutes(app);
