@@ -14,6 +14,11 @@ import { apiConfigured } from '../../../lib/api';
 import { useCreator, JobStage } from '../../../lib/store/creator';
 import { bookingToOffer, JOB_STATUSES } from '../../../lib/creatorJobs';
 import { SocialPipeline } from '../../../components/creator/SocialPipeline';
+import {
+  OfferCountdownRing,
+  URGENT_REMAINING_MS,
+  formatRemaining,
+} from '../../../components/creator/OfferCountdownRing';
 import { RemoteJob } from '../../../components/creator/RemoteJob';
 import { DeliverPanel, useUploadBatch } from '../../../components/creator/DeliverUploader';
 import { formatMoney, NO_SHOW_GRACE_MINUTES } from '../../../lib/constants/business';
@@ -32,23 +37,11 @@ const STAGE_TITLES: Record<JobStage, string> = {
   submitted: 'Footage submitted',
 };
 
-/** m:ss (or h:mm:ss past the hour — the window is admin-config, not fixed). */
-function formatRemaining(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const sec = String(total % 60).padStart(2, '0');
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
-}
-
 /** "Under 1 km" / "About 3.7 km" / "About 12 km" — approximate, and says so. */
 function formatKm(km: number): string {
   if (km < 1) return 'Under 1 km';
   return `About ${km < 10 ? km.toFixed(1) : String(Math.round(km))} km`;
 }
-
-/** Red-countdown threshold: under two minutes to respond. */
-const URGENT_REMAINING_MS = 2 * 60_000;
 
 /**
  * Always HH:MM:SS. A session clock is read at a glance mid-shoot, so the
@@ -76,11 +69,19 @@ export default function CreatorJob() {
   // Rush window hours from live config — the notice must promise the same
   // number the delivery clock enforces. Fallback matches the server default.
   const [rushHours, setRushHours] = React.useState(6);
+  // Full offer window. Default mirrors the server's own (offers.ts, 15 min)
+  // so the ring is sane before the config lands.
+  const [offerWindowMs, setOfferWindowMs] = React.useState(15 * 60_000);
   React.useEffect(() => {
     import('../../../lib/api').then(({ apiConfigured: cfgd, fetchPricingConfig }) => {
       if (!cfgd) return;
       fetchPricingConfig().then((c) => {
-        if (c) setRushHours(c.rushHours);
+        if (c) {
+          setRushHours(c.rushHours);
+          // The ring needs its 100%. Same already-public config key the
+          // server stamps offer_expires_at from — no new endpoint.
+          setOfferWindowMs(c.offerWindowMinutes * 60_000);
+        }
       });
     });
   }, []);
@@ -564,10 +565,7 @@ export default function CreatorJob() {
             authoritative is running would be an invented deadline. */}
         {stage === 'offer' && !offerExpired && offerRemainMs != null && (
           <View style={[styles.countCard, offerRemainMs < URGENT_REMAINING_MS && styles.countCardUrgent]}>
-            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" style={{ marginTop: 1 }}>
-              <Circle cx="12" cy="12" r="9" stroke={offerRemainMs < URGENT_REMAINING_MS ? '#C0392B' : colors.yellowDark} strokeWidth={1.8} />
-              <Path d="M12 7.5V12l3 2" stroke={offerRemainMs < URGENT_REMAINING_MS ? '#C0392B' : colors.yellowDark} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-            </Svg>
+            <OfferCountdownRing remainMs={offerRemainMs} windowMs={offerWindowMs} />
             <View style={{ flex: 1 }}>
               <Text style={[styles.countTitle, offerRemainMs < URGENT_REMAINING_MS && styles.countTitleUrgent]}>
                 Respond within {formatRemaining(offerRemainMs)}
@@ -973,8 +971,11 @@ const styles = StyleSheet.create({
   noteBody: { fontSize: 13, color: '#3D3A34', lineHeight: 20, marginTop: 8 },
   countCard: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 9,
+    alignItems: 'center',
+    gap: 14,
+    // Same 14pt rhythm as the rush notice, the map and the warning card —
+    // this was the one block on the screen with no top margin.
+    marginTop: 14,
     backgroundColor: colors.yellowSoft,
     borderWidth: 1,
     borderColor: colors.yellowSoftBorder,

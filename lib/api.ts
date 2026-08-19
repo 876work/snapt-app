@@ -349,6 +349,8 @@ export interface PricingConfig {
   clientServiceFeeRate: number;
   rushHours: number;
   standardHours: number;
+  /** Offer accept window in minutes (offer_window_minutes). */
+  offerWindowMinutes: number;
 }
 export async function fetchPricingConfig(): Promise<PricingConfig | null> {
   const result = await request<{ config: Record<string, unknown> }>(`/v1/config`);
@@ -369,6 +371,9 @@ export async function fetchPricingConfig(): Promise<PricingConfig | null> {
     clientServiceFeeRate: Number(c['client_service_fee_rate'] ?? 0.08),
     rushHours: dw.rush_hours ?? 6,
     standardHours: dw.standard_hours ?? 24,
+    // Already published by /v1/config — the creator's offer countdown needs
+    // the window length to draw its ring. Default mirrors offers.ts.
+    offerWindowMinutes: Number(c['offer_window_minutes'] ?? 15),
   };
 }
 

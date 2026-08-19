@@ -14,7 +14,8 @@ export interface UploadFile {
   mimeType?: string;
   /** Per-file upload lifecycle. A silent failure on a paid order is a dispute. */
   status?: 'queued' | 'uploading' | 'done' | 'failed';
-  progress?: number;
+  /** 0–1, or null when the true total is unknowable (see rawUpload's put). */
+  progress?: number | null;
   error?: string;
   /** booking_media row id once registered — needed to delete it server-side. */
   mediaId?: string;

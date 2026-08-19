@@ -24,7 +24,7 @@ function put(
   url: string,
   blob: Blob,
   contentType: string,
-  onProgress: (fraction: number) => void,
+  onProgress: (fraction: number | null) => void,
   /** Cancels the transfer in flight. Only the draft path passes one — the
    *  creator's deliverable and proof uploads keep their exact behaviour. */
   signal?: AbortSignal,
@@ -33,8 +33,27 @@ function put(
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
     xhr.setRequestHeader('Content-Type', contentType);
+    /**
+     * THE DENOMINATOR IS THE BLOB, NOT THE PLATFORM'S GUESS.
+     *
+     * `e.total` on Android comes from RequestBodyUtil's
+     * `inputStream.available()` (ReactAndroid RequestBodyUtil.kt), which is
+     * documented as "bytes that can be read without blocking" — for a large
+     * file behind a content:// provider that is a buffer size, not the file
+     * size. `e.loaded` counts real bytes written, so it sails past that
+     * underestimate: a 66MB video reported 127% and kept climbing.
+     *
+     * `blob.size` is exactly what we are sending, so it is the only total
+     * that can be right. `e.total` stays as a fallback for the case blob.size
+     * cannot answer, and the result is clamped either way — a progress bar
+     * must never be able to state something impossible.
+     */
+    const total = blob.size > 0 ? blob.size : 0;
     xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total);
+      const denominator = total > 0 ? total : e.lengthComputable && e.total > 0 ? e.total : 0;
+      // null = genuinely unknown. The UI shows an indeterminate state; it
+      // must never invent a number to fill the gap.
+      onProgress(denominator > 0 ? Math.min(1, Math.max(0, e.loaded / denominator)) : null);
     };
     // `body` carries the storage service's actual refusal (R2/Supabase send
     // an XML or JSON reason) so a failure can be REPORTED with its cause
@@ -62,7 +81,7 @@ function put(
 export async function uploadRawFile(
   bookingId: string,
   file: { uri: string; name: string; mimeType?: string; sizeBytes?: number },
-  onProgress: (fraction: number) => void,
+  onProgress: (fraction: number | null) => void,
 ): Promise<RawUploadResult> {
   return uploadBookingFile(bookingId, 'raw', file, onProgress);
 }
@@ -112,7 +131,7 @@ function draftServerError(json: unknown, status: number, step: string): string {
 export async function uploadDraftFile(
   draftId: string,
   file: { uri: string; name: string; mimeType?: string; sizeBytes?: number },
-  onProgress: (fraction: number) => void,
+  onProgress: (fraction: number | null) => void,
   signal?: AbortSignal,
 ): Promise<DraftUploadResult> {
   if (!apiBase) return { ok: false, error: 'No server configured.' };
@@ -199,7 +218,7 @@ export async function uploadBookingFile(
   bookingId: string,
   kind: 'raw' | 'deliverable' | 'proof',
   file: { uri: string; name: string; mimeType?: string; sizeBytes?: number },
-  onProgress: (fraction: number) => void,
+  onProgress: (fraction: number | null) => void,
 ): Promise<RawUploadResult> {
   if (!apiBase) return { ok: false, error: 'No server configured.' };
   const contentType = file.mimeType ?? 'application/octet-stream';

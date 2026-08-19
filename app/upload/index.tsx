@@ -392,10 +392,17 @@ export default function UploadFootage() {
                   says nothing about the other fourteen. */}
               {f.status === 'uploading' && (
                 <View style={styles.thumbOverlay}>
+                  {/* progress == null means the true total is unknowable for
+                      this file — an empty track and an ellipsis, never a
+                      percentage we would be making up. */}
                   <View style={styles.thumbBarTrack}>
-                    <View style={[styles.thumbBarFill, { width: `${Math.round((f.progress ?? 0) * 100)}%` }]} />
+                    {f.progress != null && (
+                      <View style={[styles.thumbBarFill, { width: `${Math.round(f.progress * 100)}%` }]} />
+                    )}
                   </View>
-                  <Text style={styles.thumbPct}>{Math.round((f.progress ?? 0) * 100)}%</Text>
+                  <Text style={styles.thumbPct}>
+                    {f.progress != null ? `${Math.round(f.progress * 100)}%` : 'Uploading…'}
+                  </Text>
                 </View>
               )}
               {f.status === 'failed' && (

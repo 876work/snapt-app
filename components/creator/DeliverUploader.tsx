@@ -25,7 +25,8 @@ export interface BatchFile {
   mimeType?: string;
   sizeBytes?: number;
   status: 'queued' | 'uploading' | 'done' | 'failed';
-  progress: number;
+  /** 0–1, or null when the true total is unknowable (see rawUpload's put). */
+  progress: number | null;
   error?: string;
 }
 
@@ -114,7 +115,12 @@ export function BatchFileList({
             </View>
             {f.status === 'uploading' && (
               <View style={styles.barTrack}>
-                <View style={[styles.barFill, { width: `${Math.round(f.progress * 100)}%` }]} />
+                {/* Unknown total: an empty track and "Uploading…" beside it.
+                    A bar that has to guess would be guessing about someone's
+                    footage. */}
+                {f.progress != null && (
+                  <View style={[styles.barFill, { width: `${Math.round(f.progress * 100)}%` }]} />
+                )}
               </View>
             )}
             {f.status === 'failed' && (
