@@ -31,6 +31,24 @@ const STAGE_TITLES: Record<JobStage, string> = {
   submitted: 'Footage submitted',
 };
 
+/** m:ss (or h:mm:ss past the hour — the window is admin-config, not fixed). */
+function formatRemaining(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = String(total % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+}
+
+/** "Under 1 km" / "About 3.7 km" / "About 12 km" — approximate, and says so. */
+function formatKm(km: number): string {
+  if (km < 1) return 'Under 1 km';
+  return `About ${km < 10 ? km.toFixed(1) : String(Math.round(km))} km`;
+}
+
+/** Red-countdown threshold: under two minutes to respond. */
+const URGENT_REMAINING_MS = 2 * 60_000;
+
 export default function CreatorJob() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -52,6 +70,90 @@ export default function CreatorJob() {
       });
     });
   }, []);
+  /**
+   * OFFER COUNTDOWN — the deadline is the server's, never the device's.
+   *
+   * `expiresAt` is offer_expires_at exactly as the server stamped it when it
+   * made this offer (offers.ts: now + offer_window_minutes, 15 by default).
+   * The device clock only renders how much of that window is left; it never
+   * decides where the window ends. An offer opened after its expiry computes
+   * a non-positive remainder on the FIRST render, so it lands straight in
+   * the expired state — never a live countdown.
+   *
+   * Each tick re-reads Date.now() rather than decrementing a counter, so a
+   * backgrounded screen snaps to truth on return instead of having quietly
+   * frozen mid-count.
+   */
+  const offerExpiresAtMs = React.useMemo(() => {
+    if (!job?.expiresAt) return null;
+    const parsed = Date.parse(job.expiresAt);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [job?.expiresAt]);
+  const [nowMs, setNowMs] = React.useState(() => Date.now());
+  const offerRemainMs = offerExpiresAtMs != null ? offerExpiresAtMs - nowMs : null;
+  const offerExpired = stage === 'offer' && offerRemainMs != null && offerRemainMs <= 0;
+  React.useEffect(() => {
+    if (stage !== 'offer' || offerExpiresAtMs == null || offerExpired) return;
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [stage, offerExpiresAtMs, offerExpired]);
+  React.useEffect(() => {
+    // The server sent an expiry the client cannot read — the countdown is
+    // silently absent for this creator, which must not stay invisible.
+    if (job?.expiresAt && offerExpiresAtMs == null) {
+      import('../../../lib/sentry').then(({ captureHandledError }) =>
+        captureHandledError(
+          new Error(`unparseable offer_expires_at: ${job.expiresAt}`),
+          'creator_job:offer_expiry_parse',
+        ),
+      );
+    }
+  }, [job?.expiresAt, offerExpiresAtMs]);
+
+  /**
+   * DISTANCE — from STORED data only, never live GPS (no location permission
+   * exists in this build, and this screen must not become the reason one
+   * does). The creator's base_area name (their own profile) is matched
+   * against the service-area centres; haversine from that centre to the
+   * meeting pin. Any gap in the chain — no pin, no base_area, name not in
+   * the list, fetch failed — means NO distance line at all: an absent figure
+   * is honest, a defaulted one is wrong somewhere real.
+   */
+  const [distanceFromBase, setDistanceFromBase] = React.useState<{ km: number; from: string } | null>(null);
+  const meetingLat = job?.meetingLat;
+  const meetingLng = job?.meetingLng;
+  React.useEffect(() => {
+    if (stage !== 'offer' || job?.type !== 'in-person' || meetingLat == null || meetingLng == null) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const api = await import('../../../lib/api');
+        if (!api.apiConfigured) return;
+        const me = await api.fetchCreatorMe();
+        const baseArea = me?.base_area?.trim();
+        if (!baseArea || cancelled) return;
+        const geo = await import('../../../lib/geo');
+        // Server list is authoritative; MOCK_AREAS is its exact documented
+        // mirror, used only when the fetch fails so the row can still render.
+        const areas = (await api.fetchServiceAreas())?.areas ?? geo.MOCK_AREAS;
+        const centre = areas.find((a) => a.name.trim().toLowerCase() === baseArea.toLowerCase());
+        if (!centre || cancelled) return;
+        setDistanceFromBase({
+          km: geo.haversineKm(centre.lat, centre.lng, meetingLat, meetingLng),
+          from: centre.name,
+        });
+      } catch (err) {
+        // Distance stays absent — but never silently: this chain failing
+        // means every offer this creator sees is missing its distance.
+        const { captureHandledError } = await import('../../../lib/sentry');
+        captureHandledError(err, 'creator_job:offer_distance');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [stage, job?.type, meetingLat, meetingLng]);
+
   // Final-edit uploads (in-person delivery + revision re-delivery) go through
   // the shared batch uploader — per-file progress, retry skips what landed.
   const finalsBatch = useUploadBatch(String(id), 'deliverable');
@@ -335,18 +437,87 @@ export default function CreatorJob() {
       <KeyboardScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {summaryCard}
 
+        {/* Directly under the pay card: how long this offer holds. Absent
+            when the server sent no expiry (mock mode) — a countdown nobody
+            authoritative is running would be an invented deadline. */}
+        {stage === 'offer' && !offerExpired && offerRemainMs != null && (
+          <View style={[styles.countCard, offerRemainMs < URGENT_REMAINING_MS && styles.countCardUrgent]}>
+            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" style={{ marginTop: 1 }}>
+              <Circle cx="12" cy="12" r="9" stroke={offerRemainMs < URGENT_REMAINING_MS ? '#C0392B' : colors.yellowDark} strokeWidth={1.8} />
+              <Path d="M12 7.5V12l3 2" stroke={offerRemainMs < URGENT_REMAINING_MS ? '#C0392B' : colors.yellowDark} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.countTitle, offerRemainMs < URGENT_REMAINING_MS && styles.countTitleUrgent]}>
+                Respond within {formatRemaining(offerRemainMs)}
+              </Text>
+              <Text style={styles.countSub}>
+                This offer is held for you until then — after that it goes to another creator.
+              </Text>
+            </View>
+          </View>
+        )}
+        {offerExpired && (
+          <View style={styles.expiredCard}>
+            <Text style={styles.expiredTitle}>This offer has expired</Text>
+            <Text style={styles.expiredBody}>
+              The response window closed before the job was accepted, so it's being offered to
+              another creator. You'll get the next one that matches your specialties.
+            </Text>
+          </View>
+        )}
+
         {/* Rush is shown at EVERY stage, not just the offer — the creator
             who accepted this morning needs the clock in front of them when
-            they sit down to edit. */}
-        {rushNotice}
+            they sit down to edit. (Expired offer: the clock is moot.) */}
+        {!offerExpired && rushNotice}
 
-        {stage === 'offer' && (
+        {stage === 'offer' && !offerExpired && (
           <>
             {/* No "client note" card here. It used to render one invented
                 sentence — the same words attributed to every client on every
                 offer — and there is no field behind it: bookings carry no
-                client note column. The meeting point the client DID enter is
-                real, and shows at the on-the-way stage where it's needed. */}
+                client note column. The meeting point the client DID enter IS
+                real — it renders below, because "where exactly" is half of a
+                5:30 AM accept/decline decision. */}
+            {job.type === 'in-person' && (
+              <>
+                <View style={{ marginTop: 14 }}>
+                  {/* Static by construction (MeetingMap disables every
+                      gesture). Missing coordinates render its labeled
+                      placeholder, not a blank tile. */}
+                  <MeetingMap
+                    lat={job.meetingLat}
+                    lng={job.meetingLng}
+                    height={170}
+                    label={
+                      job.meetingLat != null && job.meetingLng != null
+                        ? `Meeting point · ${job.loc}`
+                        : `${job.loc} — exact meeting point confirmed after you accept`
+                    }
+                  />
+                </View>
+                {/* Distance from STORED base area only — the row is simply
+                    absent when it can't be computed. Never 0, never a dash
+                    that reads as zero. */}
+                {distanceFromBase && (
+                  <View style={styles.distRow}>
+                    <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+                      <Path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z" stroke={colors.greyWarm} strokeWidth={1.8} strokeLinejoin="round" />
+                      <Circle cx="12" cy="10" r="2.3" stroke={colors.greyWarm} strokeWidth={1.8} />
+                    </Svg>
+                    <Text style={styles.distText}>
+                      {formatKm(distanceFromBase.km)} from {distanceFromBase.from}, your base area
+                    </Text>
+                  </View>
+                )}
+                {!!job.directions && (
+                  <View style={styles.noteCard}>
+                    <Text style={styles.noteTitle}>Directions from the client</Text>
+                    <Text style={styles.noteBody}>{job.directions}</Text>
+                  </View>
+                )}
+              </>
+            )}
             <View style={styles.warnCard}>
               <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" style={{ marginTop: 1 }}>
                 <Circle cx="12" cy="12" r="9" stroke={colors.yellowDark} strokeWidth={1.8} />
@@ -542,8 +713,11 @@ export default function CreatorJob() {
         {actionError && stage !== 'submitted' && stage !== 'upload' ? (
           <Text style={styles.actionError}>{actionError}</Text>
         ) : null}
-        {stage === 'offer' && (
+        {stage === 'offer' && !offerExpired && (
           <SlideToConfirm label="Slide to accept this job" onConfirm={acceptJob} />
+        )}
+        {offerExpired && (
+          <Button title="See my jobs" onPress={() => router.replace('/creator')} />
         )}
         {stage === 'accepted' && (
           <Button title="I'm on my way" arrow onPress={() => next('onway')} />
@@ -626,6 +800,37 @@ const styles = StyleSheet.create({
   },
   noteTitle: { fontSize: 10, fontWeight: '800', color: colors.yellowDark, letterSpacing: 0.5, textTransform: 'uppercase' },
   noteBody: { fontSize: 13, color: '#3D3A34', lineHeight: 20, marginTop: 8 },
+  countCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 9,
+    backgroundColor: colors.yellowSoft,
+    borderWidth: 1,
+    borderColor: colors.yellowSoftBorder,
+    borderRadius: 14,
+    padding: 13,
+    marginBottom: 14,
+  },
+  // Under two minutes: the whole card goes red, not just the digits.
+  countCardUrgent: { backgroundColor: '#FFE9E4', borderColor: '#F3C4B8' },
+  countTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#8A6800',
+    fontVariant: ['tabular-nums'],
+  },
+  countTitleUrgent: { color: '#C0392B' },
+  countSub: { fontSize: 11.5, color: colors.greyWarm, lineHeight: 16.5, marginTop: 3 },
+  expiredCard: {
+    backgroundColor: '#F1EEE7',
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 14,
+  },
+  expiredTitle: { fontSize: 15, fontWeight: '800', color: colors.ink },
+  expiredBody: { fontSize: 12.5, color: colors.grey, lineHeight: 19, marginTop: 6 },
+  distRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, paddingHorizontal: 2 },
+  distText: { fontSize: 12, fontWeight: '600', color: colors.greyWarm },
   warnCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
