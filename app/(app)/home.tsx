@@ -199,19 +199,38 @@ export default function Home() {
   }, []);
   React.useEffect(() => {
     let cancelled = false;
-    import('../../lib/api').then(async ({ apiConfigured, fetchFeaturedCreators }) => {
-      if (!apiConfigured) {
-        if (!cancelled) setFeaturedLoading(false);
-        return;
-      }
-      const list = await fetchFeaturedCreators();
-      if (cancelled) return;
-      // null = fetch failed. `?? []` here used to make failure claim
-      // "nobody exists yet" — an empty rail with total confidence.
-      if (list == null) setFeaturedFailed(true);
-      else setFeatured(list);
-      setFeaturedLoading(false);
-    });
+    const report = (err: unknown) =>
+      import('../../lib/sentry').then(({ captureHandledError }) =>
+        captureHandledError(err, 'home:featured_creators'),
+      );
+    import('../../lib/api')
+      .then(async ({ apiConfigured, fetchFeaturedCreators }) => {
+        if (!apiConfigured) {
+          if (!cancelled) setFeaturedLoading(false);
+          return;
+        }
+        const list = await fetchFeaturedCreators();
+        if (cancelled) return;
+        // null = fetch failed. `?? []` here used to make failure claim
+        // "nobody exists yet" — an empty rail with total confidence.
+        if (list == null) {
+          setFeaturedFailed(true);
+          // request() catches the cause and hands back a bare null, so the
+          // fact of the failure is all that survives to be reported. Without
+          // this the rail failed on a real device and said so to nobody.
+          report(new Error('fetchFeaturedCreators returned null'));
+        } else setFeatured(list);
+        setFeaturedLoading(false);
+      })
+      .catch((err) => {
+        // The dynamic import or the await itself threw. This rejection was
+        // unhandled, so the rail sat in its loading state for the life of
+        // the screen with nothing logged anywhere.
+        if (cancelled) return;
+        setFeaturedFailed(true);
+        setFeaturedLoading(false);
+        report(err);
+      });
     return () => {
       cancelled = true;
     };
@@ -484,22 +503,16 @@ export default function Home() {
             </View>
           )}
 
-          {featuredFailed ? (
-            <Pressable
-              onPress={() => {
-                setFeaturedFailed(false);
-                setFeaturedLoading(true);
-                setFeaturedReloadKey((k) => k + 1);
-              }}
-              style={styles.railFailed}
-            >
-              <Text style={styles.railFailedText}>
-                Couldn't load featured creators — tap to retry.
-              </Text>
-            </Pressable>
-          ) : (
-            <FeaturedRail creators={featured} loading={featuredLoading} />
-          )}
+          <FeaturedRail
+            creators={featured}
+            loading={featuredLoading}
+            failed={featuredFailed}
+            onRetry={() => {
+              setFeaturedFailed(false);
+              setFeaturedLoading(true);
+              setFeaturedReloadKey((k) => k + 1);
+            }}
+          />
 
           {/* Education, until it stops being education. Dropped entirely
               once the user has completed a booking — a screen that keeps
@@ -907,8 +920,6 @@ const styles = StyleSheet.create({
   expRowBody: { fontSize: 13, color: colors.grey, lineHeight: 19, marginTop: 3 },
   soonChip: { backgroundColor: '#FFF4D6', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2.5 },
   soonChipLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 0.4, color: '#8A6800' },
-  railFailed: { marginHorizontal: 20, marginTop: 6, paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#F1EEE7' },
-  railFailedText: { fontSize: 12.5, color: colors.grey, textAlign: 'center' },
   featureSub: { fontSize: 9.5, color: colors.greyWarm, marginTop: 2, textAlign: 'center' },
   how: {
     marginTop: 20,
