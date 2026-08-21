@@ -9,6 +9,7 @@ import { useReduceMotion } from '../../../lib/useReduceMotion';
 import { colors, insetBottom } from '../../../lib/theme';
 import type { MediaListing, ServerBookingListItem } from '../../../lib/api';
 import { REMOTE_PACKAGES } from '../../../lib/store/upload';
+import { useAuth } from '../../../lib/store';
 
 /**
  * Order tracker — every value on this screen comes from the server.
@@ -129,6 +130,16 @@ export default function OrderTracker() {
         setLoading(false);
         setData(null);
         setNotFound(true);
+        return;
+      }
+      // Every word on this screen — the tracker, "Your editor", the
+      // revision button — is the CLIENT's narration. This fetch reads the
+      // dual-role /v1/bookings directly (not the scoped store), so it has
+      // to apply the role rule itself: the assigned creator landing here,
+      // by deep link or a stale notification, goes to her own job screen —
+      // the same booking, told truthfully.
+      if (!api.isClientRole(booking, useAuth.getState().userId)) {
+        router.replace(`/creator/job/${id}`);
         return;
       }
       // Config, files and the editor's name load alongside; none of them may

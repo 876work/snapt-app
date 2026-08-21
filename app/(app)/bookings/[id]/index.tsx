@@ -48,7 +48,7 @@ export default function BookingDetail() {
     const deadline = Date.now() + (justPaid ? 45_000 : 8_000);
     const tick = async () => {
       if (stop) return;
-      const { apiConfigured, fetchMyBookings, toClientBooking } = await import('../../../../lib/api');
+      const { apiConfigured, fetchMyBookings, isClientRole, toClientBooking } = await import('../../../../lib/api');
       if (!apiConfigured) {
         if (!stop) { setChecking(false); setGaveUp(true); }
         return;
@@ -56,8 +56,30 @@ export default function BookingDetail() {
       const rows = await fetchMyBookings();
       if (stop) return;
       if (rows) {
-        useBookings.getState().hydrateBookings(rows.map(toClientBooking));
-        if (rows.some((b) => b.id === id)) return; // the selector re-renders us
+        const me = useAuth.getState().userId;
+        const row = rows.find((b) => b.id === id);
+        /**
+         * A CREATOR-ROLE ID NEVER RENDERS THIS SCREEN. This detail page and
+         * everything it links to — cancel, no-show, the order tracker — is
+         * the CLIENT's narration of the booking, and two of those actions
+         * are honoured server-side under the caller's REAL role: cancelling
+         * from here as the assigned creator records a strike against her,
+         * and the no-show screen charges the client in full. A stale deep
+         * link or an old notification must land on the creator's own job
+         * screen instead, which is the same booking told truthfully.
+         *
+         * Checked BEFORE the found-it early return below: the store is
+         * scoped to client rows now, so without this a creator-role id
+         * would stop the poll with nothing hydrated and spin forever.
+         */
+        if (row && !isClientRole(row, me)) {
+          router.replace(`/creator/job/${id}`);
+          return;
+        }
+        useBookings.getState().hydrateBookings(
+          rows.filter((b) => isClientRole(b, me)).map(toClientBooking),
+        );
+        if (row) return; // the selector re-renders us
       }
       if (Date.now() > deadline) { setChecking(false); setGaveUp(true); return; }
       setTimeout(tick, 2000);

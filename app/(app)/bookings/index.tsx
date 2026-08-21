@@ -87,7 +87,7 @@ export default function Bookings() {
    * showed invented bookings while genuine ones sat in the database.
    */
   const load = React.useCallback(async () => {
-    const { apiConfigured, fetchMyBookings, toClientBooking } = await import('../../../lib/api');
+    const { apiConfigured, fetchMyBookings, isClientRole, toClientBooking } = await import('../../../lib/api');
     if (!apiConfigured) {
       useBookings.getState().hydrateBookings([]);
       return;
@@ -104,7 +104,14 @@ export default function Bookings() {
       return;
     }
     setError(false);
-    useBookings.getState().hydrateBookings(rows.map(toClientBooking));
+    // Client-role rows only: "creators book as clients too" (the header
+    // comment above) always meant bookings this account PLACED — the rows
+    // where it is the assigned creator belong to the creator shell, and
+    // hydrating them here is what rendered a creator's own jobs as orders.
+    const me = useAuth.getState().userId;
+    useBookings.getState().hydrateBookings(
+      rows.filter((b) => isClientRole(b, me)).map(toClientBooking),
+    );
   }, []);
 
   useFocusEffect(

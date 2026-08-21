@@ -100,6 +100,17 @@ export interface Booking {
   type: 'in-person' | 'remote';
   occasion: Occasion;
   creatorId: string | null;
+  /**
+   * WHO PLACED THIS ORDER — the auth id of the account paying for it.
+   *
+   * This existed on every server row and was dropped by toClientBooking,
+   * which is exactly how a creator's ASSIGNED jobs rendered as orders she
+   * had placed: /v1/bookings returns both roles' rows (by design — the
+   * creator shell reads the same endpoint), and once this field was gone no
+   * screen downstream could tell them apart. Optional only because mock-mode
+   * seed data predates it.
+   */
+  clientId?: string | null;
   area: Area | null;
   meetingPoint?: string;
   meetingLat?: number | null;

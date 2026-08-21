@@ -13,6 +13,7 @@ import {
   apiConfigured,
   fetchMyBookings,
   fetchMyDeliveries,
+  isCreatorRole,
   type DeliveryStatus,
   type ServerBookingListItem,
 } from '../../lib/api';
@@ -66,7 +67,16 @@ export default function CreatorHome() {
     fetchMyBookings().then((bookings) => {
       setJobsLoading(false);
       if (!bookings) { setJobsFailed(true); return; }
-      const mine = bookings.filter((b) => JOB_STATUSES.includes(b.status));
+      // CREATOR-ROLE ROWS ONLY — the mirror of the client shell's rule.
+      // The endpoint also returns bookings this account placed AS A CLIENT,
+      // and status alone let those render here as jobs: a creator who books
+      // a session sees her own order arrive as an offer on her dashboard.
+      // Schedule and History already filter by creator_id; this list and
+      // the job-detail fallback were the two hydrators that did not.
+      const me = useAuth.getState().userId;
+      const mine = bookings.filter(
+        (b) => JOB_STATUSES.includes(b.status) && isCreatorRole(b, me),
+      );
       // Shared with the job detail screen so a deep-linked offer renders
       // identically to one opened from this list.
       const jobs: JobOffer[] = mine.map(bookingToOffer);

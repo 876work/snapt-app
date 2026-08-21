@@ -312,11 +312,19 @@ export default function CreatorJob() {
   React.useEffect(() => {
     if (job || !apiConfigured) return;
     let cancelled = false;
-    import('../../../lib/api').then(({ fetchMyBookings }) =>
+    import('../../../lib/api').then(({ fetchMyBookings, isCreatorRole }) =>
       fetchMyBookings().then((bookings) => {
         if (cancelled) return;
         if (bookings) {
-          setOffers(bookings.filter((b) => JOB_STATUSES.includes(b.status)).map(bookingToOffer));
+          // Same creator-role rule as the dashboard hydrator — these are the
+          // two sites that fill the offers store, and a client-role row
+          // slipping in here renders someone's own order as their job.
+          const me = useAuth.getState().userId;
+          setOffers(
+            bookings
+              .filter((b) => JOB_STATUSES.includes(b.status) && isCreatorRole(b, me))
+              .map(bookingToOffer),
+          );
         }
         setHydrating(false);
       }),

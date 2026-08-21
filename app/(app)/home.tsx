@@ -241,7 +241,7 @@ export default function Home() {
   useFocusEffect(
     React.useCallback(() => {
       let cancelled = false;
-      import('../../lib/api').then(async ({ apiConfigured, fetchUnreadNotifications, fetchSocialProof, fetchMyBookings, toClientBooking }) => {
+      import('../../lib/api').then(async ({ apiConfigured, fetchUnreadNotifications, fetchSocialProof, fetchMyBookings, isClientRole, toClientBooking }) => {
         if (!apiConfigured) return;
         const [count, p, rows] = await Promise.all([
           fetchUnreadNotifications(),
@@ -257,7 +257,15 @@ export default function Home() {
           setCardsReady(false);
           return;
         }
-        useBookings.getState().hydrateBookings(rows.map(toClientBooking));
+        // CLIENT-ROLE ROWS ONLY enter the client store. The endpoint also
+        // returns rows where this account is the assigned CREATOR (the
+        // creator shell reads the same one), and hydrating those here is
+        // what put a creator's own jobs in her Bookings tab as orders she
+        // had placed — client tracker, revision button and all.
+        const me = useAuth.getState().userId;
+        useBookings.getState().hydrateBookings(
+          rows.filter((b) => isClientRole(b, me)).map(toClientBooking),
+        );
         setCardsReady(true);
       });
       return () => {

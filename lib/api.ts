@@ -746,6 +746,33 @@ export async function fetchMyBookings(): Promise<ServerBookingListItem[] | null>
 }
 
 /**
+ * WHICH SIDE OF A BOOKING THIS ACCOUNT IS ON.
+ *
+ * /v1/bookings returns rows where the caller is the client OR the creator —
+ * one endpoint, both shells, by design (creator rows arrive with
+ * creator_payout_usd attached). So every consumer must say which role it is
+ * rendering for, and these two predicates are THE place that rule is
+ * written. The client shell filters with isClientRole; the creator offer
+ * hydrators filter with isCreatorRole. A second copy of either comparison
+ * is how the two shells drift apart again.
+ *
+ * A null `me` means the auth store has no user id — a state that shouldn't
+ * coexist with a non-empty server list (sign-in and session restore both
+ * set it before any authed fetch can succeed). Both predicates deliberately
+ * pass everything in that case: the pre-scoping behaviour. The failure mode
+ * of guessing the other way is an account's real bookings silently
+ * rendering as an empty list — "your money vanished" — which is worse than
+ * the cross-role leak this exists to stop.
+ */
+export function isClientRole(b: ServerBookingListItem, me: string | null): boolean {
+  return !me || b.client_id === me;
+}
+
+export function isCreatorRole(b: ServerBookingListItem, me: string | null): boolean {
+  return !me || b.creator_id === me;
+}
+
+/**
  * Server booking -> the shape the app's screens render.
  *
  * Used by the store's hydrate(), so the bookings list, booking detail and
@@ -757,6 +784,9 @@ export function toClientBooking(b: ServerBookingListItem): Booking {
     type: b.type === 'remote' ? 'remote' : 'in-person',
     occasion: (b.occasion ?? 'Portraits') as Booking['occasion'],
     creatorId: b.creator_id ?? null,
+    // Kept so screens can tell whose order a row is — dropping it here is
+    // what let a creator's assigned jobs render as orders she had placed.
+    clientId: b.client_id ?? null,
     area: b.area ?? null,
     meetingPoint: b.meeting_point ?? null,
     meetingLat: b.meeting_lat ?? null,
