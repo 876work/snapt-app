@@ -75,18 +75,53 @@ export function registerMediaRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'Proof galleries are for Social bundle bookings' });
     }
 
+    const ct = content_type ?? '';
+
+    /**
+     * SIZE CAP, ENFORCED FOR EVERY KIND — deliverables and proofs included.
+     *
+     * This used to live inside the raw branch only, so a deliverable could
+     * be presigned at any size at all. That was invisible while the creator
+     * picker was photo-only; the moment video deliverables became selectable
+     * (8c598d0) it became live exposure, because deliverables are the one
+     * path that is deliberately never compressed.
+     *
+     * Same limits as raw, on purpose: a finished edit of an in-person
+     * session can legitimately approach raw scale, and we do not compress
+     * it, so a smaller cap would block real deliveries — the exact failure
+     * class just fixed. A larger cap has no case: nothing legitimate
+     * exceeds what we accept the camera original at.
+     *
+     * An UNKNOWN type gets the larger cap. Deliverables and proofs are not
+     * type-gated at presign (deliberately — see below), so ct here can be
+     * 'application/octet-stream' when the picker withheld a mime type. Give
+     * that the image cap and a 60MB video is refused for its missing label,
+     * not its size; give it the video cap and the hard ceiling still holds.
+     * The cap exists to bound the worst case, not to classify files.
+     *
+     * The refusal happens at PRESIGN — before a single byte moves — and the
+     * sentence travels intact: uploadBookingFile returns `json.error`
+     * verbatim and the batch UI pins it to the file's row.
+     *
+     * Declaration-based, like raw's always was: a client that lies about
+     * size_bytes gets past this check (the R2 signature only pins length on
+     * the voice-note path). It bounds honest clients and our own app; it is
+     * not a security boundary against a hostile one.
+     */
+    const capIsImage = ct.startsWith('image');
+    const declared = Number(request.body?.size_bytes ?? 0);
+    if (declared > (capIsImage ? MAX_IMAGE_BYTES : MAX_VIDEO_BYTES)) {
+      return reply.code(400).send({
+        error: `That file is too large — ${capIsImage ? '50MB' : '750MB'} is the limit per ${
+          capIsImage ? 'image' : ct.startsWith('video') ? 'video' : 'file'
+        }.`,
+      });
+    }
+
     if (kind === 'raw') {
-      const ct = content_type ?? '';
       if (!ACCEPTED_MIME.test(ct)) {
         return reply.code(400).send({
           error: 'Unsupported file type. Send JPG, PNG, HEIC, WEBP, MP4 or MOV.',
-        });
-      }
-      const declared = Number(request.body?.size_bytes ?? 0);
-      const cap = ct.startsWith('video') ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
-      if (declared > cap) {
-        return reply.code(400).send({
-          error: `That file is too large — ${ct.startsWith('video') ? '750MB' : '50MB'} is the limit per ${ct.startsWith('video') ? 'video' : 'image'}.`,
         });
       }
       // The 15-file ceiling is a product rule, so it is checked against what
