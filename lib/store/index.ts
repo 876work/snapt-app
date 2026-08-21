@@ -75,7 +75,7 @@ export function isProfileComplete(p: {
   );
 }
 
-export const useAuth = create<AuthState>((set) => ({
+export const useAuth = create<AuthState>((set, get) => ({
   signedIn: false,
   userId: null,
   hydrated: false,
@@ -113,7 +113,30 @@ export const useAuth = create<AuthState>((set) => ({
       AsyncStorage.setItem('snapt.mode', mode).catch(() => {}),
     );
   },
-  setCreatorStatus: (creatorStatus) => set({ creatorStatus }),
+  /**
+   * Server-authoritative value, CACHED per account as a launch hint.
+   *
+   * The launch gate (app/index.tsx) routes on mode + creatorStatus, and the
+   * server's answer arrives over the network — often after a Render cold
+   * start. Holding the splash for that would make every launch as slow as
+   * the slowest wake, so the LAST KNOWN status is written through here (on
+   * every server refresh) and restored locally before `hydrated` flips.
+   * The cache never decides anything the server disagrees with for long:
+   * initAuth re-fetches on every launch and demotes mode the moment the
+   * answer is anything but approved, and the server refuses creator actions
+   * regardless of what any cached value claims.
+   *
+   * Keyed BY USER ID so one account's approval can never route a different
+   * account on the same device into the creator shell.
+   */
+  setCreatorStatus: (creatorStatus) => {
+    set({ creatorStatus });
+    const uid = get().userId;
+    if (!uid) return;
+    import('@react-native-async-storage/async-storage').then(({ default: AsyncStorage }) =>
+      AsyncStorage.setItem(`snapt.creatorStatus.${uid}`, creatorStatus).catch(() => {}),
+    );
+  },
   setProfile: (patch) => set((s) => ({ ...s, ...patch })),
 }));
 

@@ -1,5 +1,5 @@
 import { supabase, supabaseConfigured } from './supabase';
-import { isProfileComplete, useAuth } from './store';
+import { isProfileComplete, useAuth, type CreatorStatus } from './store';
 
 // Auth service: one call site for the screens, two implementations —
 // Supabase when configured, the existing mock store otherwise.
@@ -409,5 +409,63 @@ export function initAuth(): void {
       state.signOut();
     }
   });
-  supabase.auth.getSession().then(() => useAuth.getState().setHydrated());
+  /**
+   * `hydrated` MEANS THE LAUNCH GATE'S INPUTS ARE REAL.
+   *
+   * It used to flip the moment getSession resolved — a local read — while
+   * the persisted mode and the creator status arrived later, on a
+   * background Promise that includes a NETWORK fetch. app/index.tsx waits
+   * for `hydrated` and then routes on mode + creatorStatus, so it always
+   * routed on the DEFAULTS ('client' / 'not_applied'): the "lands on their
+   * WORK QUEUE" redirect could never fire on a cold start, every approved
+   * creator booted into the client shell, and moments later the restore
+   * landed and flipped the Profile toggle to Creator inside a client
+   * screen. The toggle was reading the true value; the routing had already
+   * happened on the false one.
+   *
+   * So both hints are restored from LOCAL storage first — the chosen mode
+   * and this account's last-known status (written through on every server
+   * refresh; see setCreatorStatus) — and only then does `hydrated` flip.
+   * Nothing here touches the network: launch cost is two AsyncStorage
+   * reads, not a Render cold start.
+   *
+   * The server stays authoritative exactly as before: the fetch in the
+   * auth-state handler above re-checks status on every launch, demotes
+   * mode the moment the answer is anything but approved, and the server
+   * refuses creator actions no matter what a cached value claims. The
+   * cache buys a correct FIRST route, not a lasting decision.
+   */
+  supabase.auth.getSession().then(async ({ data }) => {
+    const uid = data.session?.user?.id;
+    if (uid) {
+      try {
+        const { default: AsyncStorage } = await import('@react-native-async-storage/async-storage');
+        const [savedMode, savedStatus] = await Promise.all([
+          AsyncStorage.getItem('snapt.mode'),
+          AsyncStorage.getItem(`snapt.creatorStatus.${uid}`),
+        ]);
+        const KNOWN: CreatorStatus[] = [
+          'not_applied',
+          'in_progress',
+          'pending_review',
+          'approved',
+          'rejected',
+          'suspended',
+        ];
+        const auth = useAuth.getState();
+        if (savedStatus && (KNOWN as string[]).includes(savedStatus)) {
+          auth.setCreatorStatus(savedStatus as CreatorStatus);
+        }
+        // Same promotion rule as the revalidation above: creator mode is
+        // only ever entered alongside an approved status, cached or served.
+        if (savedMode === 'creator' && savedStatus === 'approved') {
+          auth.setMode('creator');
+        }
+      } catch {
+        // No cache, or storage failed — the defaults hold and the server
+        // fetch corrects the screen the way it always has.
+      }
+    }
+    useAuth.getState().setHydrated();
+  });
 }
