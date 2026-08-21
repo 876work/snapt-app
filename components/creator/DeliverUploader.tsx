@@ -5,6 +5,7 @@ import { Text } from '../../lib/text';
 import { Button } from '../ui/Button';
 import { SlideToConfirm } from '../ui/SlideToConfirm';
 import { colors } from '../../lib/theme';
+import { extensionForContentType, extensionFromName } from '../../lib/mediaExtension';
 
 /**
  * THE creator upload pattern — the client's source-file uploader
@@ -17,6 +18,28 @@ import { colors } from '../../lib/theme';
  * media rows each time. On our connections a 40-file upload WILL drop
  * midway; that must cost one file's retry, not the batch.
  */
+
+/**
+ * The extension for a picked asset, from three real signals in order of
+ * trustworthiness — never a guess about the media kind.
+ *
+ * The mime→extension TABLE itself stays in lib/mediaExtension, which exists
+ * to be the single copy of it; only the ordering lives here. `type` is the
+ * picker's own image/video verdict and is the last resort before 'jpg', so an
+ * asset that reports nothing else still cannot be named as the wrong kind.
+ */
+function assetExtension(a: {
+  uri?: string | null;
+  mimeType?: string | null;
+  type?: string | null;
+}): string {
+  return (
+    extensionForContentType(a.mimeType) ??
+    // A picker URI can carry a query string; strip it before reading a suffix.
+    extensionFromName((a.uri ?? '').split('?')[0]) ??
+    (a.type === 'video' ? 'mp4' : 'jpg')
+  );
+}
 
 export interface BatchFile {
   id: string;
@@ -40,6 +63,22 @@ export function useUploadBatch(bookingId: string, kind: 'raw' | 'deliverable' | 
   const pick = async () => {
     const ImagePicker = await import('expo-image-picker');
     const result = await ImagePicker.launchImageLibraryAsync({
+      /**
+       * VIDEOS, EXPLICITLY. expo-image-picker's `mediaTypes` defaults to
+       * 'images' (SDK 57 docs), and this call omitted it from the day the
+       * file was written — so every creator upload surface built on this
+       * hook has been photo-only since 2026-08-09, including the finished
+       * edits for video products. A creator delivering a reel could not
+       * select the thing they were paid to make.
+       *
+       * All three kinds this hook serves legitimately take video, which is
+       * why the option belongs here rather than per-kind: deliverables are
+       * the video product itself, raw is session footage (the server's own
+       * refusal copy for it reads "…MP4 or MOV"), and proofs are checked
+       * server-side against `image/*` or `video/*` with selection maths that
+       * counts photo versus video.
+       */
+      mediaTypes: ['images', 'videos'],
       allowsMultipleSelection: true,
       quality: 1,
     });
@@ -49,7 +88,19 @@ export function useUploadBatch(bookingId: string, kind: 'raw' | 'deliverable' | 
       ...result.assets.map((a, i) => ({
         id: `${Date.now()}-${i}`,
         uri: a.uri,
-        name: a.fileName ?? `file-${Date.now()}-${i}.jpg`,
+        /**
+         * The fallback extension is DERIVED, never assumed. It was a
+         * hardcoded `.jpg`, which was harmless only while this picker could
+         * not return videos — the line above just changed that. iOS returns
+         * a null fileName routinely, and particularly for videos, and a
+         * video called .jpg is the one file a photo library can never
+         * accept: iOS reads photo-vs-video from the extension and hands
+         * video bytes to UIImage, which refuses them. That is the exact
+         * defect fixed on the client uploader in 6556402; enabling video
+         * here without this would have re-shipped it on the delivery path,
+         * where it lands in the paying client's camera roll.
+         */
+        name: a.fileName ?? `file-${Date.now()}-${i}.${assetExtension(a)}`,
         mimeType: a.mimeType ?? undefined,
         sizeBytes: a.fileSize ?? undefined,
         status: 'queued' as const,
