@@ -75,3 +75,32 @@ export function resolveExtension(
 ): string {
   return extensionForContentType(contentType) ?? extensionFromName(name) ?? 'jpg';
 }
+
+/**
+ * THE SAME NAME, RE-SUFFIXED TO MATCH THE BYTES.
+ *
+ * For the case the rule above cannot cover on its own: a file whose BYTES
+ * have been replaced while its name was not. The upload path re-encodes
+ * client source video before sending it, and react-native-compressor always
+ * writes MP4 — so a name still ending `.MOV`, and a content type still
+ * saying `video/quicktime`, describe a file that no longer exists.
+ *
+ * That is the same defect this module was created to kill, arriving from the
+ * other direction. Previously the NAME was invented and the content type was
+ * trustworthy, so `resolveExtension` believes the content type. Here the
+ * content type is itself stale, and correcting it is only half the job —
+ * without this, the corrected type and the old `.MOV` name would disagree
+ * and `resolveExtension` would quietly paper over it on the way back down.
+ *
+ * The stem is kept so a client still recognises their own file; only the
+ * suffix moves. A nameless file becomes `upload.<ext>` — deliberately not
+ * `upload.jpg`, which is the exact string that made videos unsaveable.
+ */
+export function renameForContentType(
+  name?: string | null,
+  contentType?: string | null,
+): string {
+  const ext = resolveExtension(name, contentType);
+  const stem = (name ?? '').replace(/\.[a-z0-9]{2,5}$/i, '').trim();
+  return stem ? `${stem}.${ext}` : `upload.${ext}`;
+}

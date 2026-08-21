@@ -14,7 +14,7 @@ import {
   type RejectedFile,
 } from '../../lib/store/upload';
 import { colors, insetBottom } from '../../lib/theme';
-import { extensionForContentType, extensionFromName } from '../../lib/mediaExtension';
+import { extensionForContentType, extensionFromName, renameForContentType } from '../../lib/mediaExtension';
 
 /**
  * The extension for a picked asset whose `fileName` iOS did not supply.
@@ -150,14 +150,30 @@ export default function UploadFootage() {
       }
       setFileStatus(file.id, { status: 'uploading', progress: 0, error: undefined });
       const { uploadDraftFile } = await import('../../lib/rawUpload');
+      /**
+       * DESCRIBE WHAT IS BEING SENT, NOT WHAT WAS PICKED.
+       *
+       * prepared.uri may address a re-encode, and the encoder always writes
+       * MP4 — so the picker's name and mime type describe a file that is no
+       * longer the one travelling. Sending them anyway is what put MP4 bytes
+       * in R2 under `IMG_0008.MOV` / `video/quicktime`, a lie the server
+       * stores verbatim and the creator's camera roll inherits.
+       *
+       * Both move together on purpose. The type is what the server validates
+       * and what every reader downstream believes; the name carries the
+       * extension the photo library reads on the way back down. Correcting
+       * one without the other just relocates the disagreement.
+       */
+      const uploadMime = prepared.mimeType ?? file.mimeType;
+      const uploadName = renameForContentType(file.name, uploadMime);
       let r: Awaited<ReturnType<typeof uploadDraftFile>>;
       try {
         r = await uploadDraftFile(
           draft,
           {
             uri: prepared.uri,
-            name: file.name ?? 'upload.jpg',
-            mimeType: file.mimeType,
+            name: uploadName,
+            mimeType: uploadMime,
             // The size of what is actually being sent — the presign's cap
             // check and the progress denominator both want THIS file.
             sizeBytes: prepared.sizeBytes,

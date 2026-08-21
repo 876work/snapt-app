@@ -27,6 +27,28 @@ export const COMPRESS_MIN_BYTES = 8 * 1024 * 1024;
 export const TARGET_VIDEO_BITRATE = 3_500_000;
 export const TARGET_MAX_DIMENSION = 1920;
 
+/**
+ * WHAT THE ENCODER ACTUALLY WRITES — ALWAYS MP4, ON BOTH PLATFORMS.
+ *
+ * react-native-compressor 1.19.4 exposes no output-container option, and
+ * every path in it produces MP4. Verified against the installed source
+ * rather than assumed:
+ *
+ *  - Android mints its destination with `generateCacheFilePath("mp4")`
+ *    (Video/VideoCompressorHelper.kt, Video/AutoVideoCompression.kt) over a
+ *    muxer whose `DEFAULT_OUTPUT_EXTENSION` is "mp4"
+ *    (VideoCompressor/compressor/Compressor.kt).
+ *  - iOS exports with `AVFileType.mp4` (Video/VideoMain.swift, and
+ *    NextLevelSessionExporter.swift's default `outputFileType`).
+ *
+ * Stated once, here, next to the code that depends on it. The alternative —
+ * leaving the caller to assume the output kept the input's type — is exactly
+ * what shipped in build 19: a QuickTime original came back as MP4 bytes and
+ * was uploaded, stored and listed as `video/quicktime` called `.MOV`, all
+ * the way to the creator's camera roll.
+ */
+export const COMPRESSED_MIME = 'video/mp4';
+
 /** Extensions that mean video when the picker supplied no mimeType. */
 const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'm4v', '3gp', 'avi', 'mkv', 'webm']);
 
@@ -70,6 +92,16 @@ export function shouldUseCompressed(opts: {
 export interface PreparedUpload {
   uri: string;
   sizeBytes: number;
+  /**
+   * The content type of the bytes AT `uri` — the encoder's output when the
+   * encode was used, the original's declared type when it was not.
+   *
+   * Returned because the caller cannot infer it: the whole point of this
+   * module is that `uri` may address a file the picker never saw, and a
+   * re-encode changes the container. Undefined only when the original is
+   * going up and the picker itself declared nothing.
+   */
+  mimeType?: string;
   /** True when the original is being sent — skipped, no-gain, or fallback. */
   usedOriginal: boolean;
   /** The user cancelled mid-prepare; nothing should upload. */
@@ -128,9 +160,12 @@ export async function prepareVideoForUpload(
   file: { uri: string; name?: string; mimeType?: string; sizeBytes: number },
   opts: { signal?: AbortSignal; onProgress?: (fraction: number) => void } = {},
 ): Promise<PreparedUpload> {
+  // Every early exit and every fallback below spreads this, so the original's
+  // own type travels with the original's bytes on all of those paths.
   const original: PreparedUpload = {
     uri: file.uri,
     sizeBytes: file.sizeBytes,
+    mimeType: file.mimeType,
     usedOriginal: true,
   };
   if (opts.signal?.aborted) return { ...original, aborted: true };
@@ -187,7 +222,14 @@ export async function prepareVideoForUpload(
       if (!compressedIsSameFile) await discardTemp(resultPath);
       return original;
     }
-    return { uri: normalizeUri(resultPath), sizeBytes: compressedBytes as number, usedOriginal: false };
+    // The only path that returns the ENCODE, and so the only one whose type
+    // is the encoder's rather than the picker's.
+    return {
+      uri: normalizeUri(resultPath),
+      sizeBytes: compressedBytes as number,
+      mimeType: COMPRESSED_MIME,
+      usedOriginal: false,
+    };
   } catch (err) {
     if (cancelledByUs || opts.signal?.aborted) {
       // The reject IS the cancellation we asked for — not a failure. The
