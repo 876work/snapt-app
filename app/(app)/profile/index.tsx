@@ -104,6 +104,47 @@ export default function Profile() {
     });
   }, []);
 
+  /**
+   * The ratings card's number, from /v1/me/ratings — the sub used to be the
+   * hardcoded string "4.9 · how creators rate you", a literal shown to every
+   * account regardless of what anyone had rated them, or whether anyone had.
+   *
+   * Mirrors the detail screen this card opens (profile/ratings.tsx) so a
+   * tap can never contradict the row: same endpoint, same direction pick
+   * (whichever side has data, creator-received first), and mock mode keeps
+   * its demo value there and here alike. In API mode a number renders ONLY
+   * when the server returned one — no ratings and a failed fetch each say
+   * so instead.
+   */
+  const [ratings, setRatings] = React.useState<
+    | { state: 'loading' | 'mock' | 'failed' | 'none' }
+    | { state: 'loaded'; average: number; direction: 'clients' | 'creators' }
+  >({ state: 'loading' });
+  React.useEffect(() => {
+    let cancelled = false;
+    import('../../../lib/api').then(({ apiConfigured, fetchMyRatingsApi }) => {
+      if (!apiConfigured) {
+        if (!cancelled) setRatings({ state: 'mock' });
+        return;
+      }
+      fetchMyRatingsApi().then((r) => {
+        if (cancelled) return;
+        if (!r) return setRatings({ state: 'failed' });
+        const fromClients = r.as_creator.count > 0;
+        const picked = fromClients ? r.as_creator : r.as_client;
+        if (picked.count === 0 || picked.average == null) return setRatings({ state: 'none' });
+        setRatings({
+          state: 'loaded',
+          average: picked.average,
+          direction: fromClients ? 'clients' : 'creators',
+        });
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <View style={styles.root}>
       <View style={styles.header}>
@@ -247,7 +288,17 @@ export default function Profile() {
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.ratingsTitle}>Your ratings</Text>
-            <Text style={styles.ratingsSub}>4.9 · how creators rate you</Text>
+            <Text style={styles.ratingsSub}>
+              {ratings.state === 'loaded'
+                ? `${ratings.average.toFixed(1)} · how ${ratings.direction} rate you`
+                : ratings.state === 'mock'
+                  ? '4.9 · how creators rate you'
+                  : ratings.state === 'none'
+                    ? 'No ratings yet'
+                    : ratings.state === 'failed'
+                      ? "Couldn't load your ratings — tap to view"
+                      : 'How creators rate you'}
+            </Text>
           </View>
           {chevron}
         </Pressable>
