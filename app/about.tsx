@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { ScreenHeader } from '../components/ui/ScreenHeader';
 import { colors, spacing } from '../lib/theme';
+import Constants from 'expo-constants';
 
 export default function About() {
   const router = useRouter();
@@ -21,7 +22,11 @@ export default function About() {
             />
           </View>
           <Text style={styles.name}>Snapt</Text>
-          <Text style={styles.version}>Version 0.1.0</Text>
+          {/* expoConfig.version — the same source the Build & updates panel
+              uses (the native version constants are deprecated nulls in
+              SDK 57). This was a hardcoded "0.1.0" while the panel one
+              screen away printed the real 1.0.0. */}
+          <Text style={styles.version}>Version {Constants.expoConfig?.version ?? '?'}</Text>
           <Text style={styles.blurb}>
             On-demand creators and editing, wherever the moment happens. Be in the moment — we've got
             the rest.

@@ -421,7 +421,10 @@ export default function Profile() {
           ))}
           <ListRow
             label="About Snapt"
-            detail="v0.1.0"
+            // Same source as the Build & updates panel below — the literal
+            // "v0.1.0" this replaced sat one line above that panel printing
+            // the real version, and the two disagreed on screen.
+            detail={`v${Constants.expoConfig?.version ?? '?'}`}
             last
             onPress={() => router.push('/about')}
             icon={
