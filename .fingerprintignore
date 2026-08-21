@@ -7,3 +7,7 @@
 # the project and orphaned a freshly built binary (build 12, 8a2b6845…) before
 # it even reached TestFlight.
 eas.json
+
+# Same reasoning as eas.json above: .easignore shapes what UPLOADS to the
+# build worker, not what compiles into the binary.
+.easignore

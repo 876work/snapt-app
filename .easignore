@@ -1,0 +1,77 @@
+# What does NOT upload to the EAS build workers.
+#
+# .easignore REPLACES .gitignore for the upload — it is not additive. The
+# docs are explicit: "If you create a .easignore file, the EAS CLI
+# prioritizes it over the .gitignore file", and instruct copying every
+# .gitignore entry in. A file holding only the two directories below would
+# therefore have STARTED uploading node_modules, dist — and .env, which
+# holds secrets. So everything above the marker is a faithful mirror of
+# .gitignore; keep the two in sync when either changes.
+#
+# FINGERPRINT: this file is an easBuild hash source (@expo/fingerprint
+# sourcer/Expo.js hashes ['eas.json', '.easignore']), which is exactly how a
+# two-line eas.json edit orphaned build 12. It is therefore listed in
+# .fingerprintignore alongside eas.json — same reasoning: it shapes what
+# UPLOADS, never what compiles into the binary. Verified fingerprint-neutral
+# against both build 19 runtimes (d84c8ac3 Android, 6a9f0dba iOS) under
+# `eas env:exec production` on 2026-08-21.
+
+# ---- mirror of .gitignore ------------------------------------------------
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env
+.env*.local
+server/.env
+
+# supabase local dev
+supabase/.temp
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android
+
+# loose marketing/reference files at repo root (not app assets)
+/*.mp4
+/*.jpg
+/Snapt_Claude_Code_Handoff_Documentpdf
+/Snapt -  App - REAL/
+.claude/settings.local.json
+
+# ---- build-upload-only exclusions (the reason this file exists) ----------
+# 161MB of local design references and logo masters that no build step
+# reads. They were riding to the build workers on every single build.
+/Images/
+/Logo/
