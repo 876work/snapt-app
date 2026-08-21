@@ -77,6 +77,35 @@ export function resolveExtension(
 }
 
 /**
+ * THE UTI iOS SHOULD BE TOLD, derived through the same table as everything
+ * else in this module — not a third mime list.
+ *
+ * The share sheet used to hardcode `public.png`-or-`public.jpeg` from a
+ * substring test on the mime type, so a shared VIDEO was declared a JPEG
+ * still to every app on the sheet. Same defect family as the video named
+ * .jpg: the label decided the media kind, and the label was invented.
+ *
+ * Keyed on the NORMALISED extension resolveExtension produces (content type
+ * authoritative, name as fallback), so this map can only ever describe the
+ * types the rest of the pipeline admits. public.jpeg is the last resort for
+ * the same reason 'jpg' is in resolveExtension: when nothing is known, it
+ * matches the existing fallback rather than inventing a new one.
+ */
+const EXTENSION_UTI: Record<string, string> = {
+  jpg: 'public.jpeg',
+  png: 'public.png',
+  heic: 'public.heic',
+  webp: 'org.webmproject.webp',
+  mp4: 'public.mpeg-4',
+  mov: 'com.apple.quicktime-movie',
+  m4v: 'com.apple.m4v-video',
+};
+
+export function utiFor(name?: string | null, contentType?: string | null): string {
+  return EXTENSION_UTI[resolveExtension(name, contentType)] ?? 'public.jpeg';
+}
+
+/**
  * THE SAME NAME, RE-SUFFIXED TO MATCH THE BYTES.
  *
  * For the case the rule above cannot cover on its own: a file whose BYTES

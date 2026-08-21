@@ -1,6 +1,6 @@
 import { Alert, Linking } from 'react-native';
 import { captureHandledError } from './sentry';
-import { resolveExtension } from './mediaExtension';
+import { resolveExtension, utiFor } from './mediaExtension';
 
 /**
  * SAVE A REMOTE FILE TO THE CAMERA ROLL.
@@ -391,7 +391,10 @@ export async function shareFile(opts: {
   try {
     await Sharing.shareAsync(localUri, {
       mimeType: opts.mimeType ?? undefined,
-      UTI: (opts.mimeType ?? '').includes('png') ? 'public.png' : 'public.jpeg',
+      // Same rule as the save path: the content type is authoritative, and
+      // the mapping lives in lib/mediaExtension — a shared video used to be
+      // declared `public.jpeg` here by a substring test on the mime type.
+      UTI: utiFor(opts.filename, opts.mimeType),
     });
     return { ok: true };
   } catch (err) {
