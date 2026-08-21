@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
-import { createDownloadUrl, createUploadTarget, MediaBucket } from '../storage.js';
+import { createDownloadUrl, createUploadTarget, MediaBucket, objectSize } from '../storage.js';
 import { createPayoutForBooking } from '../payments.js';
 import { notify } from '../notify.js';
 
@@ -159,6 +159,18 @@ export function registerMediaRoutes(app: FastifyInstance) {
       position = (count ?? 0) + 1;
     }
 
+    // The bytes are already in the bucket by the time this route is called,
+    // so storage can be asked what actually landed. Wrapped because a probe
+    // failure must cost the size and nothing else: a file that uploaded fine
+    // must never fail to register over a metadata read. Null records "not
+    // measured" — it is not, and must never be read as, zero.
+    let size_bytes: number | null = null;
+    try {
+      size_bytes = await objectSize(bucketFor(kind), storage_path);
+    } catch (err) {
+      request.log.error({ err, storage_path, kind }, 'media register: size probe failed');
+    }
+
     const { data, error } = await supabaseAdmin
       .from('booking_media')
       .insert({
@@ -167,6 +179,7 @@ export function registerMediaRoutes(app: FastifyInstance) {
         storage_path,
         content_type: content_type ?? null,
         uploaded_by: user.id,
+        size_bytes,
         ...(position !== null ? { position } : {}),
       })
       .select()

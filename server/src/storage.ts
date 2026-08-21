@@ -120,6 +120,46 @@ export async function deleteObject(bucket: MediaBucket, path: string): Promise<v
   if (error) throw new Error(`deleteObject: ${error.message}`);
 }
 
+/**
+ * HOW BIG IS THE STORED OBJECT, ACCORDING TO STORAGE ITSELF?
+ *
+ * Asks the bucket rather than believing the uploader. The size a client
+ * declares at presign is a cap check made BEFORE the bytes move; it records
+ * what a phone intended to send. The question this answers — did the
+ * on-device video compressor actually shrink the file — is a question about
+ * what arrived, so a self-reported number would beg it.
+ *
+ * Returns null when storage answers but says nothing useful about length.
+ * THROWS on a real failure (missing key, auth, network): the caller decides
+ * what a missing size costs, and for the register routes the answer is
+ * "nothing" — a file that uploaded fine must never fail to register because
+ * a metadata read did.
+ */
+export async function objectSize(bucket: MediaBucket, path: string): Promise<number | null> {
+  if (r2Configured) {
+    const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
+    const client = await r2Client();
+    const head = await client.send(
+      new HeadObjectCommand({
+        Bucket: process.env.R2_BUCKET as string,
+        Key: `${bucket}/${path}`,
+      }),
+    );
+    return typeof head.ContentLength === 'number' ? head.ContentLength : null;
+  }
+  // Supabase driver: size lives in the object row's metadata, and `list` is
+  // the only API that exposes it. `search` is a substring match scoped to the
+  // folder rather than an exact lookup, so the name is re-checked here — the
+  // wrong row's size would be worse than no size.
+  const cut = path.lastIndexOf('/');
+  const folder = cut === -1 ? '' : path.slice(0, cut);
+  const name = cut === -1 ? path : path.slice(cut + 1);
+  const { data, error } = await supabaseAdmin.storage.from(bucket).list(folder, { search: name });
+  if (error) throw new Error(`objectSize: ${error.message}`);
+  const size = (data ?? []).find((o) => o.name === name)?.metadata?.size;
+  return typeof size === 'number' ? size : null;
+}
+
 export async function createDownloadUrl(bucket: MediaBucket, path: string): Promise<string> {
   if (r2Configured) {
     const [{ GetObjectCommand }, { getSignedUrl }] = await Promise.all([

@@ -246,6 +246,31 @@ export function formatMoney(usd: number): string {
   return usd.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
 
+/**
+ * A byte count in the unit a person would say out loud.
+ *
+ * NULL IS NOT ZERO. booking_media.size_bytes is null for every file uploaded
+ * before the column existed, and for any file whose size probe failed — so
+ * unmeasured renders as '—'. Printing "0 B" for an unmeasured 60MB video is
+ * the kind of confidently wrong number that gets believed, and this column
+ * exists precisely to be trusted about file sizes.
+ */
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes == null || !Number.isFinite(bytes)) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  // One decimal is the difference between "27.4 MB" and "27 MB" when you are
+  // comparing a compressed file against its original; three digits in, it is
+  // noise.
+  return `${value.toFixed(value >= 100 ? 0 : 1)} ${units[unit]}`;
+}
+
 export function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }

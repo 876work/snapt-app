@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
-import { createUploadTarget, deleteObject } from '../storage.js';
+import { createUploadTarget, deleteObject, objectSize } from '../storage.js';
 
 /**
  * PRE-BOOKING SOURCE FOOTAGE.
@@ -159,6 +159,18 @@ export function registerUploadDraftRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'storage_path does not belong to this draft' });
     }
 
+    // Storage's own reading of what landed, not the figure the phone declared
+    // at presign — this is the client source-video path, so the compressor's
+    // output size is exactly what is in question. A probe failure costs the
+    // size and nothing else; the upload still registers, with null meaning
+    // "not measured" rather than zero.
+    let size_bytes: number | null = null;
+    try {
+      size_bytes = await objectSize('raw-footage', storage_path);
+    } catch (err) {
+      request.log.error({ err, draftId, storage_path }, 'upload-draft register: size probe failed');
+    }
+
     const { data, error } = await supabaseAdmin
       .from('booking_media')
       .insert({
@@ -168,6 +180,7 @@ export function registerUploadDraftRoutes(app: FastifyInstance) {
         storage_path,
         content_type: content_type ?? null,
         uploaded_by: user.id,
+        size_bytes,
       })
       .select('id, created_at')
       .single();

@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # WHAT IS ACTUALLY IN THE R2 BUCKET, AND HOW MUCH?
 #
-# Nothing in this repo can answer that from the database: booking_media
-# records a storage_path and a content_type, but NO SIZE. Bytes exist only in
-# R2, so this asks R2 directly.
+# The database can only answer this for RECENT files. booking_media.size_bytes
+# exists from 2026-08-21 and is filled at register time from storage's own
+# reading of the object — but only for files registered AFTER that server
+# deploy. Everything older is null forever: the size was never captured and R2
+# is the only place it survives, so there was nothing to backfill from. Two
+# things follow. Bucket totals still have to come from R2, which is what this
+# script does. And null in that column means "not recorded", never zero — a
+# SUM over it silently under-reports the pile this script exists to measure.
 #
 # Why it matters (2026-08-14): app_config.retention_dry_run is still TRUE, so
 # the daily retention job has only ever LOGGED what it would delete. Raw

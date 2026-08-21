@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { NotesThread } from '../components/NotesThread';
-import { ListState, Pill, fetchState, formatMoney, formatWhen } from '../components/ui';
+import { ListState, Pill, fetchState, formatBytes, formatMoney, formatWhen } from '../components/ui';
 
 interface BookingDetailData {
   booking: {
@@ -44,7 +44,26 @@ interface BookingDetailData {
   } | null;
   transactions: { id: string; type: string; status: string; amount_usd: number; created_at: string }[];
   disputes: { id: string; category: string; status: string; resolution: string | null; created_at: string; opened_by_name: string | null }[];
-  media_summary: { total: number; deliverables: number; deleted: number };
+  media_summary: {
+    total: number;
+    deliverables: number;
+    deleted: number;
+    /** Sum over the files that HAVE a recorded size — see sized_files. */
+    total_bytes: number;
+    sized_files: number;
+    live_files: number;
+  };
+  media_files: {
+    id: string;
+    kind: string;
+    content_type: string | null;
+    /** Null = not recorded (pre-2026-08-21 row, or the probe failed). */
+    size_bytes: number | null;
+    filename: string | null;
+    storage_path: string;
+    created_at: string;
+    deleted_at: string | null;
+  }[];
   revisions: { id: string; status: string; notes: string | null; created_at: string }[];
   admin_history: { id: string; action: string; detail: Record<string, unknown>; created_at: string; admin_name: string | null }[];
   eligible_creators: {
@@ -458,12 +477,67 @@ export function BookingDetail() {
             </div>
           </div>
           <div>
+            <div className="k">Stored size</div>
+            <div className="v num">
+              {data.media_summary.sized_files === 0
+                ? '—'
+                : formatBytes(data.media_summary.total_bytes)}
+              {/* Sizes are recorded from 2026-08-21 on. Saying so keeps a
+                  partial total from reading as the order's full weight. */}
+              {data.media_summary.sized_files > 0 &&
+              data.media_summary.sized_files < data.media_summary.live_files
+                ? ` · ${data.media_summary.sized_files} of ${data.media_summary.live_files} measured`
+                : ''}
+            </div>
+          </div>
+          <div>
             <div className="k">Revision requests</div>
             <div className="v num">
               {data.revisions.length === 0 ? 'none' : data.revisions.map((r) => r.status).join(', ')}
             </div>
           </div>
         </div>
+
+        {/* Per file, because the total cannot answer the question this is here
+            for: whether one PARTICULAR source video was compressed before it
+            was uploaded. Name and content type are shown next to the size
+            because on this pipeline they can disagree with the bytes. */}
+        {data.media_files.length > 0 && (
+          <div className="t-table-scroll" style={{ marginTop: 'var(--gap-grid)' }}>
+            <table className="t-table">
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Kind</th>
+                  <th>Type</th>
+                  <th className="right">Size</th>
+                  <th>Uploaded</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.media_files.map((m) => (
+                  <tr key={m.id} style={m.deleted_at ? { opacity: 0.55 } : undefined}>
+                    <td>
+                      <span className="cell-title" title={m.storage_path}>
+                        {m.filename ?? m.id.slice(0, 8)}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="cell-pills">
+                        <Pill tone={m.deleted_at ? 'danger' : 'neutral'}>
+                          {m.deleted_at ? `${m.kind} · deleted` : m.kind}
+                        </Pill>
+                      </div>
+                    </td>
+                    <td className="nowrap">{m.content_type ?? '—'}</td>
+                    <td className="right nowrap num">{formatBytes(m.size_bytes)}</td>
+                    <td className="nowrap num">{formatWhen(m.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {data.admin_history.length > 0 && (

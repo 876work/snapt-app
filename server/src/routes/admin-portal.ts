@@ -360,7 +360,7 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
         supabaseAdmin.from('sessions').select('*').eq('booking_id', id).maybeSingle(),
         supabaseAdmin.from('transactions').select('id, user_id, type, status, amount_usd, created_at').eq('booking_id', id).order('created_at', { ascending: true }),
         supabaseAdmin.from('disputes').select('id, opened_by, category, status, resolution, created_at, resolved_at').eq('booking_id', id),
-        supabaseAdmin.from('booking_media').select('id, kind, content_type, deleted_at, created_at').eq('booking_id', id),
+        supabaseAdmin.from('booking_media').select('id, kind, content_type, size_bytes, storage_path, deleted_at, created_at').eq('booking_id', id).order('created_at', { ascending: true }),
         supabaseAdmin.from('revision_requests').select('id, status, notes, created_at').eq('booking_id', id).order('created_at', { ascending: true }),
         supabaseAdmin.from('admin_actions').select('id, admin_id, action, detail, created_at').eq('target', id).order('created_at', { ascending: false }).limit(20),
       ]);
@@ -370,11 +370,36 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
       ? (await eligibleCreators(booking.occasion, booking.area ?? undefined)).slice(0, 25)
       : [];
 
+    // Byte sizes are recorded from 2026-08-21 onward (booking_media.size_bytes,
+    // read off storage at register time). Older rows are null forever, so the
+    // total is reported alongside HOW MANY files it covers: a bare number would
+    // read as the order's full weight while silently omitting everything that
+    // predates the column, which is the opposite of what it is here to prove.
+    const liveMedia = (mediaRows ?? []).filter((m) => !m.deleted_at);
+    const sizedMedia = liveMedia.filter((m) => m.size_bytes != null);
     const media_summary = {
       total: (mediaRows ?? []).length,
-      deliverables: (mediaRows ?? []).filter((m) => m.kind === 'deliverable' && !m.deleted_at).length,
+      deliverables: liveMedia.filter((m) => m.kind === 'deliverable').length,
       deleted: (mediaRows ?? []).filter((m) => m.deleted_at).length,
+      total_bytes: sizedMedia.reduce((sum, m) => sum + Number(m.size_bytes), 0),
+      sized_files: sizedMedia.length,
+      live_files: liveMedia.length,
     };
+
+    // Per-file, because the aggregate cannot answer the question this exists
+    // for: whether a PARTICULAR source video was compressed before upload.
+    // The stored key keeps its epoch prefix (`<epoch>-<name>`) — stripped for
+    // display, kept in storage_path so a file can still be found in R2.
+    const media_files = (mediaRows ?? []).map((m) => ({
+      id: m.id,
+      kind: m.kind,
+      content_type: m.content_type,
+      size_bytes: m.size_bytes == null ? null : Number(m.size_bytes),
+      filename: String(m.storage_path ?? '').split('/').pop()?.replace(/^\d+-/, '') ?? null,
+      storage_path: m.storage_path,
+      created_at: m.created_at,
+      deleted_at: m.deleted_at,
+    }));
 
     const names = await profileMap([
       booking.client_id,
@@ -394,6 +419,7 @@ export function registerAdminPortalRoutes(app: FastifyInstance) {
       transactions: txRows ?? [],
       disputes: (disputeRows ?? []).map((d) => ({ ...d, opened_by_name: names.get(d.opened_by)?.name ?? null })),
       media_summary,
+      media_files,
       revisions: revisionRows ?? [],
       admin_history: (actionRows ?? []).map((a) => ({ ...a, admin_name: names.get(a.admin_id)?.name ?? null })),
       eligible_creators: eligible,
