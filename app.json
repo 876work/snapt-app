@@ -85,7 +85,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Snapt uses your location to centre the map and help you drop your meeting-point pin in the right place. When In Use only — never in the background.",
+          "locationWhenInUsePermission": "Snapt uses your location to centre the map and help you drop your meeting-point pin in the right place. When In Use only \u2014 never in the background.",
           "isAndroidBackgroundLocationEnabled": false
         }
       ],
@@ -110,12 +110,47 @@
         {
           "faceIDPermission": "Snapt uses Face ID to unlock the app and your payout details. You can always fall back to your device passcode."
         }
+      ],
+      [
+        "expo-widgets",
+        {
+          "bundleIdentifier": "app.snaptcarib.snapt.SnaptWidgets",
+          "groupIdentifier": "group.app.snaptcarib.snapt",
+          "widgets": [
+            {
+              "name": "NextSession",
+              "displayName": "Next session",
+              "description": "Counts down to your next Snapt session.",
+              "supportedFamilies": [
+                "systemSmall",
+                "systemMedium"
+              ]
+            }
+          ]
+        }
       ]
     ],
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "2a9fec14-9f94-4cf7-9981-9429174eefd3"
+        "projectId": "2a9fec14-9f94-4cf7-9981-9429174eefd3",
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "ExpoWidgetsTarget",
+                  "bundleIdentifier": "app.snaptcarib.snapt.SnaptWidgets",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.app.snaptcarib.snapt"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
       }
     },
     "runtimeVersion": {

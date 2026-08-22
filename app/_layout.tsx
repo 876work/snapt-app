@@ -16,10 +16,12 @@ import {
 import { initAuth } from '../lib/auth';
 import { ApiErrorOverlay } from '../components/ui/ApiErrorOverlay';
 import { NotificationRouter } from '../components/NotificationRouter';
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { AppState, KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { Text } from '../lib/text';
 import { captureHandledError, initSentry, withSentry } from '../lib/sentry';
+import { useBookings } from '../lib/store';
+import { nextSession, refreshNextSessionWidget } from '../lib/widgetSnapshot';
 
 // Before anything else in the tree, so an error thrown during the first
 // render of any child is already being watched. No-op without a DSN.
@@ -91,6 +93,42 @@ function RootLayout() {
     // Foreground notifications render as banners (no-op on builds without
     // the native module).
     import('../lib/push').then((p) => p.initPushHandling());
+  }, []);
+
+  /**
+   * KEEP THE HOME-SCREEN WIDGET TRUE.
+   *
+   * Two triggers, because they cover different failures. The store
+   * SUBSCRIPTION catches a booking changing while the app is open — booked,
+   * cancelled, rescheduled — and fires on the hydrate that follows every
+   * fetch. FOREGROUNDING catches everything that happened while the app was
+   * closed, which is most of it.
+   *
+   * Reads the same client-scoped store the Bookings tab reads, so a creator's
+   * assigned jobs can never appear here as their own session (see e047989).
+   * iOS-only inside refreshNextSessionWidget; this costs Android nothing.
+   */
+  React.useEffect(() => {
+    let last = '';
+    const push = () => {
+      const bookings = useBookings.getState().bookings;
+      // The widget only ever shows one session, so re-pushing on every
+      // unrelated store write would be churn. Key on what it renders.
+      const next = nextSession(bookings);
+      const key = next ? `${next.id}|${next.scheduledAt}|${next.occasion}|${next.area}` : 'none';
+      if (key === last) return;
+      last = key;
+      void refreshNextSessionWidget(bookings);
+    };
+    push();
+    const unsubscribe = useBookings.subscribe(push);
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') push();
+    });
+    return () => {
+      unsubscribe();
+      sub.remove();
+    };
   }, []);
 
   React.useEffect(() => {
