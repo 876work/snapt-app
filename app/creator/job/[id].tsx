@@ -282,7 +282,11 @@ export default function CreatorJob() {
   // Open revision round (API mode): shown in the submitted stage. Declared
   // BEFORE the early returns below — hooks after a conditional return crash
   // the moment the condition flips mid-mount (deep-link hydration does).
-  const [openRevision, setOpenRevision] = React.useState<{ id: string; details: string } | null>(null);
+  /** ALL open requests — see RemoteJob for why the oldest-only read was a
+   *  dispute risk. Same server list, same rule on both creator screens. */
+  const [openRevisions, setOpenRevisions] = React.useState<
+    { id: string; details: string; createdAt: string }[]
+  >([]);
   React.useEffect(() => {
     // Remote orders run their own screen (RemoteJob) with its own revision
     // handling — this effect is the in-person path only.
@@ -290,8 +294,10 @@ export default function CreatorJob() {
     import('../../../lib/api').then(({ apiConfigured: cfgd, fetchRevisionsApi, fetchMediaListingApi }) => {
       if (!cfgd) return;
       fetchRevisionsApi(String(id)).then((revs) => {
-        const open = revs?.find((r) => r.status === 'open');
-        setOpenRevision(open ? { id: open.id, details: open.details } : null);
+        const openList = (revs ?? []).filter((r) => r.status === 'open');
+        setOpenRevisions(
+          openList.map((r) => ({ id: r.id, details: r.details, createdAt: r.created_at })),
+        );
       });
       // Finals registered before this visit (an interrupted earlier attempt)
       // count toward the review line rather than vanishing from it.
@@ -351,7 +357,7 @@ export default function CreatorJob() {
   const undelivered =
     job?.type === 'remote' || job?.social
       ? childUndelivered
-      : openRevision
+      : openRevisions.length > 0
         ? finalsBatch.doneCount > 0
         : !job?.deliveredAt && !deliveredNow && finalsBatch.doneCount + existingFinals > 0;
 
@@ -469,13 +475,13 @@ export default function CreatorJob() {
   const deliverRevision = () =>
     // Returns the success flag so a failed delivery unlocks the slider.
     withApi(async (api) => {
-      if (!openRevision) return false;
-      const r = await api.deliverRevisionApi(job.id, openRevision.id);
+      if (openRevisions.length === 0) return false;
+      const r = await api.deliverRevisionApi(job.id, openRevisions[0].id);
       if (r && 'error' in r) {
         setActionError(r.error);
         return false;
       }
-      setOpenRevision(null);
+      setOpenRevisions([]);
       finalsBatch.reset();
       haptic('success'); // the revision reached the client
       return true;
@@ -806,7 +812,7 @@ export default function CreatorJob() {
         {/* SOCIAL: post-session the pipeline is proofs → client selection →
             edit the chosen set. Server state decides the phase, so this
             renders for both local stages a social job can be in. */}
-        {job.social && (stage === 'upload' || stage === 'submitted') && !openRevision && (
+        {job.social && (stage === 'upload' || stage === 'submitted') && openRevisions.length === 0 && (
           <SocialPipeline
             bookingId={job.id}
             included={job.social}
@@ -831,14 +837,24 @@ export default function CreatorJob() {
           </>
         )}
 
-        {stage === 'submitted' && openRevision && (
+        {stage === 'submitted' && openRevisions.length > 0 && (
           <>
             <Text style={styles.checkinLead}>
-              Revision requested — the client asked for changes:
+              {openRevisions.length === 1
+                ? 'Revision requested — the client asked for changes:'
+                : `${openRevisions.length} revision requests — the client asked for changes:`}
             </Text>
-            <View style={styles.card}>
-              <Text style={{ fontSize: 13, color: colors.ink, lineHeight: 19 }}>{openRevision.details}</Text>
-            </View>
+            {openRevisions.map((r, i) => (
+              <View key={r.id} style={[styles.card, i > 0 && { marginTop: 8 }]}>
+                {openRevisions.length > 1 && (
+                  <Text style={{ fontSize: 10.5, color: colors.grey, fontWeight: '700', marginBottom: 3 }}>
+                    {i + 1} of {openRevisions.length} ·{' '}
+                    {new Date(r.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                  </Text>
+                )}
+                <Text style={{ fontSize: 13, color: colors.ink, lineHeight: 19 }}>{r.details}</Text>
+              </View>
+            ))}
             <DeliverPanel
               batch={finalsBatch}
               pickTitle="Add the updated files"
@@ -850,7 +866,7 @@ export default function CreatorJob() {
             />
           </>
         )}
-        {!job.social && stage === 'submitted' && !openRevision && (job.deliveredAt || deliveredNow) && (
+        {!job.social && stage === 'submitted' && openRevisions.length === 0 && (job.deliveredAt || deliveredNow) && (
           <View style={styles.successCard}>
             <View style={styles.successIcon}>
               <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
@@ -864,7 +880,7 @@ export default function CreatorJob() {
             </Text>
           </View>
         )}
-        {!job.social && stage === 'submitted' && !openRevision && !job.deliveredAt && !deliveredNow && (
+        {!job.social && stage === 'submitted' && openRevisions.length === 0 && !job.deliveredAt && !deliveredNow && (
           <>
             <Text style={styles.checkinLead}>
               Footage is in — you do the edit. Upload the finished files and deliver them to the
@@ -912,10 +928,10 @@ export default function CreatorJob() {
         {stage === 'session' && (
           <Button title="Wrap session — upload footage" arrow onPress={() => next('upload')} />
         )}
-        {job.social && (stage === 'upload' || stage === 'submitted') && !openRevision && (
+        {job.social && (stage === 'upload' || stage === 'submitted') && openRevisions.length === 0 && (
           <Button title="Back to jobs" variant="ghost" onPress={() => router.back()} />
         )}
-        {!job.social && stage === 'submitted' && !openRevision && (job.deliveredAt || deliveredNow) && (
+        {!job.social && stage === 'submitted' && openRevisions.length === 0 && (job.deliveredAt || deliveredNow) && (
           <Button title="Back to jobs" variant="ghost" onPress={() => router.back()} />
         )}
       </View>

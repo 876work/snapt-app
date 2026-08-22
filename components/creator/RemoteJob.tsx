@@ -46,7 +46,21 @@ export function RemoteJob({
   const [clockState, setClockState] = React.useState<'on_track' | 'approaching' | 'late' | null>(null);
   const [delivered, setDelivered] = React.useState(!!job.deliveredAt);
   const [deliverError, setDeliverError] = React.useState<string | null>(null);
-  const [openRevision, setOpenRevision] = React.useState<{ id: string; details: string } | null>(null);
+  /**
+   * EVERY open request, not the oldest one.
+   *
+   * This was a single row found with `.find(r => r.status === 'open')` over a
+   * list the server returns oldest-first, so when a client had two open
+   * requests the creator saw the FIRST and the newer text existed nowhere on
+   * screen — while a notification had already announced it. Orders aec459a2
+   * and fb32aef6 were both in that state on 2026-08-21/22. Acting on stale
+   * instructions with newer ones invisible is a dispute risk, so all of them
+   * render. The server now refuses a second while one is open, but rows that
+   * already exist still have to be readable.
+   */
+  const [openRevisions, setOpenRevisions] = React.useState<
+    { id: string; details: string; createdAt: string }[]
+  >([]);
   const [saveNote, setSaveNote] = React.useState<string | null>(null);
   const [reloadKey, setReloadKey] = React.useState(0);
 
@@ -84,8 +98,11 @@ export function RemoteJob({
       const mine = deliveries?.open?.find((d) => d.booking_id === job.id);
       setDueAt(mine?.due_at ?? null);
       setClockState(mine?.state ?? null);
-      const open = revs?.find((r) => r.status === 'open');
-      setOpenRevision(open ? { id: open.id, details: open.details } : null);
+      setOpenRevisions(
+        (revs ?? [])
+          .filter((r) => r.status === 'open')
+          .map((r) => ({ id: r.id, details: r.details, createdAt: r.created_at })),
+      );
     })();
     return () => {
       cancelled = true;
@@ -96,7 +113,7 @@ export function RemoteJob({
   // only THIS batch is unsent; on a first delivery the finals registered by an
   // earlier, abandoned attempt count too — they are exactly what the client
   // is missing.
-  const undelivered = openRevision
+  const undelivered = openRevisions.length > 0
     ? batch.doneCount > 0
     : !delivered && batch.doneCount + existingFinals > 0;
   React.useEffect(() => {
@@ -166,13 +183,16 @@ export function RemoteJob({
   const deliverFinal = async () => {
     setDeliverError(null);
     const api = await import('../../lib/api');
-    if (openRevision) {
-      const r = await api.deliverRevisionApi(job.id, openRevision.id);
+    if (openRevisions.length > 0) {
+      // Closes the OLDEST open round — unchanged behaviour. A legacy order
+      // with two open rounds therefore needs two deliveries; the server now
+      // prevents any new order reaching that state.
+      const r = await api.deliverRevisionApi(job.id, openRevisions[0].id);
       if (r && 'error' in (r as object)) {
         setDeliverError((r as { error?: string }).error ?? 'Delivery failed — try again.');
         return false;
       }
-      setOpenRevision(null);
+      setOpenRevisions([]);
       batch.reset();
       haptic('success'); // the revision reached the client
       return true;
@@ -328,7 +348,7 @@ export function RemoteJob({
       )}
 
       {/* Deliver / delivered / revision */}
-      {delivered && !openRevision ? (
+      {delivered && openRevisions.length === 0 ? (
         <View style={styles.doneCard}>
           <View style={styles.doneIcon}>
             <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
@@ -343,27 +363,42 @@ export function RemoteJob({
         </View>
       ) : (
         <>
-          {openRevision && (
+          {openRevisions.length > 0 && (
             <>
-              <Text style={styles.sectionTitle}>Revision requested</Text>
-              <View style={styles.revisionCard}>
-                <Text style={styles.revisionText}>{openRevision.details}</Text>
-              </View>
+              <Text style={styles.sectionTitle}>
+                {openRevisions.length === 1
+                  ? 'Revision requested'
+                  : `${openRevisions.length} revision requests`}
+              </Text>
+              {openRevisions.map((r, i) => (
+                <View key={r.id} style={[styles.revisionCard, i > 0 && { marginTop: 8 }]}>
+                  {openRevisions.length > 1 && (
+                    <Text style={styles.revisionWhen}>
+                      {i + 1} of {openRevisions.length} ·{' '}
+                      {new Date(r.createdAt).toLocaleDateString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </Text>
+                  )}
+                  <Text style={styles.revisionText}>{r.details}</Text>
+                </View>
+              ))}
             </>
           )}
           <Text style={styles.sectionTitle}>
-            {openRevision ? 'Deliver the updated files' : 'Deliver the finished edit'}
+            {openRevisions.length > 0 ? 'Deliver the updated files' : 'Deliver the finished edit'}
           </Text>
           <DeliverPanel
             batch={batch}
-            alreadyUploaded={openRevision ? 0 : existingFinals}
-            promisedCount={openRevision ? null : sources?.length ?? null}
+            alreadyUploaded={openRevisions.length > 0 ? 0 : existingFinals}
+            promisedCount={openRevisions.length > 0 ? null : sources?.length ?? null}
             promisedLabel={sources?.length ? `${sources.length} source file${sources.length === 1 ? '' : 's'} in the order` : undefined}
-            pickTitle={openRevision ? 'Add the updated files' : 'Add your finished edits'}
+            pickTitle={openRevisions.length > 0 ? 'Add the updated files' : 'Add your finished edits'}
             pickSub="Full-resolution, unwatermarked — this is what the client receives"
-            slideLabel={openRevision ? 'Slide to deliver revision' : 'Slide to submit finished edit'}
+            slideLabel={openRevisions.length > 0 ? 'Slide to deliver revision' : 'Slide to submit finished edit'}
             notDeliveredNote={
-              openRevision
+              openRevisions.length > 0
                 ? 'The client still has the previous version. Your updated files do not replace it until you slide below.'
                 : "These files are uploaded, but the client cannot see or download them yet. This order stays open, and unpaid, until you slide below."
             }
@@ -470,6 +505,7 @@ const styles = StyleSheet.create({
   doneTitle: { fontSize: 17, fontWeight: '800', color: colors.ink },
   doneSub: { fontSize: 12.5, color: colors.grey, lineHeight: 19, textAlign: 'center' },
   revisionCard: { backgroundColor: '#fff', borderRadius: 14, padding: 14 },
+  revisionWhen: { fontSize: 10.5, color: colors.grey, fontWeight: '700', marginBottom: 3 },
   revisionText: { fontSize: 13, color: colors.ink, lineHeight: 19 },
   msgBtn: {
     flexDirection: 'row',
