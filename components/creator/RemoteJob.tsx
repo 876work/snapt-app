@@ -103,8 +103,37 @@ export function RemoteJob({
     onUndeliveredChange?.(undelivered);
   }, [undelivered, onUndeliveredChange]);
 
+  /**
+   * DOWNLOADING IS NOT INSTANT AND MUST NOT LOOK IT.
+   *
+   * A source file is the client's camera original — hundreds of megabytes on
+   * a video order, over a Caribbean uplink. This showed nothing at all while
+   * that ran: the arrow stayed an arrow, so the only readings available were
+   * "the button is broken" or "it finished instantly", and the natural
+   * response to either is tapping again — which starts the whole transfer a
+   * second time.
+   *
+   * Three distinct states now, per file: in progress (spinner, and the tap
+   * is refused rather than queued), complete (green check, the existing
+   * savedIds), and failed (the file's own row goes red and carries the
+   * reason). Failure is deliberately NOT the same shape as either other
+   * state, which is the whole point of the previous fix on this path.
+   */
+  const [downloadingIds, setDownloadingIds] = React.useState<Set<string>>(new Set());
+  const [saveErrors, setSaveErrors] = React.useState<Record<string, string>>({});
+
   const saveSource = async (f: SourceFile) => {
+    // A second tap while the first transfer is running would download the
+    // same file twice over a link that is already the bottleneck.
+    if (downloadingIds.has(f.id)) return;
     setSaveNote(null);
+    setSaveErrors((prev) => {
+      if (!prev[f.id]) return prev;
+      const next = { ...prev };
+      delete next[f.id];
+      return next;
+    });
+    setDownloadingIds((prev) => new Set(prev).add(f.id));
     const index = (sources ?? []).findIndex((s) => s.id === f.id);
     const result = await saveToPhotos({
       url: f.url,
@@ -131,11 +160,20 @@ export function RemoteJob({
       },
       context: 'creator_source',
     });
+    // Whatever happened, this file is no longer in flight — cleared before
+    // the branch so no exit can leave a spinner running forever.
+    setDownloadingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(f.id);
+      return next;
+    });
     if (result.ok) {
       setSavedIds((prev) => new Set(prev).add(f.id));
       return;
     }
-    setSaveNote(result.message);
+    // On the file's own row, so a creator with several sources can see WHICH
+    // one failed — the shared note below could not say.
+    setSaveErrors((prev) => ({ ...prev, [f.id]: result.message }));
     offerSettings(result);
   };
 
@@ -251,12 +289,44 @@ export function RemoteJob({
               )}
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.srcName} numberOfLines={1}>{f.name}</Text>
-                <Text style={styles.srcMeta}>{f.contentType ?? 'file'}</Text>
+                {/* The meta line carries the file's own state: saving, saved,
+                    or why it failed — three readings that cannot be confused
+                    for one another. */}
+                {downloadingIds.has(f.id) ? (
+                  <Text style={styles.srcSaving}>Saving to your photos…</Text>
+                ) : saveErrors[f.id] ? (
+                  <Text style={styles.srcFailed}>{saveErrors[f.id]}</Text>
+                ) : savedIds.has(f.id) ? (
+                  <Text style={styles.srcSaved}>Saved to your photos</Text>
+                ) : (
+                  <Text style={styles.srcMeta}>{f.contentType ?? 'file'}</Text>
+                )}
               </View>
-              <Pressable onPress={() => saveSource(f)} style={styles.srcDl}>
-                {savedIds.has(f.id) ? (
+              <Pressable
+                onPress={() => saveSource(f)}
+                disabled={downloadingIds.has(f.id)}
+                style={styles.srcDl}
+                accessibilityLabel={
+                  downloadingIds.has(f.id)
+                    ? `Saving ${f.name}`
+                    : saveErrors[f.id]
+                      ? `Retry saving ${f.name}`
+                      : `Save ${f.name} to your photos`
+                }
+              >
+                {downloadingIds.has(f.id) ? (
+                  <ActivityIndicator size="small" color={colors.ink} />
+                ) : savedIds.has(f.id) ? (
                   <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
                     <Path d="M5 12.5l4.5 4.5L19 7" stroke="#159A57" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+                  </Svg>
+                ) : saveErrors[f.id] ? (
+                  // A retry arrow, not the download arrow: the state it is
+                  // returning from was a failure, and it should not read as
+                  // a fresh untouched file.
+                  <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+                    <Path d="M4 12a8 8 0 1 1 2.3 5.7" stroke={colors.error} strokeWidth={2} strokeLinecap="round" />
+                    <Path d="M4 19v-5h5" stroke={colors.error} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                   </Svg>
                 ) : (
                   <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
@@ -390,6 +460,9 @@ const styles = StyleSheet.create({
   srcVideo: { alignItems: 'center', justifyContent: 'center' },
   srcName: { fontSize: 12.5, fontWeight: '700', color: colors.ink },
   srcMeta: { fontSize: 10.5, color: colors.grey, marginTop: 1 },
+  srcSaving: { fontSize: 10.5, color: colors.ink, fontWeight: '700', marginTop: 1 },
+  srcSaved: { fontSize: 10.5, color: '#159A57', fontWeight: '700', marginTop: 1 },
+  srcFailed: { fontSize: 10.5, color: colors.error, fontWeight: '600', marginTop: 1 },
   srcDl: {
     width: 32,
     height: 32,
