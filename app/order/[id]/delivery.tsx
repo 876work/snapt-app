@@ -7,7 +7,7 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
 import { SlideToConfirm } from '../../../components/ui/SlideToConfirm';
 import { creatorById, useBookings } from '../../../lib/store';
-import { apiConfigured } from '../../../lib/api';
+import { apiConfigured, type RevisionRequest } from '../../../lib/api';
 import { colors, insetBottom } from '../../../lib/theme';
 import { offerSettings, photoFilename, saveToPhotos, shareFile, type SaveResult } from '../../../lib/saveToPhotos';
 import { useSaveStates } from '../../../lib/useSaveStates';
@@ -260,6 +260,20 @@ export default function Delivery() {
   // delivered revision first (Policy 08 §2).
   const [revText, setRevText] = React.useState('');
   const [revStatus, setRevStatus] = React.useState<string | null>(null);
+  /** The client's own requests, from the server — see the render comment. */
+  const [myRevisions, setMyRevisions] = React.useState<RevisionRequest[]>([]);
+  const loadRevisions = React.useCallback(async () => {
+    if (!id) return;
+    const api = await import('../../../lib/api');
+    if (!api.apiConfigured) return;
+    const rows = await api.fetchRevisionsApi(id);
+    // null = the fetch failed. Keep whatever is already on screen rather than
+    // blanking a client's own record of what they asked for.
+    if (rows) setMyRevisions(rows);
+  }, [id]);
+  React.useEffect(() => {
+    void loadRevisions();
+  }, [loadRevisions, reloadKey]);
   const [canBuyRound, setCanBuyRound] = React.useState(false);
   const buyRound = async () => {
     const api = await import('../../../lib/api');
@@ -287,6 +301,9 @@ export default function Delivery() {
     }
     setRevText('');
     setRevStatus('Revision requested — your creator has been notified.');
+    // The list above is the durable record; refresh it so the request the
+    // client just sent is there after this screen reloads.
+    void loadRevisions();
   };
 
   /**
@@ -453,6 +470,40 @@ export default function Delivery() {
             </View>
           ))}
         </View>
+        {/* WHAT THE CLIENT ASKED FOR, KEPT.
+            Requests were acknowledged only by a transient line of text that
+            vanished on the next load, so a client had no record of what they
+            wrote, when, or whether it had been actioned — while the creator
+            was reading it on their side. It comes from the server now, so it
+            survives a reload and says where each round stands. */}
+        {myRevisions.length > 0 && (
+          <View style={styles.revHistoryCard}>
+            <Text style={styles.revTitle}>
+              Your revision request{myRevisions.length === 1 ? '' : 's'}
+            </Text>
+            {myRevisions.map((r) => (
+              <View key={r.id} style={styles.revHistoryRow}>
+                <View style={styles.revHistoryHead}>
+                  <Text style={styles.revHistoryWhen}>
+                    {new Date(r.created_at).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.revHistoryStatus,
+                      r.status === 'delivered' ? styles.revDone : styles.revOpen,
+                    ]}
+                  >
+                    {r.status === 'delivered' ? 'Delivered' : 'With your creator'}
+                  </Text>
+                </View>
+                <Text style={styles.revHistoryText}>{r.details}</Text>
+              </View>
+            ))}
+          </View>
+        )}
         <View style={styles.revCard}>
           <Text style={styles.revTitle}>Need changes? Use your included revision</Text>
           <TextInput
@@ -620,6 +671,22 @@ const styles = StyleSheet.create({
   saveNote: { fontSize: 12.5, color: colors.grey, fontWeight: '600', textAlign: 'center' },
   revCard: { backgroundColor: '#fff', borderRadius: 14, padding: 14, marginTop: 18, gap: 10 },
   revTitle: { fontSize: 13.5, fontWeight: '800', color: colors.ink },
+  revHistoryCard: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 16,
+    padding: 14,
+    gap: 10,
+    marginTop: 14,
+  },
+  revHistoryRow: { gap: 3 },
+  revHistoryHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  revHistoryWhen: { fontSize: 11, color: colors.grey, fontWeight: '700' },
+  revHistoryStatus: { fontSize: 11, fontWeight: '800' },
+  revOpen: { color: '#8A7530' },
+  revDone: { color: '#159A57' },
+  revHistoryText: { fontSize: 13, color: colors.ink, lineHeight: 19 },
   revInput: { minHeight: 70, borderWidth: 1.5, borderColor: '#EFEBE3', borderRadius: 10, padding: 10, fontSize: 13, color: colors.ink, textAlignVertical: 'top' },
   revStatus: { fontSize: 12.5, color: colors.grey, fontWeight: '600' },
   revBtn: { height: 44, borderRadius: 12, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
