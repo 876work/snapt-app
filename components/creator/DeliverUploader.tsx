@@ -6,6 +6,7 @@ import { Button } from '../ui/Button';
 import { SlideToConfirm } from '../ui/SlideToConfirm';
 import { colors } from '../../lib/theme';
 import { extensionForContentType, extensionFromName } from '../../lib/mediaExtension';
+import { captureHandledError } from '../../lib/sentry';
 
 /**
  * THE creator upload pattern — the client's source-file uploader
@@ -41,6 +42,20 @@ function assetExtension(a: {
   );
 }
 
+/**
+ * SOMETHING THE PICKER OFFERED THAT DID NOT BECOME A ROW.
+ *
+ * The client's uploader has had this since it was written (lib/store/upload
+ * `RejectedFile`) and this one had nothing: an asset that never became a
+ * file simply evaporated. `name` is null when the failure happened before
+ * any asset was in hand — the picker itself refusing to open, say — which is
+ * the one case that has no file to name.
+ */
+export interface DiscardedPick {
+  name: string | null;
+  reason: string;
+}
+
 export interface BatchFile {
   id: string;
   uri: string;
@@ -67,11 +82,47 @@ export function useUploadBatch(bookingId: string, kind: 'raw' | 'deliverable' | 
   React.useEffect(() => {
     filesRef.current = files;
   }, [files]);
+  /** Everything the picker offered that did not become a row, with reasons. */
+  const [discarded, setDiscarded] = React.useState<DiscardedPick[]>([]);
+  // A monotonic counter, because `Date.now()` alone can repeat within a
+  // millisecond and two rows sharing an id would make every patch hit both.
+  const seq = React.useRef(0);
 
   const patch = (id: string, p: Partial<BatchFile>) =>
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...p } : f)));
 
+  /**
+   * NOTHING LEAVES THIS FUNCTION WITHOUT BEING SAID OUT LOUD.
+   *
+   * `pick` was an async function handed straight to onPress with no `try`
+   * anywhere in it. Anything the picker threw — a permission refusal, a
+   * relaunch before the previous sheet had dismissed, memory pressure on a
+   * large multi-selection — became an unhandled promise rejection: no files
+   * added, no error, no log, no Sentry event. The creator tapped, the sheet
+   * closed, and the screen was exactly as before. That is the failure class
+   * this project treats as the worst one available, and it is why picking a
+   * second file appeared to do nothing.
+   *
+   * Every exit now either adds rows or records a DiscardedPick, and every
+   * caught throw goes to Sentry as well as to the screen.
+   */
   const pick = async () => {
+    try {
+      await pickInner();
+    } catch (err) {
+      captureHandledError(err, `deliverUploader:pick:${kind}`);
+      setDiscarded((prev) => [
+        ...prev,
+        {
+          name: null,
+          reason:
+            "Your photo library couldn't be opened. Check Snapt has photo access in Settings, then try again.",
+        },
+      ]);
+    }
+  };
+
+  const pickInner = async () => {
     const ImagePicker = await import('expo-image-picker');
     const result = await ImagePicker.launchImageLibraryAsync({
       /**
@@ -94,10 +145,64 @@ export function useUploadBatch(bookingId: string, kind: 'raw' | 'deliverable' | 
       quality: 1,
     });
     if (result.canceled) return;
+    // Not cancelled but nothing came back is not "nothing happened" — it is
+    // the picker failing to hand anything over, and it has looked identical
+    // to a successful pick of zero files.
+    const assets = result.assets ?? [];
+    if (assets.length === 0) {
+      captureHandledError(
+        new Error('picker returned no assets and did not report cancel'),
+        `deliverUploader:pick_empty:${kind}`,
+      );
+      setDiscarded((prev) => [
+        ...prev,
+        { name: null, reason: 'Your library returned no files. Try selecting them again.' },
+      ]);
+      return;
+    }
+
+    // An asset with no usable uri cannot be read off the device later, and
+    // adding it would produce a row that can only ever fail at upload time.
+    // Refused HERE, by name, rather than silently or three screens later.
+    const usable = assets.filter((a) => !!a.uri);
+    if (usable.length < assets.length) {
+      const lost = assets.filter((a) => !a.uri);
+      captureHandledError(
+        new Error(`${lost.length} of ${assets.length} picked assets had no uri`),
+        `deliverUploader:pick_no_uri:${kind}`,
+      );
+      setDiscarded((prev) => [
+        ...prev,
+        ...lost.map((a) => ({
+          name: a.fileName ?? null,
+          reason: "Your library gave no readable file for this item — try re-saving it, or pick it again.",
+        })),
+      ]);
+    }
+
+    // Already in this batch. Uploading the same bytes twice would register
+    // the file twice and deliver the client a duplicate, so it is dropped —
+    // but said, because a silent drop is indistinguishable from the pick
+    // having failed.
+    const have = new Set(filesRef.current.map((f) => f.uri));
+    const fresh = usable.filter((a) => !have.has(a.uri));
+    if (fresh.length < usable.length) {
+      setDiscarded((prev) => [
+        ...prev,
+        ...usable
+          .filter((a) => have.has(a.uri))
+          .map((a) => ({
+            name: a.fileName ?? null,
+            reason: 'Already in this delivery.',
+          })),
+      ]);
+    }
+    if (fresh.length === 0) return;
+
     setFiles((prev) => [
       ...prev,
-      ...result.assets.map((a, i) => ({
-        id: `${Date.now()}-${i}`,
+      ...fresh.map((a) => ({
+        id: `f${Date.now()}-${seq.current++}`,
         uri: a.uri,
         /**
          * The fallback extension is DERIVED, never assumed. It was a
@@ -111,7 +216,7 @@ export function useUploadBatch(bookingId: string, kind: 'raw' | 'deliverable' | 
          * here without this would have re-shipped it on the delivery path,
          * where it lands in the paying client's camera roll.
          */
-        name: a.fileName ?? `file-${Date.now()}-${i}.${assetExtension(a)}`,
+        name: a.fileName ?? `file-${Date.now()}-${seq.current}.${assetExtension(a)}`,
         mimeType: a.mimeType ?? undefined,
         sizeBytes: a.fileSize ?? undefined,
         status: 'queued' as const,
@@ -160,46 +265,118 @@ export function useUploadBatch(bookingId: string, kind: 'raw' | 'deliverable' | 
     patch(id, { removing: false, error: r.error });
   };
 
-  /** Upload everything not yet done. Returns how many are still failing. */
+  /**
+   * Upload everything not yet done. Returns how many are still failing.
+   *
+   * THREE THINGS HERE ARE LOAD-BEARING, and their absence is what made this
+   * uploader fail as total silence:
+   *
+   *  1. try/FINALLY around the flag. `uploading` was set true and cleared on
+   *     the happy path only, so ANY throw — including the dynamic import on
+   *     the line below — stranded it true forever. That one stuck boolean
+   *     disabled the dropzone, the upload button and every remove control at
+   *     once, with nothing on screen to explain it: the creator saw a dead
+   *     panel and no error. Nothing may return from here without clearing it.
+   *
+   *  2. A per-file try/CATCH. One throw used to abandon the whole batch, so
+   *     files 2..N never got a row, an error or a log — they simply never
+   *     happened. A file's failure is now that file's failure.
+   *
+   *  3. A LIVE read of the list. The loop iterated a snapshot captured when
+   *     the handler was created, so anything added while an upload ran was
+   *     skipped and stayed 'queued' with no way to see why. It now walks by
+   *     id against filesRef and re-reads each file's current state.
+   */
   const uploadAll = async (): Promise<number> => {
     setUploading(true);
-    const { uploadBookingFile } = await import('../../lib/rawUpload');
     let failures = 0;
-    for (const f of files) {
-      if (f.status === 'done') continue;
-      patch(f.id, { status: 'uploading', progress: 0, error: undefined });
-      const r = await uploadBookingFile(
-        bookingId,
-        kind,
-        { uri: f.uri, name: f.name, mimeType: f.mimeType, sizeBytes: f.sizeBytes },
-        (fraction) =>
-          patch(
-            f.id,
-            // Bytes all handed off ≠ done: R2's ack + the register call are
-            // still ahead. Same finishing phase as the client upload screen.
-            fraction != null && fraction >= 1
-              ? { progress: 1, status: 'finishing' }
-              : { progress: fraction },
-          ),
-      );
-      if (r.ok) {
-        // The row id is what a later removal names to the server.
-        patch(f.id, { status: 'done', progress: 1, mediaId: r.mediaId });
-      } else {
-        failures += 1;
-        patch(f.id, { status: 'failed', error: r.error });
+    try {
+      const { uploadBookingFile } = await import('../../lib/rawUpload');
+      // Snapshot the IDS only. Which files exist is fixed for this run (a
+      // file added mid-run gets the next tap), but each file's STATE is read
+      // live, so one removed or already finished in the meantime is skipped
+      // rather than re-uploaded.
+      const ids = filesRef.current.map((f) => f.id);
+      for (const id of ids) {
+        const f = filesRef.current.find((x) => x.id === id);
+        if (!f || f.status === 'done') continue;
+        patch(f.id, { status: 'uploading', progress: 0, error: undefined });
+        try {
+          const r = await uploadBookingFile(
+            bookingId,
+            kind,
+            { uri: f.uri, name: f.name, mimeType: f.mimeType, sizeBytes: f.sizeBytes },
+            (fraction) =>
+              patch(
+                f.id,
+                // Bytes all handed off ≠ done: R2's ack + the register call are
+                // still ahead. Same finishing phase as the client upload screen.
+                fraction != null && fraction >= 1
+                  ? { progress: 1, status: 'finishing' }
+                  : { progress: fraction },
+              ),
+          );
+          if (r.ok) {
+            // The row id is what a later removal names to the server.
+            patch(f.id, { status: 'done', progress: 1, mediaId: r.mediaId });
+          } else {
+            failures += 1;
+            patch(f.id, { status: 'failed', error: r.error });
+          }
+        } catch (err) {
+          // uploadBookingFile is written to RETURN its failures, so reaching
+          // here means something genuinely unexpected — the file is still
+          // marked failed, with a reason, and the batch carries on.
+          captureHandledError(err, `deliverUploader:upload_file:${kind}`);
+          failures += 1;
+          patch(f.id, {
+            status: 'failed',
+            error: 'Something went wrong sending this file. Tap retry.',
+          });
+        }
       }
+    } catch (err) {
+      // Before the loop could start — the dynamic import is the realistic
+      // case. Every unfinished file is marked, so the panel never sits
+      // looking ready with nothing happening.
+      captureHandledError(err, `deliverUploader:upload_batch:${kind}`);
+      const stuck = filesRef.current.filter((f) => f.status !== 'done');
+      failures += stuck.length;
+      for (const f of stuck) {
+        patch(f.id, {
+          status: 'failed',
+          error: "The uploader couldn't start. Check your connection and tap retry.",
+        });
+      }
+    } finally {
+      setUploading(false);
     }
-    setUploading(false);
     return failures;
   };
 
-  const reset = () => setFiles([]);
+  const reset = () => {
+    setFiles([]);
+    setDiscarded([]);
+  };
+  /** Dismiss the discard notice — read and understood, not silently expired. */
+  const clearDiscarded = () => setDiscarded([]);
   const doneCount = files.filter((f) => f.status === 'done').length;
   const failedCount = files.filter((f) => f.status === 'failed').length;
   const allDone = files.length > 0 && doneCount === files.length;
 
-  return { files, pick, remove, uploadAll, reset, uploading, doneCount, failedCount, allDone };
+  return {
+    files,
+    pick,
+    remove,
+    uploadAll,
+    reset,
+    uploading,
+    doneCount,
+    failedCount,
+    allDone,
+    discarded,
+    clearDiscarded,
+  };
 }
 
 /** One file's row: name, live progress bar, status, error, remove. */
@@ -208,9 +385,33 @@ export function BatchFileList({
 }: {
   batch: ReturnType<typeof useUploadBatch>;
 }) {
-  if (batch.files.length === 0) return null;
+  if (batch.files.length === 0 && batch.discarded.length === 0) return null;
   return (
     <View style={{ gap: 8, marginTop: 12 }}>
+      {/* WHAT THE PICKER OFFERED THAT DID NOT BECOME A ROW. Without this an
+          asset the uploader refused was indistinguishable from the pick never
+          having happened — which is exactly how selecting several files could
+          look like doing nothing at all.
+
+          It lives HERE rather than in DeliverPanel because the Social proof
+          uploader renders this list directly and never mounts the panel; put
+          in the panel, proof picks would have gone on discarding silently. */}
+      {batch.discarded.length > 0 && (
+        <View style={styles.discardCard}>
+          <Text style={styles.discardTitle}>
+            {batch.discarded.length} {batch.discarded.length === 1 ? 'item was' : 'items were'} not
+            added
+          </Text>
+          {batch.discarded.map((d, i) => (
+            <Text key={`${d.name ?? 'item'}-${i}`} style={styles.discardLine}>
+              • {d.name ? `${d.name} — ${d.reason}` : d.reason}
+            </Text>
+          ))}
+          <Pressable onPress={batch.clearDiscarded} hitSlop={8}>
+            <Text style={styles.discardDismiss}>Dismiss</Text>
+          </Pressable>
+        </View>
+      )}
       {batch.files.map((f) => (
         <View key={f.id} style={styles.fileRow}>
           <View style={{ flex: 1, minWidth: 0 }}>
@@ -396,6 +597,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     marginTop: 14,
+  },
+  discardCard: {
+    marginTop: 12,
+    backgroundColor: '#FDECEA',
+    borderWidth: 1,
+    borderColor: '#F6D5D2',
+    borderRadius: 12,
+    padding: 12,
+    gap: 4,
+  },
+  discardTitle: { fontSize: 13, fontWeight: '800', color: colors.ink },
+  discardLine: { fontSize: 12, color: '#8A3E36', lineHeight: 17 },
+  discardDismiss: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.grey,
+    marginTop: 4,
+    textDecorationLine: 'underline',
   },
   dropTitle: { fontSize: 15, fontWeight: '700', color: colors.ink },
   dropSub: { fontSize: 12, color: '#8A7530', textAlign: 'center' },

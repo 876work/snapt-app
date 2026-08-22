@@ -319,8 +319,21 @@ export async function uploadBookingFile(
   // 2. Bytes to storage, device → bucket.
   let blob: Blob;
   try {
+    /**
+     * This reads the WHOLE file into memory as a Blob before any of it is
+     * sent — the one place in this pipeline whose cost scales with file size
+     * rather than with count. It is therefore the first thing to fail on a
+     * large deliverable, and it was catching without reporting, so the
+     * distinction between "the file moved" and "this device could not hold
+     * it" existed nowhere. The size is attached because that is the number
+     * that decides it.
+     */
     blob = await (await fetch(file.uri)).blob();
-  } catch {
+  } catch (err) {
+    captureHandledError(
+      err,
+      `rawUpload:booking:read_file:${kind}:${file.sizeBytes ?? 'unknown'}b`,
+    );
     return { ok: false, error: "Couldn't read the file off your device." };
   }
   const sent = await put(target.upload_url, blob, contentType, onProgress);

@@ -1384,7 +1384,11 @@ export async function deleteBookingMedia(
       ok: false,
       error: json.error ?? `Couldn't remove that file (${res.status}).`,
     };
-  } catch {
+  } catch (err) {
+    // Reported, not swallowed: the creator sees a sentence, and the reason
+    // it failed still has to reach us.
+    const { captureHandledError } = await import('./sentry');
+    captureHandledError(err, 'deleteBookingMedia:network');
     return { ok: false, error: "Couldn't reach the server to remove that file." };
   }
 }
