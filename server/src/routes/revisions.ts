@@ -183,6 +183,101 @@ export function registerRevisionRoutes(app: FastifyInstance) {
     },
   );
 
+  /**
+   * FLAG A REQUEST AS BEYOND WHAT WAS BOOKED — a signal, never a stop button.
+   *
+   * A creator facing a request outside the order had two options: do it, or
+   * ignore it. This is the third, and it deliberately changes NOTHING about
+   * the round: it stays open, it stays deliverable, and the creator can go on
+   * and deliver it. Nothing here touches booking status or payouts, which is
+   * why this is not a dispute.
+   *
+   * THE CLIENT IS NEVER TOLD. No notify() call, and target_user_id is left
+   * NULL rather than set to the client — belt and braces, because the
+   * moderation pipeline's automation keys on target_user_id and severity, and
+   * a 'medium' report with a target can suspend an account or send it a
+   * content-policy warning. A client learning their request was flagged is
+   * the exact outcome this feature exists to avoid, so the row is shaped so
+   * that no existing automation can reach them: severity 'low' has no
+   * consequence branch at all, and there is no target to act on.
+   *
+   * This is deliberately NOT POST /v1/reports. That endpoint's automation is
+   * the hazard above, and it has no concept of a revision, so flag-once could
+   * not be enforced there.
+   *
+   * NOT A NEGOTIATION. There is no amount, no counter-offer and no reply
+   * path: standardised pricing is a locked rule. It files a sentence for an
+   * admin to read.
+   */
+  app.post<{ Params: { id: string; revId: string }; Body: { reason?: string } }>(
+    '/v1/bookings/:id/revisions/:revId/flag',
+    async (request, reply) => {
+      const user = requireUser(request);
+      const reason = request.body?.reason?.trim();
+      if (!reason || reason.length < 10) {
+        return reply.code(400).send({ error: 'Say briefly why this is beyond the order' });
+      }
+      const { data: booking } = await supabaseAdmin
+        .from('bookings')
+        .select('id, client_id, creator_id')
+        .eq('id', request.params.id)
+        .maybeSingle();
+      if (!booking) return reply.code(404).send({ error: 'Booking not found' });
+      if (user.id !== booking.creator_id) {
+        return reply.code(403).send({ error: 'Only the assigned creator can flag a request' });
+      }
+      const { data: revision } = await supabaseAdmin
+        .from('revision_requests')
+        .select('id, status')
+        .eq('id', request.params.revId)
+        .eq('booking_id', booking.id)
+        .maybeSingle();
+      if (!revision) return reply.code(404).send({ error: 'No such revision request on this order' });
+
+      // Checked first so a second tap reads as a sentence rather than a
+      // database error; the partial unique index is what actually holds when
+      // two are in flight at once.
+      const { data: already } = await supabaseAdmin
+        .from('content_reports')
+        .select('id')
+        .eq('revision_id', revision.id)
+        .eq('category', 'revision_scope')
+        .maybeSingle();
+      if (already) {
+        return reply.code(409).send({ error: "You've already flagged this request for review." });
+      }
+
+      const { data: report, error } = await supabaseAdmin
+        .from('content_reports')
+        .insert({
+          reporter_id: user.id,
+          target_user_id: null,
+          booking_id: booking.id,
+          revision_id: revision.id,
+          category: 'revision_scope',
+          severity: 'low',
+          details: reason,
+        })
+        .select('id')
+        .single();
+      if (error) {
+        // 23505 = the unique index caught a race the check above could not.
+        if ((error as { code?: string }).code === '23505') {
+          return reply.code(409).send({ error: "You've already flagged this request for review." });
+        }
+        request.log.error({ err: error, revisionId: revision.id }, 'revision flag insert failed');
+        return reply.code(500).send({ error: "Couldn't file that just now — try again in a minute." });
+      }
+
+      await supabaseAdmin.from('admin_alerts').insert({
+        alert_type: 'revision_scope_flagged',
+        booking_id: booking.id,
+        detail: { report_id: report.id, revision_id: revision.id, creator_id: user.id },
+      });
+      return reply.code(201).send({ flagged: true });
+    },
+  );
+
   app.get<{ Params: { id: string } }>('/v1/bookings/:id/revisions', async (request, reply) => {
     const user = requireUser(request);
     const { data: booking } = await supabaseAdmin
@@ -199,6 +294,30 @@ export function registerRevisionRoutes(app: FastifyInstance) {
       .select('*')
       .eq('booking_id', booking.id)
       .order('created_at', { ascending: true });
-    return { revisions: data ?? [] };
+    const rows = data ?? [];
+
+    /**
+     * `flagged` IS FOR THE CREATOR ONLY.
+     *
+     * This route serves both roles, and the whole point of the flag is that
+     * the client never learns their request was questioned. So the field is
+     * attached only when the caller is the assigned creator — the client's
+     * response is byte-identical to what it was before. It exists so the
+     * creator's screen can show a request as already flagged and stop
+     * offering the control twice.
+     */
+    if (user.id !== booking.creator_id || rows.length === 0) {
+      return { revisions: rows };
+    }
+    const { data: flags } = await supabaseAdmin
+      .from('content_reports')
+      .select('revision_id')
+      .eq('category', 'revision_scope')
+      .in(
+        'revision_id',
+        rows.map((r) => r.id),
+      );
+    const flagged = new Set((flags ?? []).map((f) => f.revision_id));
+    return { revisions: rows.map((r) => ({ ...r, flagged: flagged.has(r.id) })) };
   });
 }

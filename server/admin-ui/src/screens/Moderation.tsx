@@ -18,6 +18,8 @@ interface Report {
   reporter_false_report_count: number;
   reporter_name: string | null;
   target_name: string | null;
+  /** Present only on category 'revision_scope' — the request being flagged. */
+  revision_request: { details: string; created_at: string; is_free: boolean } | null;
 }
 
 interface PortfolioItem {
@@ -189,11 +191,20 @@ export function Moderation() {
                   <span className="sub" style={{ color: 'var(--muted)', fontSize: 12 }}>{formatWhen(r.created_at)}</span>
                 </div>
                 <div className="sub" style={{ fontSize: 13 }}>
-                  {r.reporter_name ?? 'user'} reported{' '}
-                  {r.target_user_id ? (
-                    <Link to={`/users/${r.target_user_id}`}>{r.target_name ?? 'user'}</Link>
-                  ) : (
-                    'content'
+                  {/* A scope flag has no target by design — the client is
+                      never the subject of it and must never be actioned by
+                      it — so it reads as the creator flagging a request. */}
+                  {r.reporter_name ?? 'user'}{' '}
+                  {r.category === 'revision_scope' ? 'flagged a revision request' : 'reported'}
+                  {r.category === 'revision_scope' ? null : (
+                    <>
+                      {' '}
+                      {r.target_user_id ? (
+                        <Link to={`/users/${r.target_user_id}`}>{r.target_name ?? 'user'}</Link>
+                      ) : (
+                        'content'
+                      )}
+                    </>
                   )}
                   {r.booking_id ? (
                     <>
@@ -211,7 +222,38 @@ export function Moderation() {
                     </>
                   )}
                 </div>
-                {r.details && <div style={{ fontSize: 13 }}>{r.details}</div>}
+                {/* The client's actual words, beside the creator's
+                    explanation — a flag reading "this is beyond the order" is
+                    unreadable without the request it is about. */}
+                {r.revision_request && (
+                  <div
+                    style={{
+                      fontSize: 13,
+                      background: 'var(--bg-subtle, #F7F5F0)',
+                      borderLeft: '3px solid var(--border, #E0DCD2)',
+                      padding: '8px 10px',
+                      borderRadius: 6,
+                    }}
+                  >
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}>
+                      Client's request · {formatWhen(r.revision_request.created_at)} ·{' '}
+                      {r.revision_request.is_free ? 'included round' : 'paid round'}
+                    </div>
+                    <div style={{ marginTop: 3 }}>{r.revision_request.details}</div>
+                  </div>
+                )}
+                {r.details && (
+                  <div style={{ fontSize: 13 }}>
+                    {r.revision_request ? (
+                      <>
+                        <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}>
+                          Creator says:
+                        </span>{' '}
+                      </>
+                    ) : null}
+                    {r.details}
+                  </div>
+                )}
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <button
                     className="btn"

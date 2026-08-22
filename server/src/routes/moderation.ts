@@ -269,11 +269,34 @@ export function registerModerationRoutes(app: FastifyInstance) {
       const { data: profs } = await supabaseAdmin.from('profiles').select('id, full_name').in('id', personIds);
       for (const p of profs ?? []) nameOf.set(p.id, p.full_name);
     }
+    /**
+     * A revision-scope flag is only readable NEXT TO the request it is about.
+     * content_reports holds the creator's explanation; the client's actual
+     * words live on revision_requests, so the two are joined here. Without
+     * this an admin reads "this is beyond the order" with no way to see what
+     * "this" was.
+     */
+    const revisionIds = [
+      ...new Set((reports ?? []).map((r) => r.revision_id).filter(Boolean)),
+    ] as string[];
+    const revisionOf = new Map<string, { details: string; created_at: string; is_free: boolean }>();
+    if (revisionIds.length) {
+      const { data: revs } = await supabaseAdmin
+        .from('revision_requests')
+        .select('id, details, created_at, is_free')
+        .in('id', revisionIds);
+      for (const r of revs ?? []) {
+        revisionOf.set(r.id, { details: r.details, created_at: r.created_at, is_free: r.is_free });
+      }
+    }
+
     const enriched = (reports ?? []).map((r) => ({
       ...r,
       reporter_false_report_count: counts.get(r.reporter_id) ?? 0,
       reporter_name: nameOf.get(r.reporter_id) ?? null,
       target_name: r.target_user_id ? nameOf.get(r.target_user_id) ?? null : null,
+      // Null for every report that is not a revision flag.
+      revision_request: r.revision_id ? revisionOf.get(r.revision_id) ?? null : null,
     }));
     return {
       reports: enriched.sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9)),
