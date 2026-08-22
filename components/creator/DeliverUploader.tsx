@@ -56,6 +56,57 @@ export interface DiscardedPick {
   reason: string;
 }
 
+/**
+ * WHY THE PICKER THREW — described as what happened, not as a guess.
+ *
+ * The copy this replaces read "Your photo library couldn't be opened. Check
+ * Snapt has photo access in Settings" for EVERY throw, which was wrong twice
+ * over. Verified against the installed expo-image-picker (SDK 57):
+ *
+ *  - `launchImageLibraryAsync` requests NO photo-library permission at all.
+ *    With allowsMultipleSelection it presents PHPickerViewController, which
+ *    runs out of process and needs none — handlePermissionRequest in
+ *    ImagePickerModule.swift covers camera and microphone only. So the
+ *    Settings toggle that message sent people to has no bearing on this
+ *    code path whatsoever.
+ *
+ *  - The library did open. `handleMultipleMedia` maps the selection with
+ *    `try await asyncMap`, so the FIRST item that fails to read rejects the
+ *    whole promise: the real event is one unreadable ITEM, reported as a
+ *    whole-library failure.
+ *
+ * The exceptions that land here are per-asset read/export failures —
+ * FailedToReadImageException, FailedToReadVideoException,
+ * FailedToTranscodeVideoException and their siblings — and expo attaches the
+ * underlying cause with `.causedBy(error)`, which is where an iCloud or
+ * network signal survives into the message.
+ *
+ * Every branch says that NOTHING was added, because nothing was: one bad
+ * item costs the entire selection, and a message about a single item would
+ * leave a creator believing the rest went through.
+ */
+function pickFailureReason(err: unknown): string {
+  const e = err as { code?: unknown; message?: unknown } | null;
+  const text = `${String(e?.code ?? '')} ${String(e?.message ?? '')}`.toLowerCase();
+
+  // Not on the device yet. loadDataRepresentation materialises an iCloud
+  // asset on demand, and a failed download surfaces as a CloudKit or URL
+  // error wrapped in the read exception.
+  if (/ckerror|icloud|cloudkit|nsurlerror|network connection|offline|not available offline/.test(text)) {
+    return "One of those items isn't downloaded to this device yet — open it in Photos to download it from iCloud, then add it again. Nothing was added.";
+  }
+  // The encoder could not produce an uploadable file from the picked video.
+  if (/transcode|export preset/.test(text)) {
+    return 'One of those videos could not be converted for upload. Try a different export of it. Nothing was added.';
+  }
+  // Read/export failure with no cause we can name. States the fact and
+  // offers the most common check WITHOUT asserting it as the reason.
+  if (/failed to read|failed to write|could not be picked|failed to export/.test(text)) {
+    return "Snapt couldn't read one of those items from your library. If it's stored in iCloud, open it in Photos first to download it. Nothing was added.";
+  }
+  return 'Your library could not hand those files over, and nothing was added. The reason has been reported — try selecting them again.';
+}
+
 export interface BatchFile {
   id: string;
   uri: string;
@@ -111,14 +162,7 @@ export function useUploadBatch(bookingId: string, kind: 'raw' | 'deliverable' | 
       await pickInner();
     } catch (err) {
       captureHandledError(err, `deliverUploader:pick:${kind}`);
-      setDiscarded((prev) => [
-        ...prev,
-        {
-          name: null,
-          reason:
-            "Your photo library couldn't be opened. Check Snapt has photo access in Settings, then try again.",
-        },
-      ]);
+      setDiscarded((prev) => [...prev, { name: null, reason: pickFailureReason(err) }]);
     }
   };
 
