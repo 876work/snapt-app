@@ -1358,6 +1358,37 @@ export async function createUploadDraft(): Promise<string | null> {
   }
 }
 
+/**
+ * Take one uploaded file back out of a delivery that has NOT been sent.
+ *
+ * Returns the server's own sentence on refusal rather than a bare false: the
+ * two reasons a removal is refused — the order is already delivered, or the
+ * file is the client's source footage — are things the creator needs to
+ * read, and the uploader shows them on the file's row. A delete that fails
+ * silently would leave a file in a delivery the creator believes they
+ * removed.
+ */
+export async function deleteBookingMedia(
+  bookingId: string,
+  mediaId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!apiUrl) return { ok: false, error: 'No server configured.' };
+  try {
+    const res = await fetch(`${apiUrl}/v1/bookings/${bookingId}/media/${mediaId}`, {
+      method: 'DELETE',
+      headers: await authHeaders(),
+    });
+    if (res.ok) return { ok: true };
+    const json = (await res.json().catch(() => ({}))) as { error?: string };
+    return {
+      ok: false,
+      error: json.error ?? `Couldn't remove that file (${res.status}).`,
+    };
+  } catch {
+    return { ok: false, error: "Couldn't reach the server to remove that file." };
+  }
+}
+
 /** Remove one uploaded file. Deletes the object as well as the row. */
 export async function deleteDraftFile(draftId: string, mediaId: string): Promise<boolean> {
   if (!apiUrl) return false;

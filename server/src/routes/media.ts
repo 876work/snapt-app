@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { requireUser } from '../plugins/auth.js';
 import { supabaseAdmin } from '../supabase.js';
-import { createDownloadUrl, createUploadTarget, MediaBucket, objectSize } from '../storage.js';
+import { createDownloadUrl, createUploadTarget, deleteObject, MediaBucket, objectSize } from '../storage.js';
 import { createPayoutForBooking } from '../payments.js';
 import { notify } from '../notify.js';
 
@@ -25,6 +25,8 @@ interface BookingRow {
   occasion: string | null;
   price_usd: number;
   pricing_snapshot: Record<string, unknown>;
+  /** Set by /deliver. Once it exists, the client owns what was sent. */
+  delivered_at: string | null;
 }
 
 async function loadBooking(id: string, reply: FastifyReply): Promise<BookingRow | null> {
@@ -231,6 +233,72 @@ export function registerMediaRoutes(app: FastifyInstance) {
     }
     return reply.code(201).send({ media: data });
   });
+
+  /**
+   * REMOVE A FILE THE CREATOR UPLOADED BUT HAS NOT DELIVERED.
+   *
+   * The delivery uploader lets a creator take a file back out of the batch,
+   * and a file that has already registered cannot be un-registered from the
+   * device alone: dropping it from the local list would leave the row on the
+   * booking and /deliver would send it anyway. So the control needs this, or
+   * it would be a button that lies.
+   *
+   * THE WINDOW CLOSES AT DELIVERY, deliberately and permanently. Once
+   * delivered_at is set, the client has been notified and may already have
+   * downloaded the file: it is what they paid for, and no self-serve button
+   * takes it back. A post-delivery removal is a support action with a person
+   * attached, not a tap. Both guards are here rather than trusted from the
+   * app, and the 409 says which one refused.
+   *
+   * Object first, then the row — same ordering and reasoning as the draft
+   * delete: a half-done delete must leave a row pointing at nothing (visible,
+   * and the listing renders it as unavailable) rather than an object nothing
+   * points at (invisible, and it accrues storage forever).
+   */
+  app.delete<{ Params: { id: string; mediaId: string } }>(
+    '/v1/bookings/:id/media/:mediaId',
+    async (request, reply) => {
+      const user = requireUser(request);
+      const booking = await loadBooking(request.params.id, reply);
+      if (!booking) return;
+      if (user.id !== booking.creator_id) {
+        return reply.code(403).send({ error: 'Only the assigned creator can remove a file' });
+      }
+      if (booking.delivered_at) {
+        return reply.code(409).send({
+          error: 'This order is already delivered — the client has these files. Contact support to have one removed.',
+        });
+      }
+      const { data: row } = await supabaseAdmin
+        .from('booking_media')
+        .select('id, storage_path, kind, uploaded_by, deleted_at')
+        .eq('id', request.params.mediaId)
+        .eq('booking_id', booking.id)
+        .maybeSingle();
+      if (!row) return reply.code(404).send({ error: 'No such file on this order' });
+      // Raw is the CLIENT's source footage on a remote order — the creator
+      // works from it and never gets to delete it. This route exists for the
+      // creator's own uploads only.
+      if (row.kind === 'raw') {
+        return reply.code(403).send({ error: "Source files belong to the client and can't be removed here" });
+      }
+      if (row.uploaded_by !== user.id) {
+        return reply.code(403).send({ error: 'That file was not uploaded by you' });
+      }
+      if (row.deleted_at) return { removed: true }; // already gone; idempotent
+
+      try {
+        await deleteObject(bucketFor(row.kind as MediaKind), row.storage_path as string);
+      } catch (err) {
+        // A missing object is the outcome we wanted anyway. Anything else is
+        // logged rather than swallowed — but it must not block the creator
+        // from taking a file out of a delivery they have not sent.
+        request.log.error({ err, mediaId: row.id }, 'booking media delete: object removal failed');
+      }
+      await supabaseAdmin.from('booking_media').delete().eq('id', row.id);
+      return { removed: true };
+    },
+  );
 
   // Listing: creator gets everything (raw + deliverables) with signed URLs;
   // client gets deliverables ONLY — raw entries are not even listed.

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Text } from '../../lib/text';
 import { Button } from '../ui/Button';
@@ -51,11 +51,22 @@ export interface BatchFile {
   /** 0–1, or null when the true total is unknowable (see rawUpload's put). */
   progress: number | null;
   error?: string;
+  /** The registered row, once uploaded — what a removal names to the server. */
+  mediaId?: string;
+  /** A removal is in flight for this file; its control shows the wait. */
+  removing?: boolean;
 }
 
 export function useUploadBatch(bookingId: string, kind: 'raw' | 'deliverable' | 'proof') {
   const [files, setFiles] = React.useState<BatchFile[]>([]);
   const [uploading, setUploading] = React.useState(false);
+  // A live view of `files` for the async handlers. `remove` runs across an
+  // await and must decide on what the list holds NOW, not on whatever it
+  // held when the handler was created.
+  const filesRef = React.useRef<BatchFile[]>(files);
+  React.useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
 
   const patch = (id: string, p: Partial<BatchFile>) =>
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...p } : f)));
@@ -109,7 +120,45 @@ export function useUploadBatch(bookingId: string, kind: 'raw' | 'deliverable' | 
     ]);
   };
 
-  const remove = (id: string) => setFiles((prev) => prev.filter((f) => f.id !== id));
+  /**
+   * TAKE A FILE BACK OUT, up until the delivery is sent.
+   *
+   * A file that has not uploaded is local only, so it just leaves the list.
+   * A file that HAS uploaded is registered against the booking, and dropping
+   * it from the list alone would be a lie: /deliver reads the server's rows,
+   * so the file the creator thought they removed would still reach the
+   * client. Those go to the server first and only leave the list once it
+   * confirms — and a refusal stays on the row, in the server's own words.
+   *
+   * Never throws and never silently no-ops: every exit either removes the
+   * row or leaves a reason on it.
+   */
+  const remove = async (id: string) => {
+    const target = filesRef.current.find((f) => f.id === id);
+    if (!target) return;
+    if (target.status !== 'done') {
+      setFiles((prev) => prev.filter((f) => f.id !== id));
+      return;
+    }
+    if (!target.mediaId) {
+      // Registered, but the register response did not name the row — without
+      // an id the server cannot be told which file to drop, and removing it
+      // locally would leave it in the delivery.
+      patch(id, {
+        error:
+          "This file uploaded but can't be identified to remove. Reload the screen and try again.",
+      });
+      return;
+    }
+    patch(id, { removing: true, error: undefined });
+    const { deleteBookingMedia } = await import('../../lib/api');
+    const r = await deleteBookingMedia(bookingId, target.mediaId);
+    if (r.ok) {
+      setFiles((prev) => prev.filter((f) => f.id !== id));
+      return;
+    }
+    patch(id, { removing: false, error: r.error });
+  };
 
   /** Upload everything not yet done. Returns how many are still failing. */
   const uploadAll = async (): Promise<number> => {
@@ -134,7 +183,8 @@ export function useUploadBatch(bookingId: string, kind: 'raw' | 'deliverable' | 
           ),
       );
       if (r.ok) {
-        patch(f.id, { status: 'done', progress: 1 });
+        // The row id is what a later removal names to the server.
+        patch(f.id, { status: 'done', progress: 1, mediaId: r.mediaId });
       } else {
         failures += 1;
         patch(f.id, { status: 'failed', error: r.error });
@@ -183,15 +233,38 @@ export function BatchFileList({
                 )}
               </View>
             )}
-            {f.status === 'failed' && (
+            {/* Keyed on the ERROR, not on `failed` — a removal that the
+                server refuses leaves its reason on a row that is still
+                `done`, and that reason has to be readable. */}
+            {f.status === 'failed' ? (
               <Text style={styles.fileError}>{f.error ?? 'Upload failed.'}</Text>
-            )}
+            ) : f.error ? (
+              <Text style={styles.fileError}>{f.error}</Text>
+            ) : null}
           </View>
-          {f.status !== 'uploading' && f.status !== 'done' && !batch.uploading && (
-            <Pressable onPress={() => batch.remove(f.id)} hitSlop={8} style={styles.removeBtn}>
-              <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
-                <Path d="M6 6l12 12M18 6L6 18" stroke={colors.grey} strokeWidth={2.4} strokeLinecap="round" />
-              </Svg>
+          {/* AVAILABLE UNTIL THE DELIVERY IS SENT — uploaded files included.
+              An uploaded file is registered against the booking, so its X
+              goes through the server (batch.remove) rather than just dropping
+              a row; a file the creator removed must not still reach the
+              client. Only a transfer in flight has no X: cancelling a
+              part-written upload is a different control this uploader does
+              not have, and a row that vanished mid-PUT would leave an object
+              in the bucket that nothing points at. */}
+          {f.status !== 'uploading' && f.status !== 'finishing' && (
+            <Pressable
+              onPress={() => void batch.remove(f.id)}
+              disabled={f.removing}
+              hitSlop={8}
+              style={styles.removeBtn}
+              accessibilityLabel={`Remove ${f.name}`}
+            >
+              {f.removing ? (
+                <ActivityIndicator size="small" color={colors.grey} />
+              ) : (
+                <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+                  <Path d="M6 6l12 12M18 6L6 18" stroke={colors.grey} strokeWidth={2.4} strokeLinecap="round" />
+                </Svg>
+              )}
             </Pressable>
           )}
         </View>

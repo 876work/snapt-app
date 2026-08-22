@@ -18,6 +18,13 @@ export interface RawUploadResult {
   ok: boolean;
   /** Present on failure — shown per file, never swallowed. */
   error?: string;
+  /**
+   * The registered row's id, on success. Needed because a file that has
+   * registered can only be taken back out of a delivery by naming its row to
+   * the server — dropping it from the local list would leave it attached and
+   * /deliver would send it anyway.
+   */
+  mediaId?: string;
 }
 
 /**
@@ -343,10 +350,14 @@ export async function uploadBookingFile(
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       return { ok: false, error: json.error ?? 'Uploaded, but could not attach to the order.' };
     }
+    // The row id travels back so the file can be taken out again before
+    // delivery. A body we cannot parse is not a failure — the file IS
+    // registered — it only costs this one file its remove control.
+    const body = (await res.json().catch(() => ({}))) as { media?: { id?: string } };
+    onProgress(1);
+    return { ok: true, mediaId: body?.media?.id };
   } catch (err) {
     captureHandledError(err, 'rawUpload:booking:register-network');
     return { ok: false, error: 'Uploaded, but could not attach to the order.' };
   }
-  onProgress(1);
-  return { ok: true };
 }
