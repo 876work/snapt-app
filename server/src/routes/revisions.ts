@@ -26,6 +26,42 @@ export function registerRevisionRoutes(app: FastifyInstance) {
         return reply.code(409).send({ error: 'Revisions open after delivery' });
       }
 
+      /**
+       * ONE OPEN ROUND AT A TIME — enforced, not just assumed.
+       *
+       * This flow is a loop: client requests → creator re-delivers → marks
+       * the round delivered. Every other part of it already assumes one open
+       * request (the deliver route closes a single id and refuses if it is
+       * not open; both creator screens read one). Nothing enforced it, so
+       * with enough entitlement a client could open a second while the first
+       * was live — and orders aec459a2 and fb32aef6 did exactly that on
+       * 2026-08-21/22, leaving a request whose text the creator never saw.
+       * A creator working from stale instructions while newer ones sit
+       * invisible is a dispute waiting to happen.
+       *
+       * REFUSED, not queued and not replaced: queueing needs round ordering
+       * and an entitlement model that separates requested from consumed, and
+       * replacing would destroy what the client wrote.
+       *
+       * Checked BEFORE entitlement so the client is told the true reason. The
+       * copy deliberately avoids "used up" — the app offers to sell another
+       * round on that phrase, and another round is not what is needed here.
+       */
+      const { data: alreadyOpen } = await supabaseAdmin
+        .from('revision_requests')
+        .select('id')
+        .eq('booking_id', booking.id)
+        .eq('status', 'open')
+        .limit(1)
+        .maybeSingle();
+      if (alreadyOpen) {
+        return reply.code(409).send({
+          error:
+            "Your creator is working on your last request — you'll be able to send another once they've delivered it.",
+          code: 'revision_open',
+        });
+      }
+
       const config = await getConfig();
       const freeRounds = (config['free_revisions_per_order'] as number) ?? 1;
       const purchased = Number(
