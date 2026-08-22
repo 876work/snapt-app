@@ -59,7 +59,7 @@ export function RemoteJob({
    * already exist still have to be readable.
    */
   const [openRevisions, setOpenRevisions] = React.useState<
-    { id: string; details: string; createdAt: string }[]
+    { id: string; details: string; createdAt: string; isFree: boolean }[]
   >([]);
   const [saveNote, setSaveNote] = React.useState<string | null>(null);
   const [reloadKey, setReloadKey] = React.useState(0);
@@ -101,7 +101,7 @@ export function RemoteJob({
       setOpenRevisions(
         (revs ?? [])
           .filter((r) => r.status === 'open')
-          .map((r) => ({ id: r.id, details: r.details, createdAt: r.created_at })),
+          .map((r) => ({ id: r.id, details: r.details, createdAt: r.created_at, isFree: r.is_free })),
       );
     })();
     return () => {
@@ -372,15 +372,21 @@ export function RemoteJob({
               </Text>
               {openRevisions.map((r, i) => (
                 <View key={r.id} style={[styles.revisionCard, i > 0 && { marginTop: 8 }]}>
-                  {openRevisions.length > 1 && (
-                    <Text style={styles.revisionWhen}>
-                      {i + 1} of {openRevisions.length} ·{' '}
-                      {new Date(r.createdAt).toLocaleDateString(undefined, {
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </Text>
-                  )}
+                  {/* Included vs paid, in plain words. is_free has been on
+                      every row from the start and shown to nobody — which of
+                      a creator's rounds were PURCHASED is exactly the kind of
+                      fact a dispute turns on. */}
+                  <Text style={styles.revisionWhen}>
+                    {openRevisions.length > 1
+                      ? `${i + 1} of ${openRevisions.length} · `
+                      : ''}
+                    {new Date(r.createdAt).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                    {' · '}
+                    {r.isFree ? 'Included revision' : 'Paid revision'}
+                  </Text>
                   <Text style={styles.revisionText}>{r.details}</Text>
                 </View>
               ))}

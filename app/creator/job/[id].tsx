@@ -285,7 +285,7 @@ export default function CreatorJob() {
   /** ALL open requests — see RemoteJob for why the oldest-only read was a
    *  dispute risk. Same server list, same rule on both creator screens. */
   const [openRevisions, setOpenRevisions] = React.useState<
-    { id: string; details: string; createdAt: string }[]
+    { id: string; details: string; createdAt: string; isFree: boolean }[]
   >([]);
   React.useEffect(() => {
     // Remote orders run their own screen (RemoteJob) with its own revision
@@ -296,7 +296,7 @@ export default function CreatorJob() {
       fetchRevisionsApi(String(id)).then((revs) => {
         const openList = (revs ?? []).filter((r) => r.status === 'open');
         setOpenRevisions(
-          openList.map((r) => ({ id: r.id, details: r.details, createdAt: r.created_at })),
+          openList.map((r) => ({ id: r.id, details: r.details, createdAt: r.created_at, isFree: r.is_free })),
         );
       });
       // Finals registered before this visit (an interrupted earlier attempt)
@@ -846,12 +846,13 @@ export default function CreatorJob() {
             </Text>
             {openRevisions.map((r, i) => (
               <View key={r.id} style={[styles.card, i > 0 && { marginTop: 8 }]}>
-                {openRevisions.length > 1 && (
-                  <Text style={{ fontSize: 10.5, color: colors.grey, fontWeight: '700', marginBottom: 3 }}>
-                    {i + 1} of {openRevisions.length} ·{' '}
-                    {new Date(r.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                  </Text>
-                )}
+                {/* Same plain-words free/paid label as the remote panel. */}
+                <Text style={{ fontSize: 10.5, color: colors.grey, fontWeight: '700', marginBottom: 3 }}>
+                  {openRevisions.length > 1 ? `${i + 1} of ${openRevisions.length} · ` : ''}
+                  {new Date(r.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                  {' · '}
+                  {r.isFree ? 'Included revision' : 'Paid revision'}
+                </Text>
                 <Text style={{ fontSize: 13, color: colors.ink, lineHeight: 19 }}>{r.details}</Text>
               </View>
             ))}

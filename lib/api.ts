@@ -1034,6 +1034,13 @@ export interface RevisionRequest {
   status: 'open' | 'delivered';
   details: string;
   created_at: string;
+  /**
+   * Whether this round came out of the order's included allowance or was
+   * purchased. Always on the wire — the server selects '*' — but typed only
+   * now: a client who paid $15 for a round could not see that they had, and
+   * a creator could not see which rounds were bought.
+   */
+  is_free: boolean;
 }
 
 export async function fetchRevisionsApi(id: string): Promise<RevisionRequest[] | null> {

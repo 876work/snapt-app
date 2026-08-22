@@ -484,11 +484,15 @@ export default function Delivery() {
             {myRevisions.map((r) => (
               <View key={r.id} style={styles.revHistoryRow}>
                 <View style={styles.revHistoryHead}>
+                  {/* Included vs paid, in plain words — a client who paid $15
+                      for this round could not see anywhere that they had. */}
                   <Text style={styles.revHistoryWhen}>
                     {new Date(r.created_at).toLocaleDateString(undefined, {
                       month: 'short',
                       day: 'numeric',
                     })}
+                    {' · '}
+                    {r.is_free ? 'Included revision' : 'Paid revision'}
                   </Text>
                   <Text
                     style={[
