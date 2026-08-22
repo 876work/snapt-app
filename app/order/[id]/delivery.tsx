@@ -1,9 +1,9 @@
 import React from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { KeyboardScrollView } from '../../../components/ui/KeyboardScrollView';
 import { Text, TextInput } from '../../../lib/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { ScreenHeader } from '../../../components/ui/ScreenHeader';
 import { SlideToConfirm } from '../../../components/ui/SlideToConfirm';
 import { creatorById, useBookings } from '../../../lib/store';
@@ -11,6 +11,8 @@ import { apiConfigured } from '../../../lib/api';
 import { colors, insetBottom } from '../../../lib/theme';
 import { offerSettings, photoFilename, saveToPhotos, shareFile, type SaveResult } from '../../../lib/saveToPhotos';
 import { useSaveStates } from '../../../lib/useSaveStates';
+import { Image as ExpoImage } from 'expo-image';
+import { captureHandledError } from '../../../lib/sentry';
 
 // No mock fallback: a failed fetch used to show four bundled sample images
 // as if they were the client's delivered files.
@@ -26,6 +28,78 @@ interface Deliverable {
   contentType?: string | null;
   /** ISO of the delivered file, for a filename someone can find again. */
   createdAt?: string | null;
+}
+
+/**
+ * WHAT A DELIVERED FILE LOOKS LIKE, HONESTLY.
+ *
+ * Every tile rendered as a flat yellow block: the card painted `tint` and
+ * then put a react-native <Image> over it pointed at the signed URL. For a
+ * photo that works; for a VIDEO, Image cannot decode the bytes, so it drew
+ * nothing and the tint showed through. On a video order — a reel, which is
+ * the whole product — every tile was a blank yellow rectangle, and there was
+ * no way to tell one delivered file from another.
+ *
+ * PHOTOS render for real, through expo-image (already a dependency; it
+ * brings caching and, critically, an onError this needed).
+ *
+ * VIDEOS get a labelled film glyph, NOT a fake preview. A true poster frame
+ * means decoding the video, which needs expo-video-thumbnails — a native
+ * module this build does not contain. Adding it would change the runtime
+ * fingerprint and retire build 19, so it is deliberately not done here; the
+ * alternative is generating posters server-side at upload. Either is a
+ * decision to take on purpose, not a thing to slip into a thumbnail fix.
+ *
+ * A photo that FAILS to load falls back to the same treatment rather than a
+ * blank block, and the failure is reported — a delivered file that will not
+ * render is worth knowing about, since the client paid for it.
+ */
+function DeliverableThumb({ file }: { file: Deliverable }) {
+  const [failed, setFailed] = React.useState(false);
+  const isVideo = (file.contentType ?? '').startsWith('video/');
+  const isImage = (file.contentType ?? '').startsWith('image/');
+  // An unknown content type is treated as an image and allowed to try: the
+  // fallback below catches it if it cannot decode, which is a better outcome
+  // than refusing to render something that would have worked.
+  const canTryImage = !isVideo && (isImage || !file.contentType);
+
+  if (canTryImage && !failed && file.thumb.uri) {
+    return (
+      <ExpoImage
+        source={{ uri: file.thumb.uri }}
+        style={{ width: '100%', height: '100%' }}
+        contentFit="cover"
+        transition={120}
+        onError={() => {
+          setFailed(true);
+          captureHandledError(
+            new Error(`delivered image failed to render (${file.contentType ?? 'unknown type'})`),
+            'delivery:thumb_render',
+          );
+        }}
+      />
+    );
+  }
+
+  return (
+    <View style={styles.thumbFallback}>
+      {isVideo ? (
+        <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
+          <Rect x="2.5" y="5.5" width="14" height="13" rx="3" stroke={colors.ink} strokeWidth={1.9} />
+          <Path d="M16.5 10.5l5-3v9l-5-3" stroke={colors.ink} strokeWidth={1.9} strokeLinejoin="round" />
+        </Svg>
+      ) : (
+        <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
+          <Rect x="3" y="4.5" width="18" height="15" rx="3" stroke={colors.ink} strokeWidth={1.9} />
+          <Path d="M3 15.5l4.5-4a2 2 0 012.7 0L21 20" stroke={colors.ink} strokeWidth={1.9} strokeLinejoin="round" />
+          <Circle cx="15.5" cy="9.5" r="1.8" fill={colors.ink} />
+        </Svg>
+      )}
+      <Text style={styles.thumbFallbackLabel} numberOfLines={1}>
+        {isVideo ? 'Video' : failed ? 'Preview unavailable' : 'File'}
+      </Text>
+    </View>
+  );
 }
 
 export default function Delivery() {
@@ -316,7 +390,7 @@ export default function Delivery() {
           {deliverables.map((d) => (
             <View key={d.name} style={styles.fileCard}>
               <View style={[styles.fileThumb, { backgroundColor: d.tint }]}>
-                <Image source={d.thumb} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                <DeliverableThumb file={d} />
               </View>
               <View style={styles.fileRow}>
                 <View style={{ flex: 1, minWidth: 0 }}>
@@ -501,6 +575,8 @@ const styles = StyleSheet.create({
   fileRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 12 },
   fileName: { fontSize: 12.5, fontWeight: '700', color: colors.ink },
   fileMeta: { fontSize: 10.5, color: colors.grey, marginTop: 1 },
+  thumbFallback: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4 },
+  thumbFallbackLabel: { fontSize: 10, fontWeight: '700', color: colors.ink, opacity: 0.75 },
   fileSaving: { fontSize: 10.5, color: colors.ink, fontWeight: '700', marginTop: 1 },
   fileSaved: { fontSize: 10.5, color: '#159A57', fontWeight: '700', marginTop: 1 },
   fileFailed: { fontSize: 10.5, color: colors.error, fontWeight: '600', marginTop: 1 },
