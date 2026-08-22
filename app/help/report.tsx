@@ -172,7 +172,13 @@ export default function ReportProblem() {
           />
         </View>
         <View style={{ marginTop: 14 }}>
-          <InfoBanner text="Reports go straight to our moderation team. Serious safety reports are escalated in real time. For refunds or delivery issues on a booking, open a dispute from the order screen instead." />
+          {/* The old copy sent every booking complaint to disputes, which is
+              wrong for a revision that goes beyond the order: a dispute
+              freezes payouts and tells both parties, and a creator saying
+              "this is more than was booked" needs neither. That has its own
+              control on the request itself now, so the banner names it
+              rather than pointing at the heavy option. */}
+          <InfoBanner text="Reports go straight to our moderation team. Serious safety reports are escalated in real time. For refunds or delivery issues on a booking, open a dispute from the order screen. If a revision request goes beyond what was booked, use “This is beyond the order” on the request itself — it reaches us without involving the client." />
         </View>
         {error && <Text style={styles.error}>{error}</Text>}
         <Button

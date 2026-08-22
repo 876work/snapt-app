@@ -4,6 +4,7 @@ import Svg, { Path, Rect } from 'react-native-svg';
 import { useRouter } from 'expo-router';
 import { Text } from '../../lib/text';
 import { DeliverPanel, useUploadBatch } from './DeliverUploader';
+import { RevisionFlag } from './RevisionFlag';
 import type { JobOffer } from '../../lib/store/creator';
 import { EDIT_STYLES, REMOTE_PACKAGES } from '../../lib/store/upload';
 import { colors } from '../../lib/theme';
@@ -59,7 +60,7 @@ export function RemoteJob({
    * already exist still have to be readable.
    */
   const [openRevisions, setOpenRevisions] = React.useState<
-    { id: string; details: string; createdAt: string; isFree: boolean }[]
+    { id: string; details: string; createdAt: string; isFree: boolean; flagged: boolean }[]
   >([]);
   const [saveNote, setSaveNote] = React.useState<string | null>(null);
   const [reloadKey, setReloadKey] = React.useState(0);
@@ -101,7 +102,13 @@ export function RemoteJob({
       setOpenRevisions(
         (revs ?? [])
           .filter((r) => r.status === 'open')
-          .map((r) => ({ id: r.id, details: r.details, createdAt: r.created_at, isFree: r.is_free })),
+          .map((r) => ({
+            id: r.id,
+            details: r.details,
+            createdAt: r.created_at,
+            isFree: r.is_free,
+            flagged: !!r.flagged,
+          })),
       );
     })();
     return () => {
@@ -388,6 +395,16 @@ export function RemoteJob({
                     {r.isFree ? 'Included revision' : 'Paid revision'}
                   </Text>
                   <Text style={styles.revisionText}>{r.details}</Text>
+                  <RevisionFlag
+                    bookingId={job.id}
+                    revisionId={r.id}
+                    flagged={r.flagged}
+                    onFlagged={(revId) =>
+                      setOpenRevisions((prev) =>
+                        prev.map((x) => (x.id === revId ? { ...x, flagged: true } : x)),
+                      )
+                    }
+                  />
                 </View>
               ))}
             </>

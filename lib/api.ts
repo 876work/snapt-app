@@ -1041,6 +1041,32 @@ export interface RevisionRequest {
    * a creator could not see which rounds were bought.
    */
   is_free: boolean;
+  /**
+   * Already flagged as out of scope. Present ONLY when the caller is the
+   * assigned creator — the server omits it entirely for the client, who must
+   * never learn a request was questioned.
+   */
+  flagged?: boolean;
+}
+
+/**
+ * Flag a revision request as beyond what was booked.
+ *
+ * A signal to admin, not a stop button: the round stays open and the creator
+ * can still deliver it. The client is neither notified nor shown anything.
+ * Returns the server's sentence on refusal so the reason reaches the screen.
+ */
+export async function flagRevisionApi(
+  bookingId: string,
+  revId: string,
+  reason: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const r = await authedPost<{ flagged?: boolean; error?: string }>(
+    `/v1/bookings/${bookingId}/revisions/${revId}/flag`,
+    { reason },
+  );
+  if (r && 'flagged' in r && r.flagged) return { ok: true };
+  return { ok: false, error: (r as { error?: string } | null)?.error ?? "Couldn't file that — try again." };
 }
 
 export async function fetchRevisionsApi(id: string): Promise<RevisionRequest[] | null> {

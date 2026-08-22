@@ -20,6 +20,7 @@ import {
   formatRemaining,
 } from '../../../components/creator/OfferCountdownRing';
 import { RemoteJob } from '../../../components/creator/RemoteJob';
+import { RevisionFlag } from '../../../components/creator/RevisionFlag';
 import { DeliverPanel, useUploadBatch } from '../../../components/creator/DeliverUploader';
 import { formatMoney, NO_SHOW_GRACE_MINUTES } from '../../../lib/constants/business';
 import { colors, insetBottom } from '../../../lib/theme';
@@ -285,7 +286,7 @@ export default function CreatorJob() {
   /** ALL open requests — see RemoteJob for why the oldest-only read was a
    *  dispute risk. Same server list, same rule on both creator screens. */
   const [openRevisions, setOpenRevisions] = React.useState<
-    { id: string; details: string; createdAt: string; isFree: boolean }[]
+    { id: string; details: string; createdAt: string; isFree: boolean; flagged: boolean }[]
   >([]);
   React.useEffect(() => {
     // Remote orders run their own screen (RemoteJob) with its own revision
@@ -296,7 +297,13 @@ export default function CreatorJob() {
       fetchRevisionsApi(String(id)).then((revs) => {
         const openList = (revs ?? []).filter((r) => r.status === 'open');
         setOpenRevisions(
-          openList.map((r) => ({ id: r.id, details: r.details, createdAt: r.created_at, isFree: r.is_free })),
+          openList.map((r) => ({
+            id: r.id,
+            details: r.details,
+            createdAt: r.created_at,
+            isFree: r.is_free,
+            flagged: !!r.flagged,
+          })),
         );
       });
       // Finals registered before this visit (an interrupted earlier attempt)
@@ -854,6 +861,16 @@ export default function CreatorJob() {
                   {r.isFree ? 'Included revision' : 'Paid revision'}
                 </Text>
                 <Text style={{ fontSize: 13, color: colors.ink, lineHeight: 19 }}>{r.details}</Text>
+                <RevisionFlag
+                  bookingId={String(id)}
+                  revisionId={r.id}
+                  flagged={r.flagged}
+                  onFlagged={(revId) =>
+                    setOpenRevisions((prev) =>
+                      prev.map((x) => (x.id === revId ? { ...x, flagged: true } : x)),
+                    )
+                  }
+                />
               </View>
             ))}
             <DeliverPanel
