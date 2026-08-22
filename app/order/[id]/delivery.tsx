@@ -9,7 +9,8 @@ import { SlideToConfirm } from '../../../components/ui/SlideToConfirm';
 import { creatorById, useBookings } from '../../../lib/store';
 import { apiConfigured } from '../../../lib/api';
 import { colors, insetBottom } from '../../../lib/theme';
-import { offerSettings, photoFilename, saveToPhotos, shareFile } from '../../../lib/saveToPhotos';
+import { offerSettings, photoFilename, saveToPhotos, shareFile, type SaveResult } from '../../../lib/saveToPhotos';
+import { useSaveStates } from '../../../lib/useSaveStates';
 
 // No mock fallback: a failed fetch used to show four bundled sample images
 // as if they were the client's delivered files.
@@ -92,8 +93,17 @@ export default function Delivery() {
   // Save-to-device: download the signed file, then save to the photo
   // library (permission prompted on first use). Real files only — the mock
   // grid's bundled assets have nothing to save.
-  const [savedNames, setSavedNames] = React.useState<Set<string>>(new Set());
   const [saveNote, setSaveNote] = React.useState<string | null>(null);
+  /**
+   * The same in-progress / saved / failed machinery the creator's source list
+   * uses (55408b3), lifted into lib/useSaveStates so this screen shares the
+   * implementation instead of carrying a second copy. Downloading gave no
+   * feedback at all here: full-resolution photos and video over this uplink,
+   * and a control that looked identical before, during and after.
+   */
+  const saves = useSaveStates('client_delivery');
+  /** Stable per-file key — the media id where there is one, the name otherwise. */
+  const keyOf = (d: Deliverable) => d.id ?? d.name;
 
   const saveFile = async (d: Deliverable): Promise<boolean> => {
     const uri = d.thumb.uri;
@@ -101,8 +111,13 @@ export default function Delivery() {
       setSaveNote('Demo files — downloads work on real deliveries.');
       return false;
     }
+    return saves.save({ key: keyOf(d), run: () => saveOne(d, uri) });
+  };
+
+  /** The save itself, with no state handling — useSaveStates owns that. */
+  const saveOne = async (d: Deliverable, uri: string): Promise<SaveResult> => {
     const index = deliverables.findIndex((x) => x.name === d.name);
-    const result = await saveToPhotos({
+    return saveToPhotos({
       url: uri,
       filename: photoFilename({
         subject: 'Delivery',
@@ -129,13 +144,6 @@ export default function Delivery() {
       },
       context: 'client_delivery',
     });
-    if (result.ok) {
-      setSavedNames((prev) => new Set(prev).add(d.name));
-      return true;
-    }
-    setSaveNote(result.message);
-    offerSettings(result);
-    return false;
   };
 
   /**
@@ -207,11 +215,32 @@ export default function Delivery() {
     setRevStatus('Revision requested — your creator has been notified.');
   };
 
+  /**
+   * DOWNLOAD ALL, with progress and per-file outcomes.
+   *
+   * It ran the whole list with nothing on screen and then printed only how
+   * many SUCCEEDED — so on a ten-file delivery where three failed, the client
+   * read "7 files saved" and had no way to learn which three were missing or
+   * why. Each file now carries its own state on its own row while this runs,
+   * and the summary says both numbers.
+   */
   const saveAll = async () => {
     setSaveNote(null);
-    let ok = 0;
-    for (const d of deliverables) if (await saveFile(d)) ok += 1;
-    if (ok > 0) setSaveNote(`${ok} file${ok > 1 ? 's' : ''} saved to your library.`);
+    const runnable = deliverables.filter((d) => !!d.thumb.uri);
+    if (runnable.length === 0) {
+      setSaveNote('Demo files — downloads work on real deliveries.');
+      return;
+    }
+    const { ok, failed } = await saves.saveAll(
+      runnable.map((d) => ({ key: keyOf(d), run: () => saveOne(d, d.thumb.uri) })),
+    );
+    setSaveNote(
+      failed === 0
+        ? `${ok} file${ok === 1 ? '' : 's'} saved to your library.`
+        : ok === 0
+          ? `Nothing saved — the reason is on each file below.`
+          : `${ok} saved, ${failed} failed — the reason is on each failed file below.`,
+    );
   };
 
   return (
@@ -294,7 +323,19 @@ export default function Delivery() {
                   <Text style={styles.fileName} numberOfLines={1}>
                     {d.name}
                   </Text>
-                  <Text style={styles.fileMeta}>{d.meta}</Text>
+                  {/* The meta line carries this file's own download state —
+                      three readings that cannot be mistaken for each other,
+                      and a failure that names its reason on the file it
+                      belongs to rather than in one shared note. */}
+                  {saves.stateOf(keyOf(d)) === 'saving' ? (
+                    <Text style={styles.fileSaving}>Saving to your photos…</Text>
+                  ) : saves.stateOf(keyOf(d)) === 'failed' ? (
+                    <Text style={styles.fileFailed}>{saves.errors[keyOf(d)]}</Text>
+                  ) : saves.stateOf(keyOf(d)) === 'saved' ? (
+                    <Text style={styles.fileSaved}>Saved to your photos</Text>
+                  ) : (
+                    <Text style={styles.fileMeta}>{d.meta}</Text>
+                  )}
                 </View>
                 <Pressable onPress={() => shareOne(d)} style={styles.dlBtn}>
                   <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
@@ -302,10 +343,30 @@ export default function Delivery() {
                     <Path d="M5 14v4a2 2 0 002 2h10a2 2 0 002-2v-4" stroke={colors.ink} strokeWidth={2} strokeLinecap="round" />
                   </Svg>
                 </Pressable>
-                <Pressable onPress={() => saveFile(d)} style={styles.dlBtn}>
-                  {savedNames.has(d.name) ? (
+                <Pressable
+                  onPress={() => saveFile(d)}
+                  disabled={saves.stateOf(keyOf(d)) === 'saving'}
+                  style={styles.dlBtn}
+                  accessibilityLabel={
+                    saves.stateOf(keyOf(d)) === 'saving'
+                      ? `Saving ${d.name}`
+                      : saves.stateOf(keyOf(d)) === 'failed'
+                        ? `Retry saving ${d.name}`
+                        : `Save ${d.name} to your photos`
+                  }
+                >
+                  {saves.stateOf(keyOf(d)) === 'saving' ? (
+                    <ActivityIndicator size="small" color={colors.ink} />
+                  ) : saves.stateOf(keyOf(d)) === 'saved' ? (
                     <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
                       <Path d="M5 12.5l4.5 4.5L19 7" stroke="#159A57" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+                    </Svg>
+                  ) : saves.stateOf(keyOf(d)) === 'failed' ? (
+                    // A retry arrow, not the download arrow — this file is
+                    // returning from a failure, not sitting untouched.
+                    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                      <Path d="M4 12a8 8 0 1 1 2.3 5.7" stroke={colors.error} strokeWidth={2} strokeLinecap="round" />
+                      <Path d="M4 19v-5h5" stroke={colors.error} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                     </Svg>
                   ) : (
                     <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
@@ -348,13 +409,33 @@ export default function Delivery() {
       </KeyboardScrollView>
       <View style={styles.footer}>
         {saveNote ? <Text style={styles.saveNote}>{saveNote}</Text> : null}
+        {/* Never a dead button: while the run is going it shows the spinner
+            and its real position in the queue, and it refuses a second tap
+            rather than starting the whole delivery again. */}
         {!allDeleted && (deliverables.length > 0 || !apiConfigured) && (
-          <Pressable onPress={saveAll} style={styles.cta}>
-            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-              <Path d="M12 4v11m0 0l-4-4m4 4l4-4" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
-              <Path d="M5 19h14" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" />
-            </Svg>
-            <Text style={styles.ctaLabel}>Download all</Text>
+          <Pressable
+            onPress={saveAll}
+            disabled={!!saves.batch}
+            style={[styles.cta, !!saves.batch && { opacity: 0.7 }]}
+            accessibilityLabel={
+              saves.batch
+                ? `Saving file ${Math.min(saves.batch.done + 1, saves.batch.total)} of ${saves.batch.total}`
+                : 'Download all files'
+            }
+          >
+            {saves.batch ? (
+              <ActivityIndicator size="small" color={colors.ink} />
+            ) : (
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                <Path d="M12 4v11m0 0l-4-4m4 4l4-4" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
+                <Path d="M5 19h14" stroke={colors.ink} strokeWidth={2.2} strokeLinecap="round" />
+              </Svg>
+            )}
+            <Text style={styles.ctaLabel}>
+              {saves.batch
+                ? `Saving ${Math.min(saves.batch.done + 1, saves.batch.total)} of ${saves.batch.total}…`
+                : 'Download all'}
+            </Text>
           </Pressable>
         )}
         <Pressable onPress={() => router.push(`/order/${id}/rating`)} style={styles.rateBtn}>
@@ -420,6 +501,9 @@ const styles = StyleSheet.create({
   fileRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 12 },
   fileName: { fontSize: 12.5, fontWeight: '700', color: colors.ink },
   fileMeta: { fontSize: 10.5, color: colors.grey, marginTop: 1 },
+  fileSaving: { fontSize: 10.5, color: colors.ink, fontWeight: '700', marginTop: 1 },
+  fileSaved: { fontSize: 10.5, color: '#159A57', fontWeight: '700', marginTop: 1 },
+  fileFailed: { fontSize: 10.5, color: colors.error, fontWeight: '600', marginTop: 1 },
   dlBtn: {
     width: 30,
     height: 30,

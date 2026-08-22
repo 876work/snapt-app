@@ -7,7 +7,8 @@ import { DeliverPanel, useUploadBatch } from './DeliverUploader';
 import type { JobOffer } from '../../lib/store/creator';
 import { EDIT_STYLES, REMOTE_PACKAGES } from '../../lib/store/upload';
 import { colors } from '../../lib/theme';
-import { offerSettings, photoFilename, saveToPhotos } from '../../lib/saveToPhotos';
+import { photoFilename, saveToPhotos } from '../../lib/saveToPhotos';
+import { useSaveStates } from '../../lib/useSaveStates';
 import { haptic } from '../../lib/haptics';
 
 /**
@@ -46,7 +47,6 @@ export function RemoteJob({
   const [delivered, setDelivered] = React.useState(!!job.deliveredAt);
   const [deliverError, setDeliverError] = React.useState<string | null>(null);
   const [openRevision, setOpenRevision] = React.useState<{ id: string; details: string } | null>(null);
-  const [savedIds, setSavedIds] = React.useState<Set<string>>(new Set());
   const [saveNote, setSaveNote] = React.useState<string | null>(null);
   const [reloadKey, setReloadKey] = React.useState(0);
 
@@ -114,28 +114,29 @@ export function RemoteJob({
    * second time.
    *
    * Three distinct states now, per file: in progress (spinner, and the tap
-   * is refused rather than queued), complete (green check, the existing
-   * savedIds), and failed (the file's own row goes red and carries the
-   * reason). Failure is deliberately NOT the same shape as either other
-   * state, which is the whole point of the previous fix on this path.
+   * is refused rather than queued), complete (green check), and failed (the
+   * file's own row goes red and carries the reason). Failure is deliberately
+   * NOT the same shape as either other state, which is the whole point of
+   * the previous fix on this path.
+   *
+   * The machinery itself lives in lib/useSaveStates and is shared with the
+   * client's delivery screen — one implementation, two screens, rather than
+   * the second copy that made downloads broken in two places before.
    */
-  const [downloadingIds, setDownloadingIds] = React.useState<Set<string>>(new Set());
-  const [saveErrors, setSaveErrors] = React.useState<Record<string, string>>({});
+  const saves = useSaveStates('creator_source');
 
   const saveSource = async (f: SourceFile) => {
-    // A second tap while the first transfer is running would download the
-    // same file twice over a link that is already the bottleneck.
-    if (downloadingIds.has(f.id)) return;
     setSaveNote(null);
-    setSaveErrors((prev) => {
-      if (!prev[f.id]) return prev;
-      const next = { ...prev };
-      delete next[f.id];
-      return next;
-    });
-    setDownloadingIds((prev) => new Set(prev).add(f.id));
+    // The in-flight guard, the three states and the Settings prompt all live
+    // in the hook now — a second tap while the transfer runs is refused
+    // there, not here.
+    await saves.save({ key: f.id, run: () => saveSourceFile(f) });
+  };
+
+  /** The save itself, with no state handling — useSaveStates owns that. */
+  const saveSourceFile = async (f: SourceFile) => {
     const index = (sources ?? []).findIndex((s) => s.id === f.id);
-    const result = await saveToPhotos({
+    return saveToPhotos({
       url: f.url,
       filename: photoFilename({
         subject: job.occasion,
@@ -160,21 +161,6 @@ export function RemoteJob({
       },
       context: 'creator_source',
     });
-    // Whatever happened, this file is no longer in flight — cleared before
-    // the branch so no exit can leave a spinner running forever.
-    setDownloadingIds((prev) => {
-      const next = new Set(prev);
-      next.delete(f.id);
-      return next;
-    });
-    if (result.ok) {
-      setSavedIds((prev) => new Set(prev).add(f.id));
-      return;
-    }
-    // On the file's own row, so a creator with several sources can see WHICH
-    // one failed — the shared note below could not say.
-    setSaveErrors((prev) => ({ ...prev, [f.id]: result.message }));
-    offerSettings(result);
   };
 
   const deliverFinal = async () => {
@@ -292,11 +278,11 @@ export function RemoteJob({
                 {/* The meta line carries the file's own state: saving, saved,
                     or why it failed — three readings that cannot be confused
                     for one another. */}
-                {downloadingIds.has(f.id) ? (
+                {saves.stateOf(f.id) === 'saving' ? (
                   <Text style={styles.srcSaving}>Saving to your photos…</Text>
-                ) : saveErrors[f.id] ? (
-                  <Text style={styles.srcFailed}>{saveErrors[f.id]}</Text>
-                ) : savedIds.has(f.id) ? (
+                ) : saves.errors[f.id] ? (
+                  <Text style={styles.srcFailed}>{saves.errors[f.id]}</Text>
+                ) : saves.stateOf(f.id) === 'saved' ? (
                   <Text style={styles.srcSaved}>Saved to your photos</Text>
                 ) : (
                   <Text style={styles.srcMeta}>{f.contentType ?? 'file'}</Text>
@@ -304,23 +290,23 @@ export function RemoteJob({
               </View>
               <Pressable
                 onPress={() => saveSource(f)}
-                disabled={downloadingIds.has(f.id)}
+                disabled={saves.stateOf(f.id) === 'saving'}
                 style={styles.srcDl}
                 accessibilityLabel={
-                  downloadingIds.has(f.id)
+                  saves.stateOf(f.id) === 'saving'
                     ? `Saving ${f.name}`
-                    : saveErrors[f.id]
+                    : saves.errors[f.id]
                       ? `Retry saving ${f.name}`
                       : `Save ${f.name} to your photos`
                 }
               >
-                {downloadingIds.has(f.id) ? (
+                {saves.stateOf(f.id) === 'saving' ? (
                   <ActivityIndicator size="small" color={colors.ink} />
-                ) : savedIds.has(f.id) ? (
+                ) : saves.stateOf(f.id) === 'saved' ? (
                   <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
                     <Path d="M5 12.5l4.5 4.5L19 7" stroke="#159A57" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
                   </Svg>
-                ) : saveErrors[f.id] ? (
+                ) : saves.errors[f.id] ? (
                   // A retry arrow, not the download arrow: the state it is
                   // returning from was a failure, and it should not read as
                   // a fresh untouched file.
